@@ -20,6 +20,10 @@ const NOTIFIED_FILE = path.join(DATA_DIR, 'notified.json'); // grants we've alre
 const EXPIRY_FILE = path.join(DATA_DIR, 'expiries.json');   // grants scheduled to be revoked automatically
 const AI_NAME_RE = /claude|anthropic|openai|chatgpt|codex|cursor|codeium|windsurf|copilot|gemini|perplexity|ollama|lm ?studio|aider|cline|continue|tabnine|cody|sourcegraph|supermaven|mistral|groq|deepseek|huggingface/i;
 const OWN_LAUNCH_AGENT = 'local.ai-access-auditor';
+const GATE_TOKEN = crypto.randomBytes(16).toString('hex');   // only lets the Claude Code hook ask questions
+const GATE_INFO = path.join(DATA_DIR, 'gate.json');          // where the hook finds us
+const GATE_SCRIPT = path.join(DATA_DIR, 'gate.js');          // stable copy of the hook script
+const GATE_MARK = 'ai-access-audit/gate.js';
 function sh(cmd, args, timeout = 10000) {
   try { return execFileSync(cmd, args, { encoding: 'utf8', timeout, maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }); }
   catch { return ''; }
@@ -102,8 +106,9 @@ function claudeSettingsFindings(file, scopeLabel, agent = 'Claude Code') {
     agent, category: 'MCP server', title: 'enableAllProjectMcpServers', detail: `Auto-approves every MCP server in project .mcp.json files (${scopeLabel})`,
     risk: 'high', source: file, action: { kind: 'setFalse', file, path: [], key: 'enableAllProjectMcpServers' },
   });
-  if (j.hooks && Object.keys(j.hooks).length) out.push({
-    agent, category: 'Hooks', title: `Hooks: ${Object.keys(j.hooks).join(', ')}`, detail: `Shell commands run automatically on agent events (${scopeLabel})`,
+  const otherHooks = Object.entries(j.hooks || {}).filter(([, list]) => !JSON.stringify(list).includes(GATE_MARK) || (list || []).length > 1).map(([k]) => k);
+  if (otherHooks.length) out.push({
+    agent, category: 'Hooks', title: `Hooks: ${otherHooks.join(', ')}`, detail: `Shell commands run automatically on agent events (${scopeLabel})`,
     risk: 'medium', source: file, action: { kind: 'none', hint: 'Review the "hooks" section in this file manually.' },
   });
   return out;
@@ -497,12 +502,17 @@ function writeIds(file, ids) { fs.writeFileSync(file, JSON.stringify([...new Set
 function changes() {
   const expired = sweepExpired();
   const r = publicScan();
+  for (const [t, until] of expectedRules) if (until < Date.now()) expectedRules.delete(t);
+  if (expectedRules.size) {
+    const auto = r.findings.filter(f => f.isNew && f.agent === 'Claude Code' && f.category === 'Tool permission' && expectedRules.has(f.title));
+    if (auto.length) { ack(auto.map(f => f.id)); auto.forEach(f => { f.isNew = false; }); }
+  }
   const fresh = r.findings.filter(f => f.isNew);
   const notified = new Set(readJson(NOTIFIED_FILE) || []);
   const toNotify = fresh.filter(f => !notified.has(f.id));
   if (toNotify.length) writeIds(NOTIFIED_FILE, [...notified, ...toNotify.map(f => f.id)]);
   const openHigh = r.findings.filter(f => f.risk === 'high' && !f.reviewedAt).length;
-  const slim = f => ({ id: f.id, agent: f.agent, title: f.title, category: f.category, risk: f.risk, detail: f.detail });
+  const slim = f => ({ id: f.id, agent: f.agent, title: f.title, category: f.category, risk: f.risk, detail: f.detail, revocable: REVOCABLE.includes(f.action.kind) });
   return { scannedAt: r.scannedAt, total: r.findings.length, openHigh, new: fresh.map(slim), toNotify: toNotify.map(slim), expired };
 }
 function ack(ids) {
@@ -655,6 +665,121 @@ function markReviewed(findingId, on) {
   return { ok: true };
 }
 
+// ---------- live events: file watching + Allow/Deny gate ----------
+const waiters = new Set();      // long-poll responses from the Mac app waiting for something to happen
+const gatePending = new Map();  // id -> { info, respond, delivered }
+let changedFlag = false, closedIds = [], watchTimer = null;
+const expectedRules = new Map(); // rule title -> expiry time: rules you just approved with "Always"
+
+function flushEvents() {
+  const gate = [...gatePending.values()].filter(g => !g.delivered);
+  if (!waiters.size || (!gate.length && !changedFlag && !closedIds.length)) return;
+  gate.forEach(g => { g.delivered = true; });
+  const payload = { gate: gate.map(g => g.info), changed: changedFlag, closed: closedIds };
+  changedFlag = false; closedIds = [];
+  for (const res of waiters) send(res, 200, payload);
+  waiters.clear();
+}
+function waitEvents(res) {
+  waiters.add(res);
+  const t = setTimeout(() => { if (waiters.delete(res)) send(res, 200, { gate: [], changed: false, closed: [] }); }, 50000);
+  res.on('close', () => { clearTimeout(t); waiters.delete(res); });
+  // re-deliver gate requests that are still open (e.g. after the app reloaded)
+  for (const g of gatePending.values()) g.delivered = false;
+  flushEvents();
+}
+
+// Watch the places agents store their access, and tell the app within a couple of seconds
+function startWatching() {
+  const targets = [
+    [HOME, /^\.claude\.json$|^\.mcp\.json$|^\.(zshrc|zprofile|bashrc|bash_profile|profile)$/],
+    [h('.claude'), /^settings(\.local)?\.json$/],
+    [h('Library', 'Application Support', 'Claude'), /^claude_desktop_config\.json$/],
+    [h('.cursor'), /^mcp\.json$/], [h('.codeium', 'windsurf'), /mcp_config\.json$/], [h('.gemini'), /settings\.json$/], [h('.codex'), /config\.toml$/],
+    [h('Library', 'Application Support', 'Code', 'User'), /^(settings|mcp)\.json$/],
+    [h('Library', 'LaunchAgents'), /\.plist$/],
+    [h('.vscode', 'extensions'), /./], [h('.cursor', 'extensions'), /./], [h('.windsurf', 'extensions'), /./],
+  ];
+  for (const proj of Object.keys((readJson(h('.claude.json')) || {}).projects || {}))
+    targets.push([path.join(proj, '.claude'), /^settings(\.local)?\.json$/], [proj, /^\.mcp\.json$/]);
+  for (const [dir, re] of targets) {
+    try {
+      fs.watch(dir, { persistent: false }, (_e, name) => {
+        if (name && !re.test(String(name))) return;
+        clearTimeout(watchTimer);
+        watchTimer = setTimeout(() => { changedFlag = true; flushEvents(); }, 1500);
+      }).on('error', () => {});
+    } catch { /* folder doesn't exist yet */ }
+  }
+}
+
+function summarize(tool, input) {
+  input = input || {};
+  if (tool === 'Bash') return { kind: 'run a command', text: String(input.command || ''), risk: /\b(rm|sudo|curl|wget|ssh|scp|chmod|chown|dd|mkfs|git push|npm publish|kill)\b/.test(input.command || '') ? 'high' : 'medium' };
+  if (/^(Write|Edit|MultiEdit|NotebookEdit)$/.test(tool)) return { kind: 'change a file', text: String(input.file_path || input.notebook_path || ''), risk: 'medium' };
+  if (tool === 'Read') return { kind: 'read a file', text: String(input.file_path || ''), risk: 'low' };
+  if (tool === 'WebFetch') return { kind: 'open a web page', text: String(input.url || ''), risk: 'low' };
+  if (tool === 'WebSearch') return { kind: 'search the web', text: String(input.query || ''), risk: 'low' };
+  if (tool.startsWith('mcp__')) { const [, server, name] = tool.split('__'); return { kind: `use ${server}: ${name}`, text: JSON.stringify(input, null, 1).slice(0, 600), risk: 'medium' }; }
+  return { kind: `use ${tool}`, text: JSON.stringify(input, null, 1).slice(0, 600), risk: 'medium' };
+}
+
+// Called by the Claude Code hook. Holds the request open until you click Allow or Deny in the app.
+function gateAsk(body, res) {
+  const gid = crypto.randomBytes(8).toString('hex');
+  const sum = summarize(String(body.tool || ''), body.input);
+  const info = {
+    id: gid, agent: body.agent || 'Claude Code', tool: String(body.tool || ''), action: sum.kind, text: sum.text, risk: sum.risk,
+    cwd: String(body.cwd || '').replace(HOME, '~'), canAlways: Array.isArray(body.suggestions) && body.suggestions.length > 0,
+  };
+  const timer = setTimeout(() => finish({ behavior: 'ask' }), 280000); // give up → Claude Code asks you normally
+  function finish(answer) {
+    if (!gatePending.has(gid)) return;
+    clearTimeout(timer);
+    gatePending.delete(gid);
+    closedIds.push(gid);
+    send(res, 200, answer);
+    flushEvents();
+  }
+  res.on('close', () => { if (gatePending.has(gid)) { clearTimeout(timer); gatePending.delete(gid); closedIds.push(gid); flushEvents(); } });
+  gatePending.set(gid, { info, finish, suggestions: body.suggestions, delivered: false });
+  flushEvents();
+}
+function gateDecide({ id: gid, decision, remember }) {
+  const g = gatePending.get(gid);
+  if (!g) throw new Error('That request is no longer waiting (Claude Code may have moved on).');
+  const allow = decision === 'allow';
+  const always = allow && remember === 'always' && g.suggestions;
+  if (always) for (const sug of g.suggestions) for (const r of sug.rules || []) // the rule Claude Code is about to save isn't "new" to you
+    expectedRules.set(r.ruleContent ? `${r.toolName}(${r.ruleContent})` : r.toolName, Date.now() + 60000);
+  log(`GATE ${allow ? 'ALLOW' : 'DENY'}${always ? ' (always)' : ''} [${g.info.agent}] ${g.info.tool}: ${g.info.text.slice(0, 200).replace(/\n/g, ' ')}`);
+  g.finish(allow ? { behavior: 'allow', updatedPermissions: always ? g.suggestions : undefined } : { behavior: 'deny', message: 'You denied this in AI Access Auditor.' });
+  return { ok: true };
+}
+
+// Turn the Claude Code gate on/off by adding/removing our PermissionRequest hook in ~/.claude/settings.json
+function nodeBin() { return ['/opt/homebrew/bin/node', '/usr/local/bin/node'].find(exists) || process.execPath; }
+function gateStatus() {
+  const j = readJson(h('.claude', 'settings.json')) || {};
+  return { installed: JSON.stringify(j.hooks || {}).includes(GATE_MARK) };
+}
+function gateInstall(on) {
+  const file = h('.claude', 'settings.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  if (!exists(file)) fs.writeFileSync(file, '{}\n');
+  const j = readJson(file);
+  if (!j) throw new Error('Could not read ~/.claude/settings.json (is it valid JSON?)');
+  const bk = backup(file);
+  j.hooks = j.hooks || {};
+  const list = (j.hooks.PermissionRequest || []).filter(e => !JSON.stringify(e).includes(GATE_MARK));
+  if (on) list.push({ matcher: '*', hooks: [{ type: 'command', command: `"${nodeBin()}" "${GATE_SCRIPT}"`, timeout: 300 }] });
+  if (list.length) j.hooks.PermissionRequest = list; else delete j.hooks.PermissionRequest;
+  if (!Object.keys(j.hooks).length) delete j.hooks;
+  writeJsonAtomic(file, j);
+  log(`GATE ${on ? 'turned on' : 'turned off'} for Claude Code  backup=${bk}`);
+  return { message: on ? 'Claude Code will now ask you here before it does anything new. New sessions pick this up right away.' : 'Claude Code gate turned off.' };
+}
+
 // ---------- HTTP ----------
 function send(res, code, body, type = 'application/json') {
   res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY' });
@@ -678,14 +803,22 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, html, 'text/html; charset=utf-8');
   }
   if (!url.pathname.startsWith('/api/')) return send(res, 404, { error: 'not found' });
+  if (url.pathname === '/api/gate/ask' && req.method === 'POST') {
+    if (req.headers['x-gate-token'] !== GATE_TOKEN) return send(res, 401, { error: 'bad gate token' });
+    try { return gateAsk(await readBody(req), res); } catch { return send(res, 400, { error: 'bad request' }); }
+  }
   if (req.headers['x-token'] !== TOKEN) return send(res, 401, { error: 'bad token, reload the page' });
   try {
     if (req.method === 'GET' && url.pathname === '/api/scan') { sweepExpired(); return send(res, 200, publicScan()); }
+    if (req.method === 'GET' && url.pathname === '/api/events') return waitEvents(res);
+    if (req.method === 'GET' && url.pathname === '/api/gate/status') return send(res, 200, gateStatus());
     if (req.method === 'GET' && url.pathname === '/api/changes') return send(res, 200, changes());
     if (req.method === 'GET' && url.pathname === '/api/backups') return send(res, 200, listBackups());
     if (req.method === 'GET' && url.pathname === '/api/log') return send(res, 200, { log: exists(LOG_FILE) ? fs.readFileSync(LOG_FILE, 'utf8').split('\n').filter(Boolean).reverse().slice(0, 200) : [] });
     const body = req.method === 'POST' ? await readBody(req) : {};
     if (url.pathname === '/api/revoke') return send(res, 200, revoke(body.id));
+    if (url.pathname === '/api/gate/decide') return send(res, 200, gateDecide(body));
+    if (url.pathname === '/api/gate/install') return send(res, 200, gateInstall(!!body.on));
     if (url.pathname === '/api/revoke-many') return send(res, 200, revokeMany(body.ids));
     if (url.pathname === '/api/expiry') return send(res, 200, setExpiry(body.id, body.hours));
     if (url.pathname === '/api/open-app') return send(res, 200, openApp(body.id));
@@ -702,6 +835,15 @@ if (require.main === module) {
     for (const f of r.findings) console.log(`[${f.risk.toUpperCase().padEnd(6)}] ${f.agent} · ${f.category} · ${f.title}\n          ${f.detail}`);
     console.log(`\n${r.findings.length} grants found. TCC readable: ${r.tcc.readable.length ? 'yes' : 'no'}`);
   } else server.listen(process.env.PORT === '0' ? 0 : PORT, '127.0.0.1', () => {
+    try {
+      fs.copyFileSync(path.join(__dirname, 'gate.js'), GATE_SCRIPT);
+      fs.writeFileSync(GATE_INFO, JSON.stringify({ port: server.address().port, token: GATE_TOKEN, pid: process.pid }), { mode: 0o600 });
+      fs.chmodSync(GATE_INFO, 0o600);
+      const cleanup = () => { try { if ((readJson(GATE_INFO) || {}).pid === process.pid) fs.unlinkSync(GATE_INFO); } catch {} };
+      process.on('exit', cleanup);
+      ['SIGTERM', 'SIGINT', 'SIGHUP'].forEach(sig => process.on(sig, () => process.exit(0)));
+    } catch (e) { console.error('gate setup failed:', e.message); }
+    startWatching();
     if (process.env.PORT === '0') {
       console.log(`TOKEN ${TOKEN}`); // only for the Mac app that launched us
       // Exit when the Mac app goes away, even if it was force-quit

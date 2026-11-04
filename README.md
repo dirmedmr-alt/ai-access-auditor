@@ -25,6 +25,11 @@ what was added, and the grant is labeled "New" in the app. "Open at Login" in th
 quietly when you log in. Grants that exist on the first run become your starting list, so you're only
 alerted about changes after that.
 
+**Live protection (LuLu-style):**
+- **New access pops up right away.** The app watches the agents' config files. When anything gains access, a floating window asks whether to **Keep** it (forever, or for 1 hour, 1 day or 7 days) or **Remove** it.
+- **Ask before Claude Code acts:** turn this on from the menu bar shield or the Overview. Whenever Claude Code is about to ask for permission, the app pops up **Allow / Deny** instead. Allow can be "just this once" or "always". This works through a `PermissionRequest` hook (`gate.js`) added to `~/.claude/settings.json`. If the app isn't running, or you don't answer within about 4½ minutes, Claude Code asks you in its own window.
+- macOS privacy prompts (Screen Recording, Accessibility and so on) come from the system itself, so the app can only report them afterwards.
+
 **Actions:**
 - **Revoke:** backs up the file first. You can also tick several grants and revoke them together.
 - **Revoke automatically:** after 1 hour, 1 day, 7 days or 30 days.
