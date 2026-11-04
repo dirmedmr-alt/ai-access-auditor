@@ -1119,7 +1119,7 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && url.pathname === '/api/scan') { sweepExpired(); return send(res, 200, publicScan()); }
     if (req.method === 'GET' && url.pathname === '/api/events') return waitEvents(res);
-    if (req.method === 'GET' && url.pathname === '/api/settings') return send(res, 200, { scope: getScope() });
+    if (req.method === 'GET' && url.pathname === '/api/settings') return send(res, 200, { scope: getScope(), onboarded: !!(readJson(SETTINGS_FILE) || {}).onboarded });
     if (req.method === 'GET' && url.pathname === '/api/decisions') return send(res, 200, listDecisions());
     if (req.method === 'GET' && url.pathname === '/api/gate/status') return send(res, 200, gateStatus());
     if (req.method === 'GET' && url.pathname === '/api/changes') return send(res, 200, changes());
@@ -1129,9 +1129,13 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/revoke') return send(res, 200, revoke(body.id));
     if (url.pathname === '/api/gate/decide') return send(res, 200, gateDecide(body));
     if (url.pathname === '/api/settings') {
-      fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ ...(readJson(SETTINGS_FILE) || {}), scope: body.scope === 'all' ? 'all' : 'ai' }, null, 2));
-      if (body.scope === 'all') { const known = readJson(KNOWN_FILE) || []; writeIds(KNOWN_FILE, [...known, ...scanAll().findings.map(f => f.id)]); } // widening the view isn't "new access"
-      return send(res, 200, { scope: getScope() });
+      const cur = readJson(SETTINGS_FILE) || {};
+      const next = { ...cur };
+      if (body.scope !== undefined) next.scope = body.scope === 'all' ? 'all' : 'ai';
+      if (body.onboarded !== undefined) next.onboarded = !!body.onboarded;
+      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2));
+      if (body.scope === 'all' && cur.scope !== 'all') { const known = readJson(KNOWN_FILE) || []; writeIds(KNOWN_FILE, [...known, ...scanAll().findings.map(f => f.id)]); } // widening the view isn't "new access"
+      return send(res, 200, { scope: getScope(), onboarded: !!next.onboarded });
     }
     if (url.pathname === '/api/decisions/change') return send(res, 200, changeDecision(body));
     if (url.pathname === '/api/gate/install') return send(res, 200, gateInstall(!!body.on));
