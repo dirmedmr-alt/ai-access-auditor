@@ -17,7 +17,19 @@ A local app that lists the access you've given to AI agents and lets you revoke 
 - **Background agents:** LaunchAgents and LaunchDaemons, plus crontab lines that start AI tools
 - **AI extensions** in VS Code, Cursor and Windsurf, and in Chrome, Brave, Edge and Arc
 - **Local AI servers** (Ollama, LM Studio) that other devices on your network can reach
+- **Other agents' permissions:**
+  - Codex: approval policy, sandbox and trusted projects
+  - Gemini CLI: auto-accept, allowed tools and trusted folders
+  - Cursor CLI: allow rules
+  - Copilot CLI: trusted folders
+  - VS Code, Cursor and Windsurf: Copilot auto-approve settings
+  - OpenCode: permissions
+  - Aider and Goose: auto modes
+  - MCP servers in Copilot CLI, Amazon Q, Kiro, OpenCode, Continue and Claude Desktop extensions
+- **Agents running right now** with approvals off (`--dangerously-skip-permissions`, `--yolo`, `--full-auto`, `-y`, and so on) or as root. These can be stopped from the popup
+- **Privileges every agent inherits from you:** passwordless sudo, loaded SSH keys, and GitHub, AWS, Google Cloud, Azure, Kubernetes, Docker and npm logins
 - **API keys** exported in your shell startup files
+- **Optional "watch all apps":** macOS privacy permissions and background jobs for every app, not just AI apps
 
 **Menu bar & alerts:** the Mac app stays in the menu bar after you close its window. Every 5 minutes
 it checks for new access. When an agent gains something new, the shield turns red, a notification shows

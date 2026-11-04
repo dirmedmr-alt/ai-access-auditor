@@ -8,7 +8,7 @@ import Cocoa
 import WebKit
 import UserNotifications
 
-let CHECK_INTERVAL: TimeInterval = 5 * 60
+let CHECK_INTERVAL: TimeInterval = 60 // fallback; most changes arrive instantly through the event stream
 let LAUNCH_AGENT_ID = "local.ai-access-auditor"
 
 struct Grant: Decodable { let id, agent, title, category, risk, detail: String; let revocable: Bool? }
@@ -246,14 +246,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let ordered = grants.sorted { rank($0.risk) < rank($1.risk) }
         for g in ordered.prefix(3) where panels["grant-\(g.id)"] == nil {
             let canRemove = g.revocable ?? false
+            let isProcess = g.category == "Running agent"
             let panel = PromptPanel(.init(
-                symbol: "exclamationmark.shield.fill", risk: g.risk,
-                title: "\(g.agent) got new access",
+                symbol: isProcess ? "bolt.trianglebadge.exclamationmark.fill" : "exclamationmark.shield.fill", risk: g.risk,
+                title: isProcess ? g.title : "\(g.agent) got new access",
                 subtitle: g.category,
                 detail: "\(g.title)\n\(g.detail)",
-                footnote: canRemove ? "Remove takes the access away now (a backup is saved, so you can undo it)." : "This one has to be removed by hand. Choose \"Review\" to see how.",
-                options: ["Keep it", "Keep for 1 hour", "Keep for 1 day", "Keep for 7 days"],
-                allowTitle: "Keep", denyTitle: canRemove ? "Remove" : "Review"))
+                footnote: isProcess ? "\"Stop it\" ends the process now. \"Let it run\" can also be limited to 1 hour, 1 day or 7 days."
+                    : canRemove ? "Remove takes the access away now (a backup is saved, so you can undo it)." : "This one has to be removed by hand. Choose \"Review\" to see how.",
+                options: isProcess ? ["Until it ends", "For 1 hour", "For 1 day", "For 7 days"] : ["Keep it", "Keep for 1 hour", "Keep for 1 day", "Keep for 7 days"],
+                allowTitle: isProcess ? "Let it run" : "Keep", denyTitle: canRemove ? (isProcess ? "Stop it" : "Remove") : "Review"))
             panel.onDecision = { [weak self] allowed, option in
                 guard let self else { return }
                 self.panels.removeValue(forKey: "grant-\(g.id)")
