@@ -220,6 +220,7 @@ const P = {
   overview: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
   list: '<path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/>',
   cloud: '<path d="M17.5 19a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.6 1.5A4 4 0 0 0 6.5 19z"/>',
+  hand: '<path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 0 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.9-6-2.4l-3.6-3.6a2 2 0 0 1 2.8-2.8L7 15"/>',
   history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/>',
   refresh: '<path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
@@ -308,6 +309,7 @@ function renderNav() {
     `<div class="navh">Agents</div>` +
     Object.entries(agents).sort((a, b) => b[1] - a[1]).map(([a, n]) => item('agent', a, avatar(a), n, a)).join('') +
     `<div class="navh">More</div>` +
+    item('decisions', 'Decisions', icon('hand'), '') +
     item('cloud', 'Online accounts', icon('cloud'), data.manual.length) +
     item('history', 'History & undo', icon('history'), '');
 }
@@ -320,6 +322,7 @@ function renderMain() {
   if (view === 'overview') return renderOverview();
   if (view === 'cloud') return renderCloud();
   if (view === 'history') return renderHistory();
+  if (view === 'decisions') return renderDecisions();
   renderList();
 }
 
@@ -423,6 +426,33 @@ function renderCloud() {
       <div><div class="ttl">${esc(m.name)}</div><div class="sub">${esc(new URL(m.url).host)}</div></div>${icon('ext', 'chev')}</a>`).join('')}</div>`;
 }
 
+async function renderDecisions() {
+  setHead('Decisions', 'Every Allow and Deny you gave in the popup. Change your mind any time.');
+  $('#body').innerHTML = '<div class="empty">Loading…</div>';
+  const list = await api('decisions');
+  if (view !== 'decisions') return;
+  if (!list.length) {
+    $('#body').innerHTML = `<div class="empty"><div class="big">✋</div>No decisions yet.<br>${gateOn ? 'When Claude Code asks for something, your answer will show up here.' : 'Turn on <b>Ask before Claude Code acts</b> on the Overview, and your answers will show up here.'}</div>`;
+    return;
+  }
+  const when = iso => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  $('#body').innerHTML = `<div class="card nock" style="margin-top:8px">${list.map(d => {
+    const allowed = d.decision === 'allow';
+    const status = d.blocked ? '<span class="badge high">Blocked</span>'
+      : allowed && d.always ? (d.ruleActive ? '<span class="badge low">Always allowed</span>' : '<span class="badge ok">Rule removed</span>')
+      : allowed ? '<span class="badge ok">Allowed once</span>' : '<span class="badge medium">Denied once</span>';
+    const btns = [
+      allowed && d.always && d.ruleActive && !d.blocked ? `<button class="btn" data-dec="revoke" data-did="${d.id}" title="Remove the saved rule; Claude Code will ask again">Revoke</button>` : '',
+      !d.blocked ? `<button class="btn danger" data-dec="block" data-did="${d.id}" title="${esc(d.blockRule)}">Block from now on</button>` : `<button class="btn" data-dec="unblock" data-did="${d.id}" title="${esc(d.blockRule)}">Unblock</button>`,
+    ].join('');
+    return `<div class="item" style="grid-template-columns:32px 1fr auto">
+      <span class="ic ${d.risk}">${icon(d.tool === 'Bash' ? 'Tool permission' : d.tool.startsWith('mcp__') ? 'MCP server' : 'hand')}</span>
+      <div style="min-width:0"><div class="ttl" title="${esc(d.text)}">${esc(d.text || d.tool)}</div>
+        <div class="sub">${esc(d.agent)} · ${esc(d.action)} · ${esc(when(d.at))}${d.cwd ? ' · ' + esc(d.cwd) : ''}</div></div>
+      <div class="meta">${status}${btns}</div></div>`;
+  }).join('')}</div>`;
+}
+
 async function renderHistory() {
   setHead('History & undo', 'A backup is saved before every change. Restore one to put the access back.');
   $('#body').innerHTML = '<div class="empty">Loading…</div>';
@@ -470,9 +500,16 @@ function renderInspector() {
 
 // ---------- events ----------
 document.addEventListener('click', async e => {
-  const t = e.target.closest('[data-pick],[data-pickall],[data-bulk],[data-exp],[data-openapp],[data-ackall],[data-view],[data-go],[data-id],[data-close],[data-revoke],[data-rev],[data-restore],#seg button,#rescan');
+  const t = e.target.closest('[data-dec],[data-pick],[data-pickall],[data-bulk],[data-exp],[data-openapp],[data-ackall],[data-view],[data-go],[data-id],[data-close],[data-revoke],[data-rev],[data-restore],#seg button,#rescan');
   if (!t) return;
   if (t.id === 'rescan') return scan();
+  if (t.dataset.dec) {
+    const msgs = { revoke: 'Remove the rule this decision saved?\n\nClaude Code will ask you again next time.', block: 'Block this from now on?\n\nClaude Code won\'t be allowed to do it, and won\'t ask. You can unblock it here later.', unblock: 'Unblock this?\n\nClaude Code will ask you again next time.' };
+    if (!confirm(msgs[t.dataset.dec])) return;
+    try { toast((await api('decisions/change', { id: t.dataset.did, action: t.dataset.dec })).message, 5000); await scan(); }
+    catch (err) { toast(err.message); }
+    return;
+  }
   if (t.dataset.pick) { picked.has(t.dataset.pick) ? picked.delete(t.dataset.pick) : picked.add(t.dataset.pick); return renderList(); }
   if (t.dataset.pickall !== undefined) { const ids = window._shownIds || []; const all = ids.length && ids.every(i => picked.has(i)); ids.forEach(i => all ? picked.delete(i) : picked.add(i)); return renderList(); }
   if (t.dataset.bulk === 'clear') { picked.clear(); return renderList(); }

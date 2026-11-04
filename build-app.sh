@@ -38,7 +38,7 @@ echo "Built: $APP"
 if [[ "${1:-}" == "--install" ]]; then
   osascript -e 'quit app "AI Access Auditor"' 2>/dev/null || true
   # make sure the old copy is really gone (a menu-bar-only app may ignore the quit request)
-  for _ in 1 2 3 4 5; do pgrep -f "AI Access Auditor.app/Contents/MacOS/" >/dev/null || break; pkill -f "AI Access Auditor.app/Contents/MacOS/"; sleep 1; done
+  for _ in 1 2 3 4 5; do pgrep -f "AI Access Auditor.app/Contents/MacOS/" >/dev/null || break; pkill -f "AI Access Auditor.app/Contents/MacOS/" || true; sleep 1; done
   rm -rf "/Applications/AI Access Auditor.app"
   cp -R "$APP" /Applications/
   echo "Installed: /Applications/AI Access Auditor.app"
