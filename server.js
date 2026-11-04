@@ -24,6 +24,8 @@ const GATE_TOKEN = crypto.randomBytes(16).toString('hex');   // only lets the Cl
 const GATE_INFO = path.join(DATA_DIR, 'gate.json');          // where the hook finds us
 const GATE_SCRIPT = path.join(DATA_DIR, 'gate.js');          // stable copy of the hook script
 const GATE_MARK = 'ai-access-audit/gate.js';
+const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');   // { scope: 'ai' | 'all' }
+const getScope = () => ((readJson(SETTINGS_FILE) || {}).scope === 'all' ? 'all' : 'ai');
 const DECISIONS_FILE = path.join(DATA_DIR, 'decisions.json'); // every Allow / Deny you gave in the popup
 function sh(cmd, args, timeout = 10000) {
   try { return execFileSync(cmd, args, { encoding: 'utf8', timeout, maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }); }
@@ -224,6 +226,11 @@ function scanOtherMcp() {
       agent: 'Codex CLI', category: 'MCP server', title: m[1], detail: 'Defined in config.toml', risk: 'medium', source: codex,
       action: { kind: 'none', hint: 'Edit ~/.codex/config.toml to remove.' },
     });
+    const sb = t.match(/^sandbox_mode\s*=\s*"([^"]+)"/m);
+    if (sb && sb[1] === 'danger-full-access') out.push({ agent: 'Codex CLI', category: 'Permission mode', title: 'sandbox_mode = danger-full-access', detail: 'No sandbox: full access to your disk and network', risk: 'high', source: codex, action: { kind: 'none', hint: 'Edit ~/.codex/config.toml.' } });
+    for (const m of t.matchAll(/^\[projects\."([^"]+)"\]\s*\n\s*trust_level\s*=\s*"trusted"/gm)) out.push({
+      agent: 'Codex CLI', category: 'Trusted folder', title: m[1].replace(HOME, '~'), detail: 'Trusted project: Codex works here with fewer prompts', risk: m[1] === HOME || m[1] === '/' ? 'high' : 'low', source: codex,
+      action: { kind: 'none', hint: `Remove the [projects."${m[1]}"] section from ~/.codex/config.toml.` } });
     const ap = t.match(/^approval_policy\s*=\s*"([^"]+)"/m);
     if (ap && ap[1] === 'never') out.push({ agent: 'Codex CLI', category: 'Permission mode', title: 'approval_policy = never', detail: 'Runs commands without asking', risk: 'high', source: codex, action: { kind: 'none', hint: 'Edit config.toml.' } });
   }
@@ -242,6 +249,14 @@ const TCC_SERVICES = {
   kTCCServiceSystemPolicyDocumentsFolder: ['Documents folder', 'medium', 'Privacy_FilesAndFolders'],
   kTCCServiceSystemPolicyDesktopFolder: ['Desktop folder', 'medium', 'Privacy_FilesAndFolders'],
   kTCCServiceSystemPolicyDownloadsFolder: ['Downloads folder', 'medium', 'Privacy_FilesAndFolders'],
+  kTCCServiceSystemPolicyNetworkVolumes: ['Network drives', 'medium', 'Privacy_FilesAndFolders'],
+  kTCCServiceSystemPolicyRemovableVolumes: ['Removable drives', 'medium', 'Privacy_FilesAndFolders'],
+  kTCCServiceAddressBook: ['Contacts', 'medium', 'Privacy_Contacts'],
+  kTCCServiceCalendar: ['Calendars', 'medium', 'Privacy_Calendars'],
+  kTCCServiceReminders: ['Reminders', 'low', 'Privacy_Reminders'],
+  kTCCServicePhotos: ['Photos', 'medium', 'Privacy_Photos'],
+  kTCCServiceSystemPolicyAppBundles: ['App Management (change other apps)', 'high', 'Privacy_AppBundles'],
+  kTCCServiceDeveloperTool: ['Developer Tools', 'medium', 'Privacy_DevTools'],
 };
 const AI_CLIENT_RE = /claude|anthropic|openai|chatgpt|cursor|codeium|windsurf|copilot|gemini|perplexity|ollama|lmstudio|raycast|vscode|VSCode|zed|warp|iterm|Terminal|ghostty|node$|python/i;
 
@@ -258,7 +273,7 @@ function scanTcc() {
     for (const line of rows.trim().split('\n').filter(Boolean)) {
       const [service, client, , modified] = line.split('\t');
       const meta = TCC_SERVICES[service];
-      if (!meta || !AI_CLIENT_RE.test(client)) continue;
+      if (!meta || (getScope() === 'ai' && !AI_CLIENT_RE.test(client))) continue;
       const isAgentHost = /Terminal|iterm|ghostty|warp|vscode|VSCode|node$|python/i.test(client);
       out.push({
         agent: client, category: 'macOS privacy', title: meta[0],
@@ -343,10 +358,10 @@ function scanBackgroundAgents() {
       try { j = JSON.parse(sh('plutil', ['-convert', 'json', '-o', '-', file], 3000) || 'null'); } catch { continue; }
       if (!j || j.Label === OWN_LAUNCH_AGENT) continue;
       const prog = [j.Program, ...(j.ProgramArguments || [])].filter(Boolean).join(' ');
-      if (!AI_NAME_RE.test(`${j.Label} ${prog}`)) continue;
+      if (getScope() === 'ai' && !AI_NAME_RE.test(`${j.Label} ${prog}`)) continue;
       const when = j.StartInterval ? `every ${Math.round(j.StartInterval / 60)} min` : j.StartCalendarInterval ? 'on a schedule' : j.KeepAlive ? 'always running' : j.RunAtLoad ? 'at login' : 'on demand';
       out.push({
-        agent: (`${j.Label} ${prog}`.match(AI_NAME_RE) || ['Background'])[0].replace(/^./, c => c.toUpperCase()),
+        agent: ((`${j.Label} ${prog}`.match(AI_NAME_RE) || [])[0] || (j.Label || f).split('.').slice(0, 2).join('.') || 'Background').replace(/^./, c => c.toUpperCase()),
         category: 'Background agent', title: j.Label || f,
         detail: `Runs ${when}: ${prog.replace(HOME, '~').slice(0, 160)}${userOwned ? '' : ' (system-wide)'}`,
         risk: dir.includes('Daemons') || j.KeepAlive ? 'high' : 'medium', source: file,
@@ -466,10 +481,198 @@ function scanLocalServers() {
   return out;
 }
 
+// Lenient reader for editors' JSON-with-comments settings files
+function readJsonc(file) {
+  let t;
+  try { t = fs.readFileSync(file, 'utf8'); } catch { return null; }
+  try { return { j: JSON.parse(t), strict: true }; } catch {}
+  try {
+    const stripped = t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:"'\\])\/\/.*$/gm, '$1').replace(/,(\s*[}\]])/g, '$1');
+    return { j: JSON.parse(stripped), strict: false };
+  } catch { return null; }
+}
+
+// Permissions, trusted folders and "never ask" modes of other AI agents
+function scanMoreAgents() {
+  const out = [];
+  const add = (agent, category, title, detail, risk, source, action) => out.push({ agent, category, title, detail, risk, source, action });
+  const none = hint => ({ kind: 'none', hint });
+
+  for (const [agent, f, p] of [
+    ['Copilot CLI', h('.copilot', 'mcp-config.json'), ['mcpServers']],
+    ['Amazon Q', h('.aws', 'amazonq', 'mcp.json'), ['mcpServers']],
+    ['Kiro', h('.kiro', 'settings', 'mcp.json'), ['mcpServers']],
+    ['OpenCode', h('.config', 'opencode', 'opencode.json'), ['mcp']],
+  ]) for (const [name, cfg] of Object.entries(getAt(readJson(f), p) || {})) out.push(mcpFinding(agent, name, cfg || {}, f, p, ''));
+  const cont = h('.continue', 'config.json');
+  ((readJson(cont) || {}).mcpServers || []).forEach(m => add('Continue', 'MCP server', m.name || m.command || 'server',
+    [m.command, ...maskArgs(m.args)].filter(Boolean).join(' '), mcpRisk(m), cont, none('Remove it from ~/.continue/config.json.')));
+
+  // Gemini CLI
+  const gs = h('.gemini', 'settings.json'), g = readJson(gs) || {};
+  for (const p of [['autoAccept'], ['tools', 'autoAccept']]) if (getAt(g, p) === true)
+    add('Gemini CLI', 'Permission mode', `${p.join('.')} = true`, 'Runs tools it considers safe without asking', 'medium', gs, { kind: 'setFalse', file: gs, path: p.slice(0, -1), key: p[p.length - 1] });
+  (getAt(g, ['tools', 'allowed']) || []).forEach(r => add('Gemini CLI', 'Tool permission', r, 'Runs without asking (tools.allowed)',
+    ruleRisk(String(r).replace(/^run_shell_command/, 'Bash')), gs, { kind: 'removeArrayItem', file: gs, path: ['tools', 'allowed'], value: r }));
+  const tf = h('.gemini', 'trustedFolders.json');
+  for (const [dir, lvl] of Object.entries(readJson(tf) || {})) if (lvl !== 'DO_NOT_TRUST')
+    add('Gemini CLI', 'Trusted folder', dir.replace(HOME, '~'), lvl === 'TRUST_PARENT' ? 'Trusted, together with its parent folder' : 'Trusted folder',
+      dir === HOME || dir === '/' ? 'high' : 'low', tf, { kind: 'deleteKey', file: tf, path: [], key: dir, value: lvl });
+
+  // Cursor CLI
+  const cc = h('.cursor', 'cli-config.json');
+  (getAt(readJson(cc), ['permissions', 'allow']) || []).forEach(r => add('Cursor CLI', 'Tool permission', r, 'Runs without asking',
+    ruleRisk(String(r).replace(/^Shell/, 'Bash')), cc, { kind: 'removeArrayItem', file: cc, path: ['permissions', 'allow'], value: r }));
+
+  // Copilot CLI
+  const cp = h('.copilot', 'config.json');
+  (getAt(readJson(cp), ['trusted_folders']) || []).forEach(d => add('Copilot CLI', 'Trusted folder', String(d).replace(HOME, '~'), 'Trusted folder: Copilot can read and change files here',
+    d === HOME || d === '/' ? 'high' : 'low', cp, { kind: 'removeArrayItem', file: cp, path: ['trusted_folders'], value: d }));
+
+  // OpenCode permissions
+  const oc = h('.config', 'opencode', 'opencode.json'), perm = getAt(readJson(oc), ['permission']) || {};
+  for (const [tool, v] of Object.entries(perm)) {
+    if (v === 'allow') add('OpenCode', 'Tool permission', `${tool}: allow`, `Uses ${tool} without asking`, tool === 'bash' ? 'high' : 'medium', oc, { kind: 'deleteKey', file: oc, path: ['permission'], key: tool, value: v });
+    else if (v && typeof v === 'object') for (const [cmd, vv] of Object.entries(v)) if (vv === 'allow')
+      add('OpenCode', 'Tool permission', `${tool}(${cmd})`, 'Runs without asking', ruleRisk(`Bash(${cmd})`), oc, { kind: 'deleteKey', file: oc, path: ['permission', tool], key: cmd, value: vv });
+  }
+
+  // VS Code / Cursor / Windsurf: Copilot agent auto-approve settings
+  for (const [editor, f] of [
+    ['VS Code', h('Library', 'Application Support', 'Code', 'User', 'settings.json')],
+    ['Cursor', h('Library', 'Application Support', 'Cursor', 'User', 'settings.json')],
+    ['Windsurf', h('Library', 'Application Support', 'Windsurf', 'User', 'settings.json')],
+  ]) {
+    const r = readJsonc(f);
+    if (!r) continue;
+    const manual = none(`Edit ${f.replace(HOME, '~')} (it has comments, so it's safer to change by hand).`);
+    for (const k of ['chat.tools.autoApprove', 'chat.tools.global.autoApprove']) if (r.j[k] === true)
+      add(editor, 'Permission mode', `${k} = true`, 'Copilot agent mode runs every tool without asking', 'high', f, r.strict ? { kind: 'setFalse', file: f, path: [], key: k } : manual);
+    for (const [cmd, v] of Object.entries(r.j['chat.tools.terminal.autoApprove'] || {})) if (v === true || (v && v.approve === true))
+      add(editor, 'Tool permission', `terminal: ${cmd}`, 'Copilot runs this terminal command without asking', ruleRisk(`Bash(${cmd.replace(/^\/|\/$/g, '')})`), f,
+        r.strict ? { kind: 'deleteKey', file: f, path: ['chat.tools.terminal.autoApprove'], key: cmd, value: v } : manual);
+  }
+
+  // YAML configs: detect only
+  const aider = h('.aider.conf.yml');
+  if (exists(aider) && /^\s*yes-always\s*:\s*true/m.test(fs.readFileSync(aider, 'utf8')))
+    add('Aider', 'Permission mode', 'yes-always: true', 'Says yes to every question, including running commands', 'high', aider, none('Set yes-always: false in ~/.aider.conf.yml.'));
+  const goose = h('.config', 'goose', 'config.yaml');
+  if (exists(goose) && /^\s*GOOSE_MODE\s*:\s*['"]?auto/m.test(fs.readFileSync(goose, 'utf8')))
+    add('Goose', 'Permission mode', 'GOOSE_MODE: auto', 'Acts without asking for approval', 'high', goose, none('Change GOOSE_MODE in ~/.config/goose/config.yaml.'));
+
+  // Claude Desktop extensions (each one is an MCP server with its own access)
+  const extDir = h('Library', 'Application Support', 'Claude', 'Claude Extensions');
+  let exts = [];
+  try { exts = fs.readdirSync(extDir); } catch {}
+  for (const e of exts) {
+    const mf = readJson(path.join(extDir, e, 'manifest.json'));
+    if (mf) add('Claude Desktop', 'MCP server', mf.display_name || mf.name || e, `Desktop extension${mf.description ? ': ' + String(mf.description).slice(0, 120) : ''}`,
+      mcpRisk({ command: mf.name, args: [JSON.stringify(mf.server || {})] }), path.join(extDir, e), none('Remove it in Claude Desktop → Settings → Extensions.'));
+  }
+  return out;
+}
+
+// AI agents running right now with approvals switched off, or as administrator
+const AGENT_PROC_RE = /(?:^|\/)(claude|codex|gemini|aider|cursor-agent|goose|opencode|copilot|qwen|amp|crush|kiro-cli)(?=\s|$)|@anthropic-ai\/claude-code|@openai\/codex|@google\/gemini-cli|@github\/copilot|@sourcegraph\/amp|opencode-ai/;
+const AGENT_NAMES = { claude: 'Claude Code', codex: 'Codex CLI', gemini: 'Gemini CLI', aider: 'Aider', 'cursor-agent': 'Cursor CLI', goose: 'Goose', opencode: 'OpenCode', copilot: 'Copilot CLI', qwen: 'Qwen Code', amp: 'Amp', crush: 'Crush', 'kiro-cli': 'Kiro' };
+function dangerReason(agentKey, cmd) {
+  const rules = [
+    [/--dangerously-skip-permissions\b|--permission-mode[ =]bypassPermissions/, 'skips every permission prompt'],
+    [/--dangerously-bypass-approvals-and-sandbox\b/, 'runs anything with no approvals and no sandbox'],
+    [/--yolo\b|--approval-mode[ =]yolo\b/, 'approves every action automatically (YOLO mode)'],
+    [/(?:--sandbox|\s-s)[ =]danger-full-access/, 'runs with no sandbox (full disk and network access)'],
+    [/--full-auto\b/, 'runs commands without asking'],
+    [/--yes-always\b/, 'says yes to everything'],
+    [/--allow-all-tools\b|--allow-all\b/, 'may use every tool without asking'],
+  ];
+  if (agentKey === 'gemini') rules.push([/(?:^|\s)-y(?=\s|$)/, 'approves every action automatically (YOLO mode)']);
+  if (agentKey === 'cursor-agent') rules.push([/(?:^|\s)(?:--force|-f)(?=\s|$)/, 'runs commands without asking (--force)']);
+  const hit = rules.find(([re]) => re.test(cmd));
+  return hit && hit[1];
+}
+function scanProcesses() {
+  const out = [];
+  for (const line of sh('ps', ['-axo', 'pid=,uid=,etime=,command='], 5000).split('\n')) {
+    const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/);
+    if (!m) continue;
+    const [, pid, uid, etime, cmd] = m;
+    if (Number(pid) === process.pid) continue;
+    // Only the program actually running counts, not text that merely appears in its arguments
+    const tokens = cmd.split(/\s+/);
+    const exe = path.basename(tokens[0] || '');
+    let key = AGENT_NAMES[exe] ? exe : null;
+    if (!key && /^(node|bun|deno|python3?(\.\d+)?)$/.test(exe)) {
+      const script = tokens.slice(1).find(t => !t.startsWith('-')) || '';
+      const pm = script.match(AGENT_PROC_RE);
+      if (pm) key = pm[1] || (pm[0].match(/claude|codex|gemini|copilot|amp|opencode/) || ['agent'])[0];
+    }
+    if (!key) continue;
+    const agent = AGENT_NAMES[key] || key;
+    const reason = dangerReason(key, cmd);
+    const root = uid === '0';
+    if (!reason && !root) continue;
+    const cwd = (sh('lsof', ['-a', '-p', pid, '-d', 'cwd', '-Fn'], 2000).match(/^n(.*)$/m) || [])[1] || '';
+    const shortCmd = cmd.replace(HOME, '~').slice(0, 220);
+    out.push({
+      agent, category: 'Running agent', title: root ? `${agent} is running as administrator (root)` : `${agent} ${reason}`,
+      detail: `Process ${pid}, running for ${etime}${cwd ? ` in ${cwd.replace(HOME, '~')}` : ''}: ${shortCmd}`,
+      risk: 'high', source: `process ${pid}`,
+      action: root ? { kind: 'none', hint: `Stop it with: sudo kill ${pid}` } : { kind: 'killProcess', pid: Number(pid), cmdStart: cmd.slice(0, 200) },
+    });
+  }
+  return out;
+}
+
+// Privileges every agent inherits from your account: admin rights, SSH keys, cloud and developer logins
+let sudoCache = { at: 0, ok: false };
+function scanInherited() {
+  const out = [];
+  const add = (agent, category, title, detail, risk, source, hint) => out.push({ agent, category, title, detail, risk, source, action: { kind: 'none', hint } });
+  if (Date.now() - sudoCache.at > 10 * 60e3) {
+    let ok = false;
+    try { execFileSync('sudo', ['-n', 'true'], { stdio: 'ignore', timeout: 3000 }); ok = true; } catch {}
+    sudoCache = { at: Date.now(), ok };
+  }
+  if (sudoCache.ok) add('Your account', 'Admin rights', 'sudo works without a password',
+    'Any agent you run can become administrator without asking you', 'high', '/etc/sudoers', 'Remove NOPASSWD from your sudoers entry (sudo visudo), or run "sudo -k" to end a cached sudo session.');
+
+  for (const l of sh('ssh-add', ['-l'], 3000).split('\n').filter(x => /SHA256:/.test(x))) {
+    const parts = l.split(' ');
+    add('Your account', 'Inherited credential', `SSH key: ${parts.slice(2, -1).join(' ').replace(HOME, '~') || parts[1]}`,
+      'Loaded in ssh-agent: any agent can use it to log in to servers or push code', 'medium', 'ssh-agent', 'Unload it with "ssh-add -d <key file>", or all keys with "ssh-add -D".');
+  }
+  const ghHosts = h('.config', 'gh', 'hosts.yml');
+  if (exists(ghHosts)) {
+    const t = fs.readFileSync(ghHosts, 'utf8');
+    for (const m of t.matchAll(/^([\w.-]+):\s*\n(?:\s+.*\n)*?\s+user:\s*(\S+)/gm))
+      add('GitHub CLI', 'Inherited credential', `Logged in to ${m[1]} as ${m[2]}`, 'Any agent can use gh to read, change or delete your repositories', 'high', ghHosts, 'Run "gh auth logout", or "gh auth refresh -s <scopes>" to narrow what the token can do.');
+  }
+  const awsCred = h('.aws', 'credentials'), awsCfg = h('.aws', 'config');
+  const awsProfiles = [...new Set([
+    ...(exists(awsCred) ? [...fs.readFileSync(awsCred, 'utf8').matchAll(/^\[([^\]]+)\]/gm)].map(m => m[1]) : []),
+    ...(exists(awsCfg) ? [...fs.readFileSync(awsCfg, 'utf8').matchAll(/^\[(?:profile )?([^\]]+)\][^[]*sso_/gm)].map(m => m[1]) : []),
+  ])];
+  if (awsProfiles.length) add('AWS CLI', 'Inherited credential', `AWS profiles: ${awsProfiles.join(', ')}`, 'Any agent can use these to act on your AWS account', 'high', '~/.aws', 'Remove unused profiles from ~/.aws/credentials, prefer short-lived SSO logins, and log out with "aws sso logout".');
+  const gcfg = h('.config', 'gcloud', 'configurations', 'config_default');
+  if (exists(gcfg)) { const a = (fs.readFileSync(gcfg, 'utf8').match(/^account\s*=\s*(\S+)/m) || [])[1]; if (a) add('Google Cloud CLI', 'Inherited credential', `Logged in as ${a}`, 'Any agent can use gcloud to act on your Google Cloud projects', 'high', gcfg, 'Run "gcloud auth revoke" when you don\'t need it.'); }
+  const kube = h('.kube', 'config');
+  if (exists(kube)) { const t = fs.readFileSync(kube, 'utf8'); const n = (t.match(/^- context:/gm) || []).length; const cur = (t.match(/^current-context:\s*(\S+)/m) || [])[1];
+    if (n) add('Kubernetes', 'Inherited credential', `${n} cluster context${n > 1 ? 's' : ''}${cur ? `, current: ${cur}` : ''}`, 'Any agent can run kubectl against these clusters', 'high', kube, 'Remove contexts you don\'t use (kubectl config delete-context <name>).'); }
+  const dock = readJson(h('.docker', 'config.json'));
+  if (dock && Object.keys(dock.auths || {}).length) add('Docker', 'Inherited credential', `Registry logins: ${Object.keys(dock.auths).join(', ')}`, 'Any agent can push or pull images as you', 'medium', '~/.docker/config.json', 'Run "docker logout <registry>".');
+  const npmrc = h('.npmrc');
+  if (exists(npmrc) && /_authToken\s*=/.test(fs.readFileSync(npmrc, 'utf8'))) add('npm', 'Inherited credential', 'npm login token', 'Any agent can publish packages as you', 'high', '~/.npmrc', 'Run "npm logout", or use a read-only/granular token.');
+  const az = readJson(h('.azure', 'azureProfile.json'));
+  if (az && (az.subscriptions || []).length) add('Azure CLI', 'Inherited credential', `${az.subscriptions.length} Azure subscription${az.subscriptions.length > 1 ? 's' : ''}`, 'Any agent can use az to act on these subscriptions', 'high', '~/.azure', 'Run "az logout".');
+  return out;
+}
+
 function scanAll() {
   const tcc = scanTcc();
   const findings = [...scanClaudeCode(), ...scanClaudeDesktop(), ...scanOtherMcp(), ...tcc.findings, ...scanEnvKeys(),
-    ...scanKeychain(), ...scanBackgroundAgents(), ...scanEditorExtensions(), ...scanBrowserExtensions(), ...scanLocalServers()];
+    ...scanKeychain(), ...scanBackgroundAgents(), ...scanEditorExtensions(), ...scanBrowserExtensions(), ...scanLocalServers(),
+    ...scanMoreAgents(), ...scanProcesses(), ...scanInherited()];
   const reviews = readJson(REVIEW_FILE) || {};
   const expiries = readJson(EXPIRY_FILE) || {};
   const seen = new Set();
@@ -562,6 +765,13 @@ function doRevoke(f, reason) {
     log(`DISABLE launch agent ${f.title}  file=${a.file}  backup=${bk}${why}`);
     return { message: `Stopped and removed "${f.title}". Backup saved.`, backup: bk };
   }
+  if (a.kind === 'killProcess') {
+    const now = sh('ps', ['-p', String(a.pid), '-o', 'command='], 2000).trim();
+    if (!now || !now.startsWith(a.cmdStart.slice(0, 100))) throw new Error('That process has already ended.');
+    process.kill(a.pid, 'SIGTERM');
+    log(`STOP process ${a.pid} [${f.agent}] ${f.title}${why}`);
+    return { message: `Stopped ${f.agent} (process ${a.pid}).` };
+  }
   if (a.kind === 'uninstallExt') {
     execFileSync(a.cli, ['--uninstall-extension', a.extId], { stdio: 'pipe', timeout: 60000 });
     log(`UNINSTALL ${a.editor} extension ${a.extId}${why}`);
@@ -592,7 +802,7 @@ function doRevoke(f, reason) {
   return { message: `Revoked "${f.title}". Backup saved.${restartHint}`, backup: bk };
 }
 
-const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'uninstallExt'];
+const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'uninstallExt', 'killProcess'];
 
 // Revoke several grants in one go. One scan up front; each revoke re-reads its file, so they don't clash.
 function revokeMany(ids) {
@@ -691,12 +901,30 @@ function waitEvents(res) {
 }
 
 // Watch the places agents store their access, and tell the app within a couple of seconds
+// Things files can't tell us about (running agents, ssh keys, sudo, network ports): check every few seconds
+let liveSig = '';
+function pollLive() {
+  const sig = [...scanProcesses(), ...scanLocalServers()].map(f => f.title + f.source).sort().join('|');
+  if (liveSig && sig !== liveSig) { changedFlag = true; flushEvents(); }
+  liveSig = sig;
+}
+setInterval(pollLive, 8000).unref();
+
 function startWatching() {
   const targets = [
-    [HOME, /^\.claude\.json$|^\.mcp\.json$|^\.(zshrc|zprofile|bashrc|bash_profile|profile)$/],
+    [HOME, /^\.claude\.json$|^\.mcp\.json$|^\.(zshrc|zprofile|bashrc|bash_profile|profile|npmrc|aider\.conf\.yml)$/],
+    [h('.gemini'), /\.json$/], [h('.copilot'), /\.json$/], [h('.aws'), /^(credentials|config)$/], [h('.aws', 'amazonq'), /\.json$/],
+    [h('.kiro', 'settings'), /\.json$/], [h('.config', 'opencode'), /\.json$/], [h('.continue'), /\.json$/], [h('.config', 'goose'), /\.yaml$/],
+    [h('.config', 'gh'), /hosts\.yml$/], [h('.kube'), /^config$/], [h('.docker'), /config\.json$/], [h('.azure'), /\.json$/],
+    [h('Library', 'Application Support', 'Cursor', 'User'), /^settings\.json$/], [h('Library', 'Application Support', 'Windsurf', 'User'), /^settings\.json$/],
+    [h('Library', 'Application Support', 'Claude', 'Claude Extensions'), /./], [h('Library', 'Keychains'), /^login\.keychain-db$/],
+    [h('Library', 'Application Support', 'com.apple.TCC'), /^TCC\.db/],
+    [h('Library', 'Application Support', 'Google', 'Chrome', 'Default', 'Extensions'), /./],
+    [h('Library', 'Application Support', 'BraveSoftware', 'Brave-Browser', 'Default', 'Extensions'), /./],
+    [h('Library', 'Application Support', 'Microsoft Edge', 'Default', 'Extensions'), /./],
     [h('.claude'), /^settings(\.local)?\.json$/],
     [h('Library', 'Application Support', 'Claude'), /^claude_desktop_config\.json$/],
-    [h('.cursor'), /^mcp\.json$/], [h('.codeium', 'windsurf'), /mcp_config\.json$/], [h('.gemini'), /settings\.json$/], [h('.codex'), /config\.toml$/],
+    [h('.cursor'), /^(mcp|cli-config)\.json$/], [h('.codeium', 'windsurf'), /mcp_config\.json$/], [h('.gemini'), /settings\.json$/], [h('.codex'), /config\.toml$/],
     [h('Library', 'Application Support', 'Code', 'User'), /^(settings|mcp)\.json$/],
     [h('Library', 'LaunchAgents'), /\.plist$/],
     [h('.vscode', 'extensions'), /./], [h('.cursor', 'extensions'), /./], [h('.windsurf', 'extensions'), /./],
@@ -891,6 +1119,7 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && url.pathname === '/api/scan') { sweepExpired(); return send(res, 200, publicScan()); }
     if (req.method === 'GET' && url.pathname === '/api/events') return waitEvents(res);
+    if (req.method === 'GET' && url.pathname === '/api/settings') return send(res, 200, { scope: getScope() });
     if (req.method === 'GET' && url.pathname === '/api/decisions') return send(res, 200, listDecisions());
     if (req.method === 'GET' && url.pathname === '/api/gate/status') return send(res, 200, gateStatus());
     if (req.method === 'GET' && url.pathname === '/api/changes') return send(res, 200, changes());
@@ -899,6 +1128,11 @@ const server = http.createServer(async (req, res) => {
     const body = req.method === 'POST' ? await readBody(req) : {};
     if (url.pathname === '/api/revoke') return send(res, 200, revoke(body.id));
     if (url.pathname === '/api/gate/decide') return send(res, 200, gateDecide(body));
+    if (url.pathname === '/api/settings') {
+      fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ ...(readJson(SETTINGS_FILE) || {}), scope: body.scope === 'all' ? 'all' : 'ai' }, null, 2));
+      if (body.scope === 'all') { const known = readJson(KNOWN_FILE) || []; writeIds(KNOWN_FILE, [...known, ...scanAll().findings.map(f => f.id)]); } // widening the view isn't "new access"
+      return send(res, 200, { scope: getScope() });
+    }
     if (url.pathname === '/api/decisions/change') return send(res, 200, changeDecision(body));
     if (url.pathname === '/api/gate/install') return send(res, 200, gateInstall(!!body.on));
     if (url.pathname === '/api/revoke-many') return send(res, 200, revokeMany(body.ids));

@@ -235,6 +235,9 @@ const P = {
   'Capability': '<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',
   'Hooks': '<path d="M6 3v12a6 6 0 0 0 12 0v-2"/><path d="M15 10l3 3 3-3"/>',
   'macOS privacy': '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  'Running agent': '<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/>',
+  'Inherited credential': '<circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0"/><path d="M19 8v6M16 11h6"/>',
+  'Admin rights': '<path d="M12 2l3 6 6 .9-4.5 4.3 1 6.3L12 16.8 6.5 19.5l1-6.3L3 8.9 9 8z"/>',
   'Saved login': '<rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V8a5 5 0 0 1 10 0v3"/><circle cx="12" cy="16" r="1.5"/>',
   'Background agent': '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>',
   'Editor extension': '<path d="M8 6l-6 6 6 6M16 6l6 6-6 6"/>',
@@ -254,6 +257,9 @@ const EXPLAIN = {
   'Capability': ['A feature switched on for the agent', 'The agent can use this feature whenever it decides to.'],
   'Hooks': ['Runs commands automatically', 'Hooks run shell commands whenever certain agent events happen, without asking.'],
   'macOS privacy': ['A system permission from macOS', 'macOS lets this app use a protected part of your Mac. Any agent running inside the app gets the same access.'],
+  'Running agent': ['Running right now with safety off', 'This agent is running at this moment with its approval prompts switched off, or as administrator. It can change files and run commands without asking. Stop it if you didn\'t start it this way on purpose.'],
+  'Inherited credential': ['A login every agent can use', 'You are logged in to this tool in your account, so any agent you run can use it as you. This works without the agent asking for anything.'],
+  'Admin rights': ['Administrator access', 'Any program you run, including AI agents, can get full administrator rights on this Mac without asking for your password.'],
   'Saved login': ['A saved login for an AI tool', 'This tool stays signed in using a token saved in your Keychain. Deleting it signs the tool out. The app never reads the secret itself.'],
   'Background agent': ['Starts without you', 'This job launches an AI tool automatically, at login or on a schedule, even when you aren\'t watching.'],
   'Editor extension': ['AI inside your code editor', 'This extension can read the code you have open. Agent-style extensions can also edit files and run terminal commands.'],
@@ -266,9 +272,9 @@ const agentColor = a => AGENT_COLORS[[...a].reduce((s, c) => s + c.charCodeAt(0)
 const avatar = a => `<span class="av" style="background:${agentColor(a)}">${esc(a.replace(/^.*\./, '')[0].toUpperCase())}</span>`;
 
 // ---------- state ----------
-let data = null, view = 'overview', agentFilter = null, selected = null, gateOn = false;
+let data = null, view = 'overview', agentFilter = null, selected = null, gateOn = false, scope = 'ai';
 const picked = new Set(); // grants ticked for bulk actions
-const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'uninstallExt'];
+const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'uninstallExt', 'killProcess'];
 const canRevoke = f => REVOCABLE.includes(f.action.kind);
 const timeLeft = iso => { const ms = Date.parse(iso) - Date.now(); if (ms <= 0) return 'now'; const h = ms / 3600e3; return h < 1 ? Math.ceil(ms / 60e3) + 'm' : h < 48 ? Math.round(h) + 'h' : Math.round(h / 24) + 'd'; };
 const ui = { q: '', risk: '', hideReviewed: false };
@@ -277,7 +283,7 @@ const toast = (m, ms = 3800) => { const t = $('#toast'); t.textContent = m; t.cl
 
 async function scan() {
   $('#rescan').innerHTML = icon('refresh', 'spin');
-  try { [data, { installed: gateOn }] = await Promise.all([api('scan'), api('gate/status')]); }
+  try { [data, { installed: gateOn }, { scope }] = await Promise.all([api('scan'), api('gate/status'), api('settings')]); }
   catch (e) { $('#when').textContent = e.message; return; }
   finally { $('#rescan').innerHTML = icon('refresh'); }
   $('#when').textContent = 'Scanned ' + new Date(data.scannedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -356,7 +362,9 @@ function renderOverview() {
     </div>
     <div class="note" style="background:var(--pane2)">${icon('Permission mode')}<div style="flex:1"><b>Live protection</b>
       <p>${gateOn ? 'On. Claude Code asks you here before it does anything new, and new access from any agent pops up right away.' : 'New access from any agent pops up right away. Turn this on to also approve or deny each Claude Code action before it runs.'}</p></div>
-      <label class="switch" style="align-self:center"><input type="checkbox" id="gateSw" ${gateOn ? 'checked' : ''}> Ask before Claude Code acts</label></div>
+      <div style="display:flex;flex-direction:column;gap:8px;align-self:center">
+        <label class="switch"><input type="checkbox" id="gateSw" ${gateOn ? 'checked' : ''}> Ask before Claude Code acts</label>
+        <label class="switch" title="Include every app (not just AI apps) for macOS privacy permissions and background jobs"><input type="checkbox" id="scopeSw" ${scope === 'all' ? 'checked' : ''}> Watch all apps, not just AI</label></div></div>
     ${f.some(x => x.isNew) ? `<div class="sec"><h3>New since you last looked</h3><button class="btn ghost" data-ackall>Mark all as seen</button></div>
       <div class="card newcard nock">${f.filter(x => x.isNew).slice(0, 5).map(row).join('')}</div>` : ''}
     ${tccMissing ? `<div class="note">${icon('info')}<div><b>macOS permissions aren't included yet</b><p>To check Screen Recording, Accessibility and Full Disk Access grants, add AI Access Auditor under Privacy &amp; Security → Full Disk Access, then reopen it.</p>
@@ -490,7 +498,7 @@ function renderInspector() {
     <div class="expiry"><div class="seg">${EXP.map(([v, l]) => `<button data-exp="${v}" data-for="${f.id}" class="${!f.expiresAt && v === '' ? 'on' : ''}">${l}</button>`).join('')}</div>
       ${f.expiresAt ? `<span class="detail" style="width:100%">Will be revoked ${esc(new Date(f.expiresAt).toLocaleString())} (in ${timeLeft(f.expiresAt)})</span>` : ''}</div>` : ''}
     <div class="acts">
-      ${revocable ? `<button class="btn danger" data-revoke="${f.id}">Revoke access</button>`
+      ${revocable ? `<button class="btn danger" data-revoke="${f.id}">${a.kind === 'killProcess' ? 'Stop it' : 'Revoke access'}</button>`
         : a.kind === 'openApp' ? `<button class="btn primary" data-openapp="${f.id}">${esc(a.label)}</button><div class="hint">${esc(a.hint)}</div>`
         : a.kind === 'link' ? `<a class="btn primary" href="${esc(a.url)}">${esc(a.hint || 'Open settings')}</a>`
         : `<div class="hint">${esc(a.hint || 'Change this one by hand.')}</div>`}
@@ -559,6 +567,9 @@ document.addEventListener('click', async e => {
 document.addEventListener('input', e => {
   if (e.target.id === 'q') { ui.q = e.target.value; renderMain(); }
   if (e.target.id === 'hideRev') { ui.hideReviewed = e.target.checked; renderMain(); }
+  if (e.target.id === 'scopeSw') {
+    api('settings', { scope: e.target.checked ? 'all' : 'ai' }).then(r => { toast(r.scope === 'all' ? 'Now watching every app for macOS permissions and background jobs' : 'Watching AI apps only', 4000); scan(); });
+  }
   if (e.target.id === 'gateSw') {
     const on = e.target.checked;
     if (on && !confirm('Ask before Claude Code acts?\n\nWhenever Claude Code is about to ask for permission, a window pops up here so you can Allow or Deny. This adds a hook to ~/.claude/settings.json (a backup is saved). If this app isn\'t running, Claude Code asks the usual way.')) { e.target.checked = false; return; }
