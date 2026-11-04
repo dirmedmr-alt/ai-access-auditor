@@ -18,7 +18,7 @@ struct GateStatus: Decodable { let installed: Bool }
 struct Changes: Decodable { let scannedAt: String; let total, openHigh: Int; let new, toNotify: [Grant]; let expired: [Grant]? }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate,
-                         UNUserNotificationCenterDelegate, NSMenuDelegate {
+                         UNUserNotificationCenterDelegate, NSMenuDelegate, WKScriptMessageHandler {
     var window: NSWindow!
     var webView: WKWebView!
     var server: Process?
@@ -48,6 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     func buildWindow() {
         let config = WKWebViewConfiguration()
+        config.userContentController.add(self, name: "native") // bridge for the setup screen
         webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -426,6 +427,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         addItem(menu, "Open AI Access Auditor", #selector(showWindow), "o")
         addItem(menu, "Check Now", #selector(checkForChanges), "r")
         addItem(menu, "Decisions…", #selector(menuOpenDecisions))
+        addItem(menu, "Setup…", #selector(menuOpenSetup))
         menu.addItem(.separator())
         let gate = addItem(menu, "Ask Before Claude Code Acts", #selector(toggleGate))
         gate.state = gateInstalled ? .on : .off
@@ -446,6 +448,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     @objc func menuOpenFinding(_ sender: NSMenuItem) { if let id = sender.representedObject as? String { openFinding(id) } }
     @objc func menuOpenNew() { openView("new") }
     @objc func menuOpenDecisions() { openView("decisions") }
+    @objc func menuOpenSetup() { showWindow(); runJS("window.openSetup && window.openSetup()") }
     @objc func ackAll() {
         api("ack", method: "POST", body: [:]) { [weak self] _ in self?.checkForChanges() }
     }
@@ -505,6 +508,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         a.addButton(withTitle: "Confirm")
         a.addButton(withTitle: "Cancel")
         completionHandler(a.runModal() == .alertFirstButtonReturn)
+    }
+
+    // MARK: bridge for the welcome / setup screen
+    func userContentController(_ uc: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.frameInfo.isMainFrame, webView.url?.host == "127.0.0.1",
+              let body = message.body as? [String: Any], let cmd = body["cmd"] as? String else { return }
+        switch cmd {
+        case "setLogin":
+            if (body["on"] as? Bool ?? false) != loginEnabled { toggleLogin() }
+        case "revealApp":
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: Bundle.main.bundlePath)])
+        case "relaunch":
+            let path = Bundle.main.bundlePath
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/bin/sh")
+            p.arguments = ["-c", "sleep 1.5; /usr/bin/open \"$0\"", path]
+            try? p.run()
+            NSApp.terminate(nil)
+            return
+        default: break
+        }
+        sendNativeState()
+    }
+    func sendNativeState() {
+        let inApps = Bundle.main.bundlePath.hasPrefix("/Applications/")
+        runJS("window.nativeState && window.nativeState({native: true, login: \(loginEnabled), inApplications: \(inApps)})")
     }
 
     @objc func reload() { webView.reload() }
