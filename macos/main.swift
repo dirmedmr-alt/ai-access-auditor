@@ -226,7 +226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             title: "\(g.agent) wants to \(g.action)",
             subtitle: g.cwd.isEmpty ? "Tool: \(g.tool)" : "Tool: \(g.tool) · in \(g.cwd)",
             detail: g.text,
-            footnote: "\(g.agent) is paused until you decide. If you don't answer, it falls back to asking in its own window.",
+            footnote: "\(g.agent) is paused until you decide. You can take back this decision later under Decisions.",
             options: g.canAlways ? ["Just this once", "Always (don't ask again)"] : ["Just this once"],
             allowTitle: "Allow", denyTitle: "Deny"))
         panel.onDecision = { [weak self] allowed, option in
@@ -423,6 +423,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         menu.addItem(.separator())
         addItem(menu, "Open AI Access Auditor", #selector(showWindow), "o")
         addItem(menu, "Check Now", #selector(checkForChanges), "r")
+        addItem(menu, "Decisions…", #selector(menuOpenDecisions))
         menu.addItem(.separator())
         let gate = addItem(menu, "Ask Before Claude Code Acts", #selector(toggleGate))
         gate.state = gateInstalled ? .on : .off
@@ -442,6 +443,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     @objc func menuOpenFinding(_ sender: NSMenuItem) { if let id = sender.representedObject as? String { openFinding(id) } }
     @objc func menuOpenNew() { openView("new") }
+    @objc func menuOpenDecisions() { openView("decisions") }
     @objc func ackAll() {
         api("ack", method: "POST", body: [:]) { [weak self] _ in self?.checkForChanges() }
     }

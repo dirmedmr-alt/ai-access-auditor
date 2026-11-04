@@ -24,6 +24,7 @@ const GATE_TOKEN = crypto.randomBytes(16).toString('hex');   // only lets the Cl
 const GATE_INFO = path.join(DATA_DIR, 'gate.json');          // where the hook finds us
 const GATE_SCRIPT = path.join(DATA_DIR, 'gate.js');          // stable copy of the hook script
 const GATE_MARK = 'ai-access-audit/gate.js';
+const DECISIONS_FILE = path.join(DATA_DIR, 'decisions.json'); // every Allow / Deny you gave in the popup
 function sh(cmd, args, timeout = 10000) {
   try { return execFileSync(cmd, args, { encoding: 'utf8', timeout, maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }); }
   catch { return ''; }
@@ -742,7 +743,7 @@ function gateAsk(body, res) {
     flushEvents();
   }
   res.on('close', () => { if (gatePending.has(gid)) { clearTimeout(timer); gatePending.delete(gid); closedIds.push(gid); flushEvents(); } });
-  gatePending.set(gid, { info, finish, suggestions: body.suggestions, delivered: false });
+  gatePending.set(gid, { info, finish, suggestions: body.suggestions, input: body.input, cwd: body.cwd, delivered: false });
   flushEvents();
 }
 function gateDecide({ id: gid, decision, remember }) {
@@ -753,8 +754,87 @@ function gateDecide({ id: gid, decision, remember }) {
   if (always) for (const sug of g.suggestions) for (const r of sug.rules || []) // the rule Claude Code is about to save isn't "new" to you
     expectedRules.set(r.ruleContent ? `${r.toolName}(${r.ruleContent})` : r.toolName, Date.now() + 60000);
   log(`GATE ${allow ? 'ALLOW' : 'DENY'}${always ? ' (always)' : ''} [${g.info.agent}] ${g.info.tool}: ${g.info.text.slice(0, 200).replace(/\n/g, ' ')}`);
+  recordDecision(g, allow, !!always);
   g.finish(allow ? { behavior: 'allow', updatedPermissions: always ? g.suggestions : undefined } : { behavior: 'deny', message: 'You denied this in AI Access Auditor.' });
   return { ok: true };
+}
+
+// ---------- decision history: change your mind later ----------
+const ruleTitle = r => (r.ruleContent ? `${r.toolName}(${r.ruleContent})` : r.toolName);
+
+// The narrowest Claude Code rule that matches exactly what was asked
+function exactRule(tool, input, cwd) {
+  input = input || {};
+  const abs = p => (path.isAbsolute(p) ? p : path.join(cwd || HOME, p));
+  if (tool === 'Bash' && input.command) return `Bash(${input.command})`;
+  if (/^(Write|Edit|MultiEdit|NotebookEdit)$/.test(tool) && (input.file_path || input.notebook_path)) return `Edit(/${abs(input.file_path || input.notebook_path)})`;
+  if (tool === 'Read' && input.file_path) return `Read(/${abs(input.file_path)})`;
+  if (tool === 'WebFetch' && input.url) { try { return `WebFetch(domain:${new URL(input.url).hostname})`; } catch {} }
+  return tool; // MCP tools and others: the tool name is already specific
+}
+
+function recordDecision(g, allow, always) {
+  const list = readJson(DECISIONS_FILE) || [];
+  list.unshift({
+    id: crypto.randomBytes(6).toString('hex'), at: new Date().toISOString(), agent: g.info.agent, tool: g.info.tool,
+    action: g.info.action, text: g.info.text.slice(0, 2000), cwd: g.info.cwd, risk: g.info.risk,
+    decision: allow ? 'allow' : 'deny', always,
+    savedRules: always ? (g.suggestions || []).flatMap(sug => (sug.rules || []).map(ruleTitle)) : [],
+    blockRule: exactRule(g.info.tool, g.input, g.cwd),
+  });
+  fs.writeFileSync(DECISIONS_FILE, JSON.stringify(list.slice(0, 500), null, 2));
+}
+
+function userDenyRules() { return (((readJson(h('.claude', 'settings.json')) || {}).permissions || {}).deny) || []; }
+
+function listDecisions() {
+  const findings = scanAll().findings.filter(f => f.agent === 'Claude Code' && f.category === 'Tool permission');
+  const deny = new Set(userDenyRules());
+  return (readJson(DECISIONS_FILE) || []).map(d => {
+    const live = findings.filter(f => d.savedRules.includes(f.title));
+    return { ...d, ruleIds: live.map(f => f.id), ruleActive: live.length > 0, blocked: deny.has(d.blockRule) };
+  });
+}
+
+function editUserDeny(rule, add) {
+  const file = h('.claude', 'settings.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  if (!exists(file)) fs.writeFileSync(file, '{}\n');
+  const j = readJson(file);
+  if (!j) throw new Error('Could not read ~/.claude/settings.json (is it valid JSON?)');
+  const bk = backup(file);
+  j.permissions = j.permissions || {};
+  const deny = (j.permissions.deny || []).filter(r => r !== rule);
+  if (add) deny.push(rule);
+  if (deny.length) j.permissions.deny = deny; else delete j.permissions.deny;
+  writeJsonAtomic(file, j);
+  return bk;
+}
+
+// Take back an earlier decision: remove any "always" rule it saved, and/or block it from now on
+function changeDecision({ id: did, action }) {
+  const d = listDecisions().find(x => x.id === did);
+  if (!d) throw new Error('Decision not found.');
+  const snap = scanAll();
+  const revokeSaved = () => d.ruleIds.forEach(rid => { try { revoke(rid, 'decision changed', snap); } catch {} });
+  if (action === 'revoke') {
+    if (!d.ruleActive) throw new Error('The rule from this decision is already gone.');
+    revokeSaved();
+    log(`DECISION revoked "always" rule for [${d.agent}] ${d.tool}: ${d.savedRules.join(', ')}`);
+    return { message: `Removed: ${d.savedRules.join(', ')}. Claude Code will ask again next time.` };
+  }
+  if (action === 'block') {
+    revokeSaved();
+    const bk = editUserDeny(d.blockRule, true);
+    log(`DECISION blocked [${d.agent}] ${d.blockRule}  backup=${bk}`);
+    return { message: `Blocked from now on: ${d.blockRule}` };
+  }
+  if (action === 'unblock') {
+    const bk = editUserDeny(d.blockRule, false);
+    log(`DECISION unblocked [${d.agent}] ${d.blockRule}  backup=${bk}`);
+    return { message: `Unblocked: ${d.blockRule}. Claude Code will ask again next time.` };
+  }
+  throw new Error('Unknown action.');
 }
 
 // Turn the Claude Code gate on/off by adding/removing our PermissionRequest hook in ~/.claude/settings.json
@@ -811,6 +891,7 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && url.pathname === '/api/scan') { sweepExpired(); return send(res, 200, publicScan()); }
     if (req.method === 'GET' && url.pathname === '/api/events') return waitEvents(res);
+    if (req.method === 'GET' && url.pathname === '/api/decisions') return send(res, 200, listDecisions());
     if (req.method === 'GET' && url.pathname === '/api/gate/status') return send(res, 200, gateStatus());
     if (req.method === 'GET' && url.pathname === '/api/changes') return send(res, 200, changes());
     if (req.method === 'GET' && url.pathname === '/api/backups') return send(res, 200, listBackups());
@@ -818,6 +899,7 @@ const server = http.createServer(async (req, res) => {
     const body = req.method === 'POST' ? await readBody(req) : {};
     if (url.pathname === '/api/revoke') return send(res, 200, revoke(body.id));
     if (url.pathname === '/api/gate/decide') return send(res, 200, gateDecide(body));
+    if (url.pathname === '/api/decisions/change') return send(res, 200, changeDecision(body));
     if (url.pathname === '/api/gate/install') return send(res, 200, gateInstall(!!body.on));
     if (url.pathname === '/api/revoke-many') return send(res, 200, revokeMany(body.ids));
     if (url.pathname === '/api/expiry') return send(res, 200, setExpiry(body.id, body.hours));
