@@ -1,0 +1,444 @@
+// AI Access Auditor — native macOS shell.
+// - Main window: shows the auditor UI (WKWebView) over a vibrant sidebar.
+// - Menu bar shield: stays running after the window closes, checks for new AI access every few minutes,
+//   turns red and sends a notification when an agent gains access you haven't seen.
+// - Runs the bundled scanner (server.js) privately on 127.0.0.1.
+import Cocoa
+import WebKit
+import UserNotifications
+
+let CHECK_INTERVAL: TimeInterval = 5 * 60
+let LAUNCH_AGENT_ID = "local.ai-access-auditor"
+
+struct Grant: Decodable { let id, agent, title, category, risk, detail: String }
+struct Changes: Decodable { let scannedAt: String; let total, openHigh: Int; let new, toNotify: [Grant]; let expired: [Grant]? }
+
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate,
+                         UNUserNotificationCenterDelegate, NSMenuDelegate {
+    var window: NSWindow!
+    var webView: WKWebView!
+    var server: Process?
+    var buffer = ""
+    var port: Int?
+    var token: String?
+    var pageLoaded = false
+    var pendingJS: [String] = []
+    var statusItem: NSStatusItem!
+    var lastChanges: Changes?
+    var timer: Timer?
+    let startHidden = CommandLine.arguments.contains("--background")
+
+    // MARK: launch
+    func applicationDidFinishLaunching(_ note: Notification) {
+        buildMenu()
+        buildWindow()
+        buildStatusItem()
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        center.requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        if startHidden { NSApp.setActivationPolicy(.accessory) } else { showWindow() }
+        startServer()
+    }
+
+    func buildWindow() {
+        let config = WKWebViewConfiguration()
+        webView = WKWebView(frame: .zero, configuration: config)
+        webView.navigationDelegate = self
+        webView.uiDelegate = self
+        webView.setValue(false, forKey: "drawsBackground") // let the sidebar vibrancy show through
+        webView.loadHTMLString(statusPage("Starting…"), baseURL: nil)
+
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1180, height: 780),
+                          styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                          backing: .buffered, defer: false)
+        window.title = "AI Access Auditor"
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+
+        let blur = NSVisualEffectView()
+        blur.material = .sidebar
+        blur.blendingMode = .behindWindow
+        blur.state = .followsWindowActiveState
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        blur.addSubview(webView)
+        let drag = DragStrip()
+        drag.translatesAutoresizingMaskIntoConstraints = false
+        blur.addSubview(drag)
+        NSLayoutConstraint.activate([
+            webView.leadingAnchor.constraint(equalTo: blur.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: blur.trailingAnchor),
+            webView.topAnchor.constraint(equalTo: blur.topAnchor),
+            webView.bottomAnchor.constraint(equalTo: blur.bottomAnchor),
+            drag.leadingAnchor.constraint(equalTo: blur.leadingAnchor, constant: 80),
+            drag.trailingAnchor.constraint(equalTo: blur.trailingAnchor),
+            drag.topAnchor.constraint(equalTo: blur.topAnchor),
+            drag.heightAnchor.constraint(equalToConstant: 14),
+        ])
+        window.contentView = blur
+        window.minSize = NSSize(width: 760, height: 480)
+        window.setFrameAutosaveName("MainWindow")
+        if !window.setFrameUsingName("MainWindow") { window.center() }
+    }
+
+    @objc func showWindow() {
+        NSApp.setActivationPolicy(.regular)
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        runJS("window.rescan && window.rescan()")
+    }
+
+    // Closing the window keeps the app alive in the menu bar
+    func windowWillClose(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)
+    }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { showWindow() }
+        return true
+    }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    // MARK: scanner process
+    func findNode() -> String? {
+        let nvmDir = NSHomeDirectory() + "/.nvm/versions/node"
+        let nvm = ((try? FileManager.default.contentsOfDirectory(atPath: nvmDir)) ?? [])
+            .sorted().reversed().map { "\(nvmDir)/\($0)/bin/node" }
+        let candidates = ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"] + nvm
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    func startServer() {
+        guard let node = findNode() else {
+            showError("Node.js was not found. Install it with <code>brew install node</code>, then reopen the app."); return
+        }
+        guard let script = Bundle.main.path(forResource: "server", ofType: "js") else {
+            showError("The app bundle is missing server.js."); return
+        }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: node)
+        p.arguments = [script]
+        var env = ProcessInfo.processInfo.environment
+        env["PORT"] = "0"
+        p.environment = env
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = pipe
+        pipe.fileHandleForReading.readabilityHandler = { [weak self] h in
+            guard let s = String(data: h.availableData, encoding: .utf8), !s.isEmpty else { return }
+            DispatchQueue.main.async { self?.handleOutput(s) }
+        }
+        p.terminationHandler = { [weak self] proc in
+            DispatchQueue.main.async {
+                guard let self, self.server != nil else { return }
+                self.showError("The scanner stopped (exit code \(proc.terminationStatus)).<pre>\(self.buffer)</pre>")
+            }
+        }
+        do { try p.run(); server = p } catch { showError("Could not start the scanner: \(error.localizedDescription)") }
+    }
+
+    func handleOutput(_ s: String) {
+        buffer += s
+        if token == nil, let r = buffer.range(of: #"TOKEN [a-f0-9]+"#, options: .regularExpression) {
+            token = String(buffer[r].split(separator: " ")[1])
+        }
+        if port == nil, let r = buffer.range(of: #"LISTENING \d+"#, options: .regularExpression),
+           let p = Int(buffer[r].split(separator: " ")[1]) {
+            port = p
+            webView.load(URLRequest(url: URL(string: "http://127.0.0.1:\(p)/?native=1")!))
+            checkForChanges()
+            timer = Timer.scheduledTimer(withTimeInterval: CHECK_INTERVAL, repeats: true) { [weak self] _ in self?.checkForChanges() }
+            timer?.tolerance = 30
+        }
+    }
+
+    func showError(_ msg: String) {
+        webView.loadHTMLString(statusPage(msg), baseURL: nil)
+        setStatusIcon(alert: true, count: 0)
+    }
+
+    func statusPage(_ msg: String) -> String {
+        """
+        <html><body style="font:15px -apple-system;display:flex;height:90vh;align-items:center;justify-content:center;
+        color:#666;text-align:center;padding:24px">\
+        <style>@media(prefers-color-scheme:dark){body{color:#aaa}}</style><div>\(msg)</div></body></html>
+        """
+    }
+
+    // MARK: API
+    func api(_ path: String, method: String = "GET", body: [String: Any]? = nil, done: @escaping (Data?) -> Void) {
+        guard let port, let token else { done(nil); return }
+        var req = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/api/\(path)")!)
+        req.httpMethod = method
+        req.setValue(token, forHTTPHeaderField: "x-token")
+        req.setValue("application/json", forHTTPHeaderField: "content-type")
+        if let body { req.httpBody = try? JSONSerialization.data(withJSONObject: body) }
+        URLSession.shared.dataTask(with: req) { data, resp, _ in
+            let ok = (resp as? HTTPURLResponse)?.statusCode == 200
+            DispatchQueue.main.async { done(ok ? data : nil) }
+        }.resume()
+    }
+
+    @objc func checkForChanges() {
+        api("changes") { [weak self] data in
+            guard let self, let data, let c = try? JSONDecoder().decode(Changes.self, from: data) else { return }
+            self.lastChanges = c
+            self.setStatusIcon(alert: !c.new.isEmpty, count: c.new.count)
+            NSApp.dockTile.badgeLabel = c.new.isEmpty ? nil : String(c.new.count)
+            self.notify(c.toNotify)
+            self.notifyExpired(c.expired ?? [])
+            if self.window.isVisible { self.runJS("window.rescan && window.rescan()") }
+        }
+    }
+
+    // MARK: notifications
+    func notify(_ grants: [Grant]) {
+        guard !grants.isEmpty else { return }
+        let center = UNUserNotificationCenter.current()
+        let ordered = grants.sorted { rank($0.risk) < rank($1.risk) }
+        for g in ordered.prefix(3) {
+            let c = UNMutableNotificationContent()
+            c.title = "\(g.agent) gained access"
+            c.subtitle = "\(g.category) · \(g.risk == "high" ? "High risk" : g.risk.capitalized)"
+            c.body = g.title
+            c.sound = g.risk == "high" ? .default : nil
+            c.userInfo = ["id": g.id]
+            center.add(UNNotificationRequest(identifier: g.id, content: c, trigger: nil))
+        }
+        if ordered.count > 3 {
+            let c = UNMutableNotificationContent()
+            c.title = "\(ordered.count - 3) more new AI grants"
+            c.body = "Open AI Access Auditor to review them."
+            c.userInfo = ["view": "new"]
+            center.add(UNNotificationRequest(identifier: "more-\(Date().timeIntervalSince1970)", content: c, trigger: nil))
+        }
+    }
+    func notifyExpired(_ grants: [Grant]) {
+        guard !grants.isEmpty else { return }
+        let c = UNMutableNotificationContent()
+        c.title = grants.count == 1 ? "Access expired and was removed" : "\(grants.count) grants expired and were removed"
+        c.body = grants.prefix(4).map { "\($0.agent): \($0.title)" }.joined(separator: "\n")
+        c.userInfo = ["view": "history"]
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "expired-\(Date().timeIntervalSince1970)", content: c, trigger: nil))
+    }
+    func rank(_ r: String) -> Int { ["high": 0, "medium": 1, "low": 2][r] ?? 3 }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                withCompletionHandler done: @escaping (UNNotificationPresentationOptions) -> Void) {
+        done([.banner, .sound, .list])
+    }
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler done: @escaping () -> Void) {
+        let info = response.notification.request.content.userInfo
+        DispatchQueue.main.async {
+            if let id = info["id"] as? String { self.openFinding(id) } else { self.openView(info["view"] as? String ?? "new") }
+        }
+        done()
+    }
+
+    func openFinding(_ id: String) {
+        showWindow()
+        runJS("window.selectFinding && window.selectFinding('\(id.filter { $0.isHexDigit })')")
+    }
+    func openView(_ v: String) {
+        showWindow()
+        runJS("window.showView && window.showView('\(v.filter { $0.isLetter })')")
+    }
+
+    func runJS(_ js: String) {
+        if pageLoaded { webView.evaluateJavaScript(js) } else { pendingJS.append(js) }
+    }
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard webView.url?.scheme == "http" else { return }
+        pageLoaded = true
+        pendingJS.forEach { webView.evaluateJavaScript($0) }
+        pendingJS = []
+    }
+
+    // MARK: menu bar
+    func buildStatusItem() {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let menu = NSMenu()
+        menu.delegate = self
+        statusItem.menu = menu
+        setStatusIcon(alert: false, count: 0)
+    }
+
+    func setStatusIcon(alert: Bool, count: Int) {
+        guard let button = statusItem?.button else { return }
+        let name = alert ? "exclamationmark.shield.fill" : "checkmark.shield"
+        var img = NSImage(systemSymbolName: name, accessibilityDescription: "AI Access Auditor")
+        if alert {
+            img = img?.withSymbolConfiguration(.init(paletteColors: [.white, .systemRed]))
+            img?.isTemplate = false
+        } else {
+            img?.isTemplate = true
+        }
+        button.image = img
+        button.imagePosition = .imageLeading
+        button.title = count > 0 ? " \(count)" : ""
+        button.toolTip = alert ? "\(count) new AI access grant\(count == 1 ? "" : "s")" : "No new AI access"
+    }
+
+    // Rebuilt every time the menu opens so it is always current
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let c = lastChanges
+        let header = NSMenuItem(title: c == nil ? "Checking…" :
+            (c!.new.isEmpty ? "No new AI access" : "\(c!.new.count) new grant\(c!.new.count == 1 ? "" : "s") since you last looked"),
+            action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        menu.addItem(header)
+        if let c {
+            for g in c.new.sorted(by: { rank($0.risk) < rank($1.risk) }).prefix(8) {
+                let dot = g.risk == "high" ? "🔴" : g.risk == "medium" ? "🟠" : "🟢"
+                let item = NSMenuItem(title: "\(dot)  \(g.agent): \(truncate(g.title, 48))", action: #selector(menuOpenFinding(_:)), keyEquivalent: "")
+                item.representedObject = g.id
+                item.toolTip = g.detail
+                item.target = self
+                menu.addItem(item)
+            }
+            if c.new.count > 8 { addItem(menu, "…and \(c.new.count - 8) more", #selector(menuOpenNew)) }
+            if !c.new.isEmpty { addItem(menu, "Mark All as Seen", #selector(ackAll)) }
+            menu.addItem(.separator())
+            let info = NSMenuItem(title: "\(c.total) grants · \(c.openHigh) high-risk not reviewed", action: nil, keyEquivalent: "")
+            info.isEnabled = false
+            menu.addItem(info)
+            let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let d = f.date(from: c.scannedAt) {
+                let t = NSMenuItem(title: "Checked \(RelativeDateTimeFormatter().localizedString(for: d, relativeTo: Date()))", action: nil, keyEquivalent: "")
+                t.isEnabled = false
+                menu.addItem(t)
+            }
+        }
+        menu.addItem(.separator())
+        addItem(menu, "Open AI Access Auditor", #selector(showWindow), "o")
+        addItem(menu, "Check Now", #selector(checkForChanges), "r")
+        menu.addItem(.separator())
+        let login = addItem(menu, "Open at Login", #selector(toggleLogin))
+        login.state = loginEnabled ? .on : .off
+        addItem(menu, "Quit", #selector(NSApplication.terminate(_:)), "q").target = NSApp
+    }
+
+    @discardableResult
+    func addItem(_ menu: NSMenu, _ title: String, _ action: Selector, _ key: String = "") -> NSMenuItem {
+        let i = NSMenuItem(title: title, action: action, keyEquivalent: key)
+        i.target = self
+        menu.addItem(i)
+        return i
+    }
+    func truncate(_ s: String, _ n: Int) -> String { s.count > n ? String(s.prefix(n - 1)) + "…" : s }
+
+    @objc func menuOpenFinding(_ sender: NSMenuItem) { if let id = sender.representedObject as? String { openFinding(id) } }
+    @objc func menuOpenNew() { openView("new") }
+    @objc func ackAll() {
+        api("ack", method: "POST", body: [:]) { [weak self] _ in self?.checkForChanges() }
+    }
+
+    // MARK: open at login (a per-user LaunchAgent that starts the app in the background)
+    var launchAgentURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents/\(LAUNCH_AGENT_ID).plist")
+    }
+    var loginEnabled: Bool { FileManager.default.fileExists(atPath: launchAgentURL.path) }
+
+    @objc func toggleLogin() {
+        if loginEnabled {
+            try? FileManager.default.removeItem(at: launchAgentURL)
+            return
+        }
+        let plist: [String: Any] = [
+            "Label": LAUNCH_AGENT_ID,
+            "ProgramArguments": ["/usr/bin/open", "-g", "-j", Bundle.main.bundlePath, "--args", "--background"],
+            "RunAtLoad": true,
+        ]
+        do {
+            try FileManager.default.createDirectory(at: launchAgentURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+            try data.write(to: launchAgentURL)
+        } catch {
+            let a = NSAlert(); a.messageText = "Couldn't turn on Open at Login"; a.informativeText = error.localizedDescription; a.runModal()
+        }
+    }
+
+    // MARK: web view plumbing
+    // Open links (account pages, System Settings) outside the app window
+    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        if let url = action.request.url, let scheme = url.scheme,
+           scheme != "about", !(scheme == "http" && url.host == "127.0.0.1") {
+            NSWorkspace.shared.open(url)
+            decisionHandler(.cancel); return
+        }
+        decisionHandler(.allow)
+    }
+    func webView(_ webView: WKWebView, createWebViewWith c: WKWebViewConfiguration,
+                 for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        if let url = action.request.url { NSWorkspace.shared.open(url) }
+        return nil
+    }
+    func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+        let a = NSAlert(); a.messageText = message; a.runModal(); completionHandler()
+    }
+    func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        let a = NSAlert()
+        let parts = message.components(separatedBy: "\n\n")
+        a.messageText = parts.first ?? message
+        a.informativeText = parts.dropFirst().joined(separator: "\n\n")
+        a.alertStyle = .warning
+        a.addButton(withTitle: "Confirm")
+        a.addButton(withTitle: "Cancel")
+        completionHandler(a.runModal() == .alertFirstButtonReturn)
+    }
+
+    @objc func reload() { webView.reload() }
+
+    func buildMenu() {
+        let main = NSMenu()
+        let appItem = NSMenuItem(); main.addItem(appItem)
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "About AI Access Auditor", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Hide", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: "Quit AI Access Auditor", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appItem.submenu = appMenu
+
+        let editItem = NSMenuItem(); main.addItem(editItem)
+        let edit = NSMenu(title: "Edit")
+        edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = edit
+
+        let viewItem = NSMenuItem(); main.addItem(viewItem)
+        let view = NSMenu(title: "View")
+        view.addItem(withTitle: "Reload", action: #selector(reload), keyEquivalent: "r").target = self
+        viewItem.submenu = view
+
+        let winItem = NSMenuItem(); main.addItem(winItem)
+        let win = NSMenu(title: "Window")
+        win.addItem(withTitle: "Minimize", action: #selector(NSWindow.miniaturize(_:)), keyEquivalent: "m")
+        win.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        winItem.submenu = win
+        NSApp.mainMenu = main
+    }
+
+    func applicationWillTerminate(_ note: Notification) {
+        let s = server; server = nil
+        s?.terminate()
+    }
+}
+
+// Thin invisible strip along the top edge so the window can still be dragged by its title bar
+final class DragStrip: NSView {
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2 { window?.performZoom(nil) } else { window?.performDrag(with: event) }
+    }
+}
+
+let app = NSApplication.shared
+let delegate = AppDelegate()
+app.delegate = delegate
+app.run()
