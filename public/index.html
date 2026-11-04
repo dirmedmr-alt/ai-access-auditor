@@ -265,7 +265,7 @@ const agentColor = a => AGENT_COLORS[[...a].reduce((s, c) => s + c.charCodeAt(0)
 const avatar = a => `<span class="av" style="background:${agentColor(a)}">${esc(a.replace(/^.*\./, '')[0].toUpperCase())}</span>`;
 
 // ---------- state ----------
-let data = null, view = 'overview', agentFilter = null, selected = null;
+let data = null, view = 'overview', agentFilter = null, selected = null, gateOn = false;
 const picked = new Set(); // grants ticked for bulk actions
 const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'uninstallExt'];
 const canRevoke = f => REVOCABLE.includes(f.action.kind);
@@ -276,7 +276,7 @@ const toast = (m, ms = 3800) => { const t = $('#toast'); t.textContent = m; t.cl
 
 async function scan() {
   $('#rescan').innerHTML = icon('refresh', 'spin');
-  try { data = await api('scan'); }
+  try { [data, { installed: gateOn }] = await Promise.all([api('scan'), api('gate/status')]); }
   catch (e) { $('#when').textContent = e.message; return; }
   finally { $('#rescan').innerHTML = icon('refresh'); }
   $('#when').textContent = 'Scanned ' + new Date(data.scannedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -351,6 +351,9 @@ function renderOverview() {
       <div class="tile"><span>Not reviewed</span><b>${open.length}</b></div>
       <div class="tile"><span>Reviewed</span><b>${f.length - open.length}</b></div>
     </div>
+    <div class="note" style="background:var(--pane2)">${icon('Permission mode')}<div style="flex:1"><b>Live protection</b>
+      <p>${gateOn ? 'On. Claude Code asks you here before it does anything new, and new access from any agent pops up right away.' : 'New access from any agent pops up right away. Turn this on to also approve or deny each Claude Code action before it runs.'}</p></div>
+      <label class="switch" style="align-self:center"><input type="checkbox" id="gateSw" ${gateOn ? 'checked' : ''}> Ask before Claude Code acts</label></div>
     ${f.some(x => x.isNew) ? `<div class="sec"><h3>New since you last looked</h3><button class="btn ghost" data-ackall>Mark all as seen</button></div>
       <div class="card newcard nock">${f.filter(x => x.isNew).slice(0, 5).map(row).join('')}</div>` : ''}
     ${tccMissing ? `<div class="note">${icon('info')}<div><b>macOS permissions aren't included yet</b><p>To check Screen Recording, Accessibility and Full Disk Access grants, add AI Access Auditor under Privacy &amp; Security → Full Disk Access, then reopen it.</p>
@@ -519,6 +522,11 @@ document.addEventListener('click', async e => {
 document.addEventListener('input', e => {
   if (e.target.id === 'q') { ui.q = e.target.value; renderMain(); }
   if (e.target.id === 'hideRev') { ui.hideReviewed = e.target.checked; renderMain(); }
+  if (e.target.id === 'gateSw') {
+    const on = e.target.checked;
+    if (on && !confirm('Ask before Claude Code acts?\n\nWhenever Claude Code is about to ask for permission, a window pops up here so you can Allow or Deny. This adds a hook to ~/.claude/settings.json (a backup is saved). If this app isn\'t running, Claude Code asks the usual way.')) { e.target.checked = false; return; }
+    api('gate/install', { on }).then(r => { toast(r.message, 5000); scan(); }).catch(err => { toast(err.message); scan(); });
+  }
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && selected) { selected = null; render(); }

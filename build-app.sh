@@ -4,8 +4,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 APP="dist/AI Access Auditor.app"
 rm -rf "$APP" && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-swiftc -O -o "$APP/Contents/MacOS/AIAccessAuditor" macos/main.swift -framework Cocoa -framework WebKit
-cp server.js "$APP/Contents/Resources/" && cp -R public "$APP/Contents/Resources/"
+swiftc -O -o "$APP/Contents/MacOS/AIAccessAuditor" macos/main.swift macos/prompt.swift -framework Cocoa -framework WebKit
+cp server.js gate.js "$APP/Contents/Resources/" && cp -R public "$APP/Contents/Resources/"
 # Icon
 T=$(mktemp -d); swift macos/icon.swift "$T/icon.png" 2>/dev/null
 mkdir "$T/i.iconset"
@@ -37,7 +37,8 @@ echo "Built: $APP"
 # ./build-app.sh --install  → copy into /Applications and relaunch from there
 if [[ "${1:-}" == "--install" ]]; then
   osascript -e 'quit app "AI Access Auditor"' 2>/dev/null || true
-  sleep 1
+  # make sure the old copy is really gone (a menu-bar-only app may ignore the quit request)
+  for _ in 1 2 3 4 5; do pgrep -f "AI Access Auditor.app/Contents/MacOS/" >/dev/null || break; pkill -f "AI Access Auditor.app/Contents/MacOS/"; sleep 1; done
   rm -rf "/Applications/AI Access Auditor.app"
   cp -R "$APP" /Applications/
   echo "Installed: /Applications/AI Access Auditor.app"

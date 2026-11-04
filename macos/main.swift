@@ -1,7 +1,8 @@
 // AI Access Auditor — native macOS shell.
 // - Main window: shows the auditor UI (WKWebView) over a vibrant sidebar.
-// - Menu bar shield: stays running after the window closes, checks for new AI access every few minutes,
-//   turns red and sends a notification when an agent gains access you haven't seen.
+// - Menu bar shield: stays running after the window closes and watches agents' config files live.
+// - LuLu-style prompts: pops up Keep / Remove when an agent gains new access, and Allow / Deny before
+//   Claude Code acts (via a PermissionRequest hook, see gate.js).
 // - Runs the bundled scanner (server.js) privately on 127.0.0.1.
 import Cocoa
 import WebKit
@@ -10,7 +11,10 @@ import UserNotifications
 let CHECK_INTERVAL: TimeInterval = 5 * 60
 let LAUNCH_AGENT_ID = "local.ai-access-auditor"
 
-struct Grant: Decodable { let id, agent, title, category, risk, detail: String }
+struct Grant: Decodable { let id, agent, title, category, risk, detail: String; let revocable: Bool? }
+struct GateRequest: Decodable { let id, agent, tool, action, text, risk, cwd: String; let canAlways: Bool }
+struct Events: Decodable { let gate: [GateRequest]; let changed: Bool; let closed: [String] }
+struct GateStatus: Decodable { let installed: Bool }
 struct Changes: Decodable { let scannedAt: String; let total, openHigh: Int; let new, toNotify: [Grant]; let expired: [Grant]? }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate,
@@ -26,6 +30,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     var statusItem: NSStatusItem!
     var lastChanges: Changes?
     var timer: Timer?
+    var panels: [String: PromptPanel] = [:]   // open Allow/Deny prompts by request id
+    var gateInstalled = false
     let startHidden = CommandLine.arguments.contains("--background")
 
     // MARK: launch
@@ -149,6 +155,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             checkForChanges()
             timer = Timer.scheduledTimer(withTimeInterval: CHECK_INTERVAL, repeats: true) { [weak self] _ in self?.checkForChanges() }
             timer?.tolerance = 30
+            eventLoop()
         }
     }
 
@@ -170,6 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         guard let port, let token else { done(nil); return }
         var req = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/api/\(path)")!)
         req.httpMethod = method
+        req.timeoutInterval = path == "events" ? 80 : 60
         req.setValue(token, forHTTPHeaderField: "x-token")
         req.setValue("application/json", forHTTPHeaderField: "content-type")
         if let body { req.httpBody = try? JSONSerialization.data(withJSONObject: body) }
@@ -183,11 +191,112 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         api("changes") { [weak self] data in
             guard let self, let data, let c = try? JSONDecoder().decode(Changes.self, from: data) else { return }
             self.lastChanges = c
+            self.refreshGateStatus()
             self.setStatusIcon(alert: !c.new.isEmpty, count: c.new.count)
             NSApp.dockTile.badgeLabel = c.new.isEmpty ? nil : String(c.new.count)
-            self.notify(c.toNotify)
+            self.promptNewGrants(c.toNotify)
             self.notifyExpired(c.expired ?? [])
             if self.window.isVisible { self.runJS("window.rescan && window.rescan()") }
+        }
+    }
+
+    // MARK: live prompts (LuLu-style)
+    /// Long-poll the scanner: it answers as soon as Claude Code asks something or an agent's config changes.
+    func eventLoop() {
+        api("events") { [weak self] data in
+            guard let self else { return }
+            guard let data, let e = try? JSONDecoder().decode(Events.self, from: data) else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.eventLoop() }
+                return
+            }
+            e.closed.forEach { id in self.panels.removeValue(forKey: id)?.dismiss() }
+            e.gate.forEach { self.showGatePrompt($0) }
+            if e.changed { self.checkForChanges() }
+            self.eventLoop()
+        }
+    }
+
+    func showGatePrompt(_ g: GateRequest) {
+        guard panels[g.id] == nil else { return }
+        let symbol = g.tool == "Bash" ? "terminal.fill" : g.tool.hasPrefix("mcp__") ? "server.rack"
+            : ["Write", "Edit", "MultiEdit", "NotebookEdit"].contains(g.tool) ? "square.and.pencil"
+            : g.tool.hasPrefix("Web") ? "globe" : "hand.raised.fill"
+        let panel = PromptPanel(.init(
+            symbol: symbol, risk: g.risk,
+            title: "\(g.agent) wants to \(g.action)",
+            subtitle: g.cwd.isEmpty ? "Tool: \(g.tool)" : "Tool: \(g.tool) · in \(g.cwd)",
+            detail: g.text,
+            footnote: "\(g.agent) is paused until you decide. If you don't answer, it falls back to asking in its own window.",
+            options: g.canAlways ? ["Just this once", "Always (don't ask again)"] : ["Just this once"],
+            allowTitle: "Allow", denyTitle: "Deny"))
+        panel.onDecision = { [weak self] allowed, option in
+            guard let self else { return }
+            self.panels.removeValue(forKey: g.id)
+            guard let allowed else { return } // closed without deciding → Claude Code will ask normally after timeout
+            self.api("gate/decide", method: "POST", body: [
+                "id": g.id, "decision": allowed ? "allow" : "deny", "remember": option == 1 ? "always" : "once",
+            ]) { _ in }
+        }
+        panels[g.id] = panel
+        panel.present()
+    }
+
+    /// Something gained access outside the gate (new MCP server, folder, extension…): keep it or remove it.
+    func promptNewGrants(_ grants: [Grant]) {
+        let ordered = grants.sorted { rank($0.risk) < rank($1.risk) }
+        for g in ordered.prefix(3) where panels["grant-\(g.id)"] == nil {
+            let canRemove = g.revocable ?? false
+            let panel = PromptPanel(.init(
+                symbol: "exclamationmark.shield.fill", risk: g.risk,
+                title: "\(g.agent) got new access",
+                subtitle: g.category,
+                detail: "\(g.title)\n\(g.detail)",
+                footnote: canRemove ? "Remove takes the access away now (a backup is saved, so you can undo it)." : "This one has to be removed by hand. Choose \"Review\" to see how.",
+                options: ["Keep it", "Keep for 1 hour", "Keep for 1 day", "Keep for 7 days"],
+                allowTitle: "Keep", denyTitle: canRemove ? "Remove" : "Review"))
+            panel.onDecision = { [weak self] allowed, option in
+                guard let self else { return }
+                self.panels.removeValue(forKey: "grant-\(g.id)")
+                guard let allowed else { return }
+                if !allowed {
+                    if !canRemove { self.openFinding(g.id); return }
+                    self.api("revoke", method: "POST", body: ["id": g.id]) { data in
+                        if data == nil {
+                            let a = NSAlert(); a.messageText = "Couldn't remove \(g.title)"; a.informativeText = "Open AI Access Auditor to try again."; a.runModal()
+                        }
+                        self.checkForChanges()
+                    }
+                } else if option == 0 || !canRemove {
+                    self.api("review", method: "POST", body: ["id": g.id, "on": true]) { _ in self.checkForChanges() }
+                } else {
+                    let hours = [0, 1, 24, 168][option]
+                    self.api("expiry", method: "POST", body: ["id": g.id, "hours": hours]) { _ in self.checkForChanges() }
+                }
+            }
+            panels["grant-\(g.id)"] = panel
+            panel.present()
+        }
+        if ordered.count > 3 { notify(Array(ordered.dropFirst(3))) }
+    }
+
+    func refreshGateStatus() {
+        api("gate/status") { [weak self] data in
+            if let data, let s = try? JSONDecoder().decode(GateStatus.self, from: data) { self?.gateInstalled = s.installed }
+        }
+    }
+    @objc func toggleGate() {
+        let on = !gateInstalled
+        if on {
+            let a = NSAlert()
+            a.messageText = "Ask before Claude Code acts?"
+            a.informativeText = "Whenever Claude Code is about to ask for permission, this app pops up instead so you can Allow or Deny. This adds a hook to ~/.claude/settings.json (a backup is saved). If this app isn't running, Claude Code just asks the usual way."
+            a.addButton(withTitle: "Turn On"); a.addButton(withTitle: "Cancel")
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+        }
+        api("gate/install", method: "POST", body: ["on": on]) { [weak self] data in
+            if data == nil { let a = NSAlert(); a.messageText = "Couldn't change the Claude Code gate"; a.runModal() }
+            self?.refreshGateStatus()
+            self?.runJS("window.rescan && window.rescan()")
         }
     }
 
@@ -315,6 +424,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         addItem(menu, "Open AI Access Auditor", #selector(showWindow), "o")
         addItem(menu, "Check Now", #selector(checkForChanges), "r")
         menu.addItem(.separator())
+        let gate = addItem(menu, "Ask Before Claude Code Acts", #selector(toggleGate))
+        gate.state = gateInstalled ? .on : .off
         let login = addItem(menu, "Open at Login", #selector(toggleLogin))
         login.state = loginEnabled ? .on : .off
         addItem(menu, "Quit", #selector(NSApplication.terminate(_:)), "q").target = NSApp
