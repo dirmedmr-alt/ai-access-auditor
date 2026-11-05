@@ -296,6 +296,7 @@ const P = {
   'macOS privacy': '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   'Running agent': '<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/>',
   'AI tool install': '<path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>',
+  'Data upload': '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/>',
   'Agent skill': '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/>',
   'Inherited credential': '<circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0"/><path d="M19 8v6M16 11h6"/>',
   'Admin rights': '<path d="M12 2l3 6 6 .9-4.5 4.3 1 6.3L12 16.8 6.5 19.5l1-6.3L3 8.9 9 8z"/>',
@@ -320,6 +321,7 @@ const EXPLAIN = {
   'macOS privacy': ['A system permission from macOS', 'macOS lets this app use a protected part of your Mac. Any agent running inside the app gets the same access.'],
   'Running agent': ['Running right now with safety off', 'This agent is running at this moment with its approval prompts switched off, or as administrator. It can change files and run commands without asking. Stop it if you didn\'t start it this way on purpose.'],
   'AI tool install': ['An AI tool is being installed right now', 'Someone ran the setup for an MCP server, agent skill or agent plugin on this Mac. Once it finishes, it usually gives your agents new abilities. Stop it if you didn\'t start it on purpose. If you keep it, you\'ll be asked about the access it adds.'],
+  'Data upload': ['Sending data from your Mac', 'This program is sending data from your Mac to another computer on the internet. Programs that AI agents start (scripts, commands, MCP servers) are flagged from 64 KB, any other app from 20 MB. Check the files it has open. If you didn\'t expect it, stop it.'],
   'Agent skill': ['Instructions the agent follows on its own', 'A skill is a folder of instructions, and often scripts, that the agent loads whenever it decides the skill fits the task. Scripts in it run with the same access as the agent.'],
   'Inherited credential': ['A login every agent can use', 'You are logged in to this tool in your account, so any agent you run can use it as you. This works without the agent asking for anything.'],
   'Admin rights': ['Administrator access', 'Any program you run, including AI agents, can get full administrator rights on this Mac without asking for your password.'],
@@ -509,14 +511,19 @@ function renderCloud() {
 async function renderDecisions() {
   setHead('Decisions', 'Every Allow and Deny you gave in the popup. Change your mind any time.');
   $('#body').innerHTML = '<div class="empty">Loading…</div>';
-  const list = await api('decisions');
+  const [list, tr] = await Promise.all([api('decisions'), api('uploads/trusted')]);
   if (view !== 'decisions') return;
+  const trusted = tr.trusted.length ? `<div class="sec"><h3>Apps allowed to send data</h3></div>
+    <div class="card nock">${tr.trusted.map(t => `<div class="item" style="grid-template-columns:32px 1fr auto"><span class="ic low">${icon('Data upload')}</span>
+      <div style="min-width:0"><div class="ttl">${esc(t.label.split('/').pop().replace(/\.app$/, ''))}</div><div class="sub">${esc(t.label)}</div></div>
+      <div class="meta"><button class="btn" data-untrust="${esc(t.key)}">Watch again</button></div></div>`).join('')}</div>
+    <div class="sec"><h3>Claude Code requests</h3></div>` : '';
   if (!list.length) {
-    $('#body').innerHTML = `<div class="empty"><div class="big">✋</div>No decisions yet.<br>${gateOn ? 'When Claude Code asks for something, your answer will show up here.' : 'Turn on <b>Ask before Claude Code acts</b> on the Overview, and your answers will show up here.'}</div>`;
+    $('#body').innerHTML = `${trusted}<div class="empty"><div class="big">✋</div>No decisions yet.<br>${gateOn ? 'When Claude Code asks for something, your answer will show up here.' : 'Turn on <b>Ask before Claude Code acts</b> on the Overview, and your answers will show up here.'}</div>`;
     return;
   }
   const when = iso => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-  $('#body').innerHTML = `<div class="card nock" style="margin-top:8px">${list.map(d => {
+  $('#body').innerHTML = `${trusted}<div class="card nock" style="margin-top:8px">${list.map(d => {
     const allowed = d.decision === 'allow';
     const status = d.blocked ? '<span class="badge high">Blocked</span>'
       : allowed && d.always ? (d.ruleActive ? '<span class="badge low">Always allowed</span>' : '<span class="badge ok">Rule removed</span>')
@@ -574,15 +581,25 @@ function renderInspector() {
         : a.kind === 'openApp' ? `<button class="btn primary" data-openapp="${f.id}">${esc(a.label)}</button><div class="hint">${esc(a.hint)}</div>`
         : a.kind === 'link' ? `<a class="btn primary" href="${esc(a.url)}">${esc(a.hint || 'Open settings')}</a>`
         : `<div class="hint">${esc(a.hint || 'Change this one by hand.')}</div>`}
+      ${f.category === 'Data upload' ? `<button class="btn" data-trust="${f.id}">Always allow this app</button>` : ''}
       <button class="btn" data-rev="${f.id}" data-on="${f.reviewedAt ? 0 : 1}">${f.reviewedAt ? 'Mark as not reviewed' : 'Keep it — mark as reviewed'}</button>
     </div>`;
 }
 
 // ---------- events ----------
 document.addEventListener('click', async e => {
-  const t = e.target.closest('[data-dec],[data-pick],[data-pickall],[data-bulk],[data-exp],[data-openapp],[data-ackall],[data-view],[data-go],[data-id],[data-close],[data-revoke],[data-rev],[data-restore],#seg button,#rescan');
+  const t = e.target.closest('[data-trust],[data-untrust],[data-dec],[data-pick],[data-pickall],[data-bulk],[data-exp],[data-openapp],[data-ackall],[data-view],[data-go],[data-id],[data-close],[data-revoke],[data-rev],[data-restore],#seg button,#rescan');
   if (!t) return;
   if (t.id === 'rescan') return scan();
+  if (t.dataset.trust) {
+    if (!confirm('Let this app send data without asking from now on?\n\nYou can undo this under Decisions.')) return;
+    try { toast((await api('uploads/trust', { id: t.dataset.trust })).message, 5000); selected = null; await scan(); } catch (err) { toast(err.message); }
+    return;
+  }
+  if (t.dataset.untrust) {
+    try { toast((await api('uploads/untrust', { key: t.dataset.untrust })).message); renderDecisions(); } catch (err) { toast(err.message); }
+    return;
+  }
   if (t.dataset.dec) {
     const msgs = { revoke: 'Remove the rule this decision saved?\n\nClaude Code will ask you again next time.', block: 'Block this from now on?\n\nClaude Code won\'t be allowed to do it, and won\'t ask. You can unblock it here later.', unblock: 'Unblock this?\n\nClaude Code will ask you again next time.' };
     if (!confirm(msgs[t.dataset.dec])) return;
