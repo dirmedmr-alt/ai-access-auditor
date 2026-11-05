@@ -77,7 +77,8 @@ This builds `dist/AI-Access-Auditor-<version>.dmg`:
 
 It also updates the download link, version, size and SHA-256 shown in `site/index.html`. With `REPO`
 set, the link points at the GitHub Release and `PUBLISH=1` uploads the DMG there. The website itself
-is published from `site/` to GitHub Pages by `.github/workflows/pages.yml` on every push to `main`.
+is published from `site/` to GitHub Pages with `./publish-site.sh` (it pushes `site/` to the
+`gh-pages` branch, which Pages serves).
 
 The beta is unsigned, so users approve it once in System Settings → Privacy & Security → Open Anyway.
 The website explains this step. To remove the warning, join the Apple Developer Program, then sign the
