@@ -250,7 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let ordered = grants.sorted { rank($0.risk) < rank($1.risk) }
         for g in ordered.prefix(3) where panels["grant-\(g.id)"] == nil {
             let canRemove = g.revocable ?? false
-            let isProcess = g.category == "Running agent"
+            let isProcess = g.category == "Running agent" || g.category == "AI tool install"
             let panel = PromptPanel(.init(
                 symbol: isProcess ? "bolt.trianglebadge.exclamationmark.fill" : "exclamationmark.shield.fill", risk: g.risk,
                 title: isProcess ? g.title : "\(g.agent) got new access",

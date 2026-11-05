@@ -67,11 +67,57 @@ function ruleRisk(rule) {
   if (/Bash\(/.test(r)) return 'medium';
   return 'low';
 }
+const RISKY_TOOL_RE = /filesystem|shell|exec|terminal|computer|browser|puppeteer|playwright|github|gmail|slack|postgres|mysql|aws|stripe|reverse.?engineer|frida|lldb|gdb|debugger|inject|ghidra|hopper|radare|decompil|exploit|keychain|osascript|applescript|desktop-commander|kubectl|docker/;
 function mcpRisk(cfg) {
-  const s = JSON.stringify(cfg || {}).toLowerCase();
-  if (/filesystem|shell|exec|terminal|computer|browser|puppeteer|playwright|github|gmail|slack|postgres|mysql|aws|stripe/.test(s)) return 'high';
+  const pkg = execPackage([cfg.command, ...(cfg.args || [])].filter(Boolean).join(' '));
+  const info = pkg ? pkgInfo(pkg.name) : null;
+  const s = (JSON.stringify(cfg || {}) + (info ? ' ' + info.text : '')).toLowerCase();
+  if (RISKY_TOOL_RE.test(s)) return 'high';
   if (Object.keys(cfg.env || {}).some(k => SECRET_RE.test(k)) || cfg.headers) return 'high';
   return 'medium';
+}
+
+// "npx foo", "npm exec foo", "uvx foo", "pipx run foo" → { name: 'foo', rest: [...] }
+function execPackage(cmd) {
+  const t = String(cmd || '').trim().split(/\s+/);
+  let i = t.findIndex(x => /(?:^|\/)(npx|bunx|pnpx|uvx)$/.test(x)), skip = 1;
+  if (i < 0) { i = t.findIndex((x, k) => /(?:^|\/)(npm|pnpm|yarn|bun)$/.test(x) && /^(exec|dlx|x)$/.test(t[k + 1] || '')); skip = 2; }
+  if (i < 0) { i = t.findIndex((x, k) => /(?:^|\/)pipx$/.test(x) && t[k + 1] === 'run'); skip = 2; }
+  if (i < 0) return null;
+  for (let k = i + skip; k < t.length; k++) {
+    const a = t[k];
+    let pkg = null, rest = t.slice(k + 1);
+    if (a === '-p' || a === '--package' || a === '--from') { pkg = t[k + 1]; rest = t.slice(k + 2); }
+    else if (/^--(package|from)=/.test(a)) pkg = a.split('=')[1];
+    else if (a.startsWith('-')) continue;
+    else pkg = a;
+    if (!pkg) return null;
+    return { name: pkg.replace(/(.)@[^/]*$/, '$1'), rest };
+  }
+  return null;
+}
+// What an npx-installed package says about itself (from the local npx cache; nothing is downloaded)
+const pkgCache = new Map();
+function pkgInfo(name) {
+  const hit = pkgCache.get(name);
+  if (hit && Date.now() - hit.at < 60e3) return hit.info;
+  let info = null, newest = 0;
+  const root = h('.npm', '_npx');
+  let dirs = [];
+  try { dirs = fs.readdirSync(root); } catch {}
+  for (const d of dirs) {
+    const f = path.join(root, d, 'node_modules', ...name.split('/'), 'package.json');
+    let st; try { st = fs.statSync(f); } catch { continue; }
+    if (st.mtimeMs < newest) continue;
+    const j = readJson(f);
+    if (!j) continue;
+    newest = st.mtimeMs;
+    const kw = (j.keywords || []).map(String);
+    info = { description: String(j.description || ''), keywords: kw, mcp: !!j.mcpName || kw.some(k => /^(mcp|mcp-server|model-context-protocol)$/i.test(k)),
+      text: `${j.description || ''} ${kw.join(' ')}` };
+  }
+  pkgCache.set(name, { at: Date.now(), info });
+  return info;
 }
 
 // ---------- scanners ----------
@@ -118,13 +164,18 @@ function claudeSettingsFindings(file, scopeLabel, agent = 'Claude Code') {
   return out;
 }
 
+function pkgDesc(cfg) {
+  const pkg = cfg.command ? execPackage([cfg.command, ...(cfg.args || [])].join(' ')) : null;
+  const info = pkg && pkgInfo(pkg.name);
+  return info && info.description ? `"${info.description.slice(0, 140)}" · ` : '';
+}
 function mcpFinding(agent, name, cfg, file, parentPath, scopeLabel) {
   const cmd = cfg.url ? cfg.url : [cfg.command, ...maskArgs(cfg.args)].filter(Boolean).join(' ');
   const env = maskEnv(cfg.env);
   const envKeys = Object.keys(env);
   return {
     agent, category: 'MCP server', title: name,
-    detail: `${cmd}${envKeys.length ? `  · env: ${envKeys.map(k => `${k}=${env[k]}`).join(', ')}` : ''}${scopeLabel ? `  (${scopeLabel})` : ''}`,
+    detail: `${pkgDesc(cfg)}${cmd}${envKeys.length ? `  · env: ${envKeys.map(k => `${k}=${env[k]}`).join(', ')}` : ''}${scopeLabel ? `  (${scopeLabel})` : ''}`,
     risk: mcpRisk(cfg), source: file,
     action: { kind: 'deleteKey', file, path: parentPath, key: name, value: cfg },
   };
@@ -590,6 +641,58 @@ function scanMoreAgents() {
   return out;
 }
 
+// Agent skills: folders of instructions (and often scripts) an agent loads and follows on its own
+const SKILL_ROOTS = [
+  ['Claude Code', h('.claude', 'skills')], ['Codex CLI', h('.codex', 'skills')], ['Gemini CLI', h('.gemini', 'skills')],
+  ['Cursor', h('.cursor', 'skills')], ['Copilot CLI', h('.copilot', 'skills')], ['OpenCode', h('.config', 'opencode', 'skill')],
+  ['OpenCode', h('.config', 'opencode', 'skills')], ['Any agent', h('.agents', 'skills')],
+];
+function skillRoots() {
+  const roots = [...SKILL_ROOTS];
+  for (const proj of Object.keys((readJson(h('.claude.json')) || {}).projects || {}))
+    if (proj !== HOME) roots.push(['Claude Code', path.join(proj, '.claude', 'skills')]);
+  return roots;
+}
+const CODE_RE = /\.(sh|bash|zsh|py|js|mjs|cjs|ts|rb|pl|swift|applescript|scpt)$/i;
+function filesIn(dir, depth = 3, out = []) {
+  if (depth < 0 || out.length > 400) return out;
+  let ents = [];
+  try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+  for (const e of ents) {
+    if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
+    const f = path.join(dir, e.name);
+    if (e.isDirectory()) filesIn(f, depth - 1, out); else out.push(f);
+  }
+  return out;
+}
+function scanSkills() {
+  const out = [];
+  if (DEMO) return out;
+  for (const [agent, root] of skillRoots()) {
+    let ents = [];
+    try { ents = fs.readdirSync(root, { withFileTypes: true }); } catch { continue; }
+    for (const e of ents) {
+      if (!e.isDirectory() && !e.isSymbolicLink()) continue;
+      if (e.name === 'synced') continue; // managed by claude.ai, not installed on this Mac
+      const dir = path.join(root, e.name);
+      let md = '';
+      try { md = fs.readFileSync(path.join(dir, 'SKILL.md'), 'utf8'); } catch { continue; }
+      const fm = (md.match(/^---\n([\s\S]*?)\n---/) || [])[1] || '';
+      const name = ((fm.match(/^name:\s*(.+)$/m) || [])[1] || e.name).trim().replace(/^["']|["']$/g, '');
+      const desc = ((fm.match(/^description:\s*(.+)$/m) || [])[1] || '').trim().replace(/^["']|["']$/g, '');
+      const scripts = filesIn(dir).filter(f => CODE_RE.test(f));
+      const risky = RISKY_TOOL_RE.test((desc + ' ' + md.slice(0, 4000)).toLowerCase());
+      out.push({
+        agent, category: 'Agent skill', title: name,
+        detail: `${desc ? desc.slice(0, 160) + ' · ' : ''}${scripts.length ? `includes ${scripts.length} script${scripts.length > 1 ? 's' : ''} the agent can run` : 'instructions only'} (${dir.replace(HOME, '~')})`,
+        risk: risky && scripts.length ? 'high' : scripts.length || risky ? 'medium' : 'low', source: dir,
+        action: { kind: 'removeFolder', dir },
+      });
+    }
+  }
+  return out;
+}
+
 // AI agents running right now with approvals switched off, or as administrator
 const AGENT_PROC_RE = /(?:^|\/)(claude|codex|gemini|aider|cursor-agent|goose|opencode|copilot|qwen|amp|crush|kiro-cli)(?=\s|$)|@anthropic-ai\/claude-code|@openai\/codex|@google\/gemini-cli|@github\/copilot|@sourcegraph\/amp|opencode-ai/;
 const AGENT_NAMES = { claude: 'Claude Code', codex: 'Codex CLI', gemini: 'Gemini CLI', aider: 'Aider', 'cursor-agent': 'Cursor CLI', goose: 'Goose', opencode: 'OpenCode', copilot: 'Copilot CLI', qwen: 'Qwen Code', amp: 'Amp', crush: 'Crush', 'kiro-cli': 'Kiro' };
@@ -611,10 +714,13 @@ function dangerReason(agentKey, cmd) {
 function scanProcesses() {
   const out = [];
   if (DEMO) return out;
-  for (const line of sh('ps', ['-axo', 'pid=,uid=,etime=,command='], 5000).split('\n')) {
-    const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/);
-    if (!m) continue;
-    const [, pid, uid, etime, cmd] = m;
+  const procs = [];
+  for (const line of sh('ps', ['-axo', 'pid=,ppid=,uid=,etime=,command='], 5000).split('\n')) {
+    const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/);
+    if (m) procs.push({ pid: m[1], ppid: m[2], uid: m[3], etime: m[4], cmd: m[5] });
+  }
+  out.push(...scanInstalls(procs));
+  for (const { pid, uid, etime, cmd } of procs) {
     if (Number(pid) === process.pid) continue;
     // Only the program actually running counts, not text that merely appears in its arguments
     const tokens = cmd.split(/\s+/);
@@ -637,6 +743,77 @@ function scanProcesses() {
       detail: `Process ${pid}, running for ${etime}${cwd ? ` in ${cwd.replace(HOME, '~')}` : ''}: ${shortCmd}`,
       risk: 'high', source: `process ${pid}`,
       action: root ? { kind: 'none', hint: `Stop it with: sudo kill ${pid}` } : { kind: 'killProcess', pid: Number(pid), cmdStart: cmd.slice(0, 200) },
+    });
+  }
+  return out;
+}
+
+// Someone (you, or an agent) is installing or setting up an AI tool right now: an MCP server, agent skills, an agent plugin
+const SHELL_RE = /^-?(zsh|bash|sh|fish|dash|login|tmux|screen)$/;
+const SETUP_RE = /^(setup|install|init|add|configure|register|enable|login|onboard)$/i;
+const AGENT_PKG_RE = /mcp|agent|claude|codex|gemini|copilot|cursor|skill|anthropic|openai/i;
+function descendants(procs, pid) {
+  const kids = new Map();
+  for (const p of procs) { if (!kids.has(p.ppid)) kids.set(p.ppid, []); kids.get(p.ppid).push(p); }
+  const out = [], todo = [pid];
+  while (todo.length && out.length < 200) for (const k of kids.get(todo.pop()) || []) { out.push(k); todo.push(k.pid); }
+  return out;
+}
+function connections(pids) {
+  if (!pids.length) return [];
+  const lines = sh('lsof', ['-nP', '-iTCP', '-sTCP:ESTABLISHED', '-a', '-p', pids.join(',')], 4000).split('\n').slice(1);
+  const seen = new Set();
+  for (const l of lines) {
+    const c = l.trim().split(/\s+/);
+    const remote = (c[8] || '').split('->')[1];
+    if (remote && !/^(127\.|\[::1\]|localhost)/.test(remote)) seen.add(`${remote} (${c[0]})`);
+  }
+  return [...seen];
+}
+function scanInstalls(procs) {
+  const out = [];
+  const byPid = new Map(procs.map(p => [p.pid, p]));
+  const hits = [];
+  for (const p of procs) {
+    const pkg = execPackage(p.cmd);
+    const mcpAdd = /(?:^|\/)(claude|codex|gemini|cursor-agent|opencode|goose|amp|copilot)\s+(mcp|plugins?|extensions?)\s+(add|install)\b/.exec(p.cmd);
+    if (!pkg && !mcpAdd) continue;
+    const parent = byPid.get(p.ppid);
+    const parentExe = parent ? path.basename(parent.cmd.split(/\s+/)[0]) : '';
+    let info = null, name, isTool, isSetup;
+    if (mcpAdd) { name = `${mcpAdd[1]} ${mcpAdd[2]} ${mcpAdd[3]}`; isTool = true; isSetup = true; }
+    else {
+      name = pkg.name; info = pkgInfo(pkg.name);
+      isTool = AGENT_PKG_RE.test(name) || !!(info && (info.mcp || /\b(mcp|agent|claude|codex|cursor|copilot|skills?)\b/i.test(info.text)));
+      // An MCP client starting its own server isn't an install; a shell (you, or an agent's Bash tool) running setup is
+      isSetup = SHELL_RE.test(parentExe) || pkg.rest.some(a => SETUP_RE.test(a));
+    }
+    if (isTool && isSetup) hits.push({ p, name, info });
+  }
+  const hitPids = new Set(hits.map(x => x.p.pid));
+  for (const { p, name, info } of hits) {
+    // report each install once, at its top-most process
+    let up = byPid.get(p.ppid), nested = false;
+    for (let n = 0; up && n < 30; n++, up = byPid.get(up.ppid)) if (hitPids.has(up.pid)) { nested = true; break; }
+    if (nested) continue;
+    // who started it: an AI agent somewhere above it, or you
+    let by = 'You';
+    for (let n = 0, a = byPid.get(p.ppid); a && n < 30; n++, a = byPid.get(a.ppid)) {
+      const exe = path.basename(a.cmd.split(/\s+/)[0]);
+      const k = AGENT_NAMES[exe] ? exe : (a.cmd.match(AGENT_PROC_RE) || [])[1];
+      if (k && AGENT_NAMES[k]) { by = AGENT_NAMES[k]; break; }
+      if (/Claude\.app|Cursor\.app|Windsurf\.app/.test(a.cmd)) { by = (a.cmd.match(/(Claude|Cursor|Windsurf)\.app/) || [])[1]; break; }
+    }
+    const kids = descendants(procs, p.pid);
+    const net = connections([p.pid, ...kids.map(k => k.pid)]);
+    const helpers = [...new Set(kids.map(k => path.basename(k.cmd.split(/\s+/)[0])))].filter(x => !/^(sh|bash|zsh|node)$/.test(x)).slice(0, 6);
+    const text = `${name} ${info ? info.text : ''}`.toLowerCase();
+    out.push({
+      agent: by, category: 'AI tool install', title: `Installing an AI tool: ${name}`,
+      detail: `${info && info.description ? `"${info.description.slice(0, 160)}" · ` : ''}Process ${p.pid}, running for ${p.etime}${helpers.length ? `, using ${helpers.join(', ')}` : ''}`
+        + `${net.length ? ` · Connected to the internet: ${net.slice(0, 4).join(', ')}` : ''} · ${p.cmd.replace(HOME, '~').slice(0, 160)}`,
+      risk: RISKY_TOOL_RE.test(text) || by !== 'You' ? 'high' : 'medium', source: `process ${p.pid}`,
+      action: p.uid === '0' ? { kind: 'none', hint: `Stop it with: sudo kill ${p.pid}` } : { kind: 'killProcess', pid: Number(p.pid), cmdStart: p.cmd.slice(0, 200), tree: true },
     });
   }
   return out;
@@ -694,7 +871,7 @@ function scanAll() {
   const tcc = scanTcc();
   const findings = [...scanClaudeCode(), ...scanClaudeDesktop(), ...scanOtherMcp(), ...tcc.findings, ...scanEnvKeys(),
     ...scanKeychain(), ...scanBackgroundAgents(), ...scanEditorExtensions(), ...scanBrowserExtensions(), ...scanLocalServers(),
-    ...scanMoreAgents(), ...scanProcesses(), ...scanInherited()];
+    ...scanMoreAgents(), ...scanSkills(), ...scanProcesses(), ...scanInherited()];
   const reviews = readJson(REVIEW_FILE) || {};
   const expiries = readJson(EXPIRY_FILE) || {};
   const seen = new Set();
@@ -813,9 +990,20 @@ function doRevoke(f, reason) {
   if (a.kind === 'killProcess') {
     const now = sh('ps', ['-p', String(a.pid), '-o', 'command='], 2000).trim();
     if (!now || !now.startsWith(a.cmdStart.slice(0, 100))) throw new Error('That process has already ended.');
+    const tree = a.tree ? descendants(sh('ps', ['-axo', 'pid=,ppid='], 3000).split('\n').map(l => l.trim().split(/\s+/)).filter(x => x.length === 2).map(([pid, ppid]) => ({ pid, ppid })), String(a.pid)) : [];
     process.kill(a.pid, 'SIGTERM');
-    log(`STOP process ${a.pid} [${f.agent}] ${f.title}${why}`);
+    for (const k of tree) try { process.kill(Number(k.pid), 'SIGTERM'); } catch {}
+    log(`STOP process ${a.pid}${tree.length ? ` and ${tree.length} helpers` : ''} [${f.agent}] ${f.title}${why}`);
     return { message: `Stopped ${f.agent} (process ${a.pid}).` };
+  }
+  if (a.kind === 'removeFolder') {
+    if (!exists(a.dir)) throw new Error('That folder is already gone. Rescan.');
+    const name = `${Date.now()}__${a.dir.replace(/[\/\\:]/g, '_')}`;
+    fs.cpSync(a.dir, path.join(BACKUP_DIR, name), { recursive: true, verbatimSymlinks: true });
+    fs.writeFileSync(path.join(BACKUP_DIR, name + '.meta.json'), JSON.stringify({ original: a.dir, at: new Date().toISOString(), folder: true }));
+    fs.rmSync(a.dir, { recursive: true, force: true });
+    log(`REMOVE [${f.agent}] ${f.category}: ${f.title}  folder=${a.dir}  backup=${name}${why}`);
+    return { message: `Removed "${f.title}". A copy is saved, so you can restore it from History.`, backup: name };
   }
   if (a.kind === 'uninstallExt') {
     execFileSync(a.cli, ['--uninstall-extension', a.extId], { stdio: 'pipe', timeout: 60000 });
@@ -847,7 +1035,7 @@ function doRevoke(f, reason) {
   return { message: `Revoked "${f.title}". Backup saved.${restartHint}`, backup: bk };
 }
 
-const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'uninstallExt', 'killProcess'];
+const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'uninstallExt', 'killProcess', 'removeFolder'];
 
 // Revoke several grants in one go. One scan up front; each revoke re-reads its file, so they don't clash.
 function revokeMany(ids) {
@@ -907,6 +1095,12 @@ function restore(name) {
   if (name.includes('/') || name.includes('..')) throw new Error('bad name');
   const meta = readJson(path.join(BACKUP_DIR, name + '.meta.json'));
   if (!meta) throw new Error('Backup not found');
+  if (meta.folder) {
+    if (exists(meta.original)) throw new Error(`${meta.original.replace(HOME, '~')} exists again. Remove or rename it first.`);
+    fs.cpSync(path.join(BACKUP_DIR, name), meta.original, { recursive: true, verbatimSymlinks: true });
+    log(`RESTORE folder ${meta.original} from ${name}`);
+    return { message: `Restored ${meta.original.replace(HOME, '~')}` };
+  }
   if (exists(meta.original)) backup(meta.original);
   fs.copyFileSync(path.join(BACKUP_DIR, name), meta.original);
   if (meta.original.startsWith(h('Library', 'LaunchAgents'))) sh('launchctl', ['bootstrap', `gui/${process.getuid()}`, meta.original], 5000);
@@ -976,6 +1170,7 @@ function startWatching() {
   ];
   for (const proj of Object.keys((readJson(h('.claude.json')) || {}).projects || {}))
     targets.push([path.join(proj, '.claude'), /^settings(\.local)?\.json$/], [proj, /^\.mcp\.json$/]);
+  for (const [, dir] of skillRoots()) targets.push([dir, /./]);
   for (const [dir, re] of targets) {
     try {
       fs.watch(dir, { persistent: false }, (_e, name) => {
