@@ -583,6 +583,15 @@ function scanMoreAgents() {
     add('Gemini CLI', 'Permission mode', `${p.join('.')} = true`, 'Runs tools it considers safe without asking', 'medium', gs, { kind: 'setFalse', file: gs, path: p.slice(0, -1), key: p[p.length - 1] });
   (getAt(g, ['tools', 'allowed']) || []).forEach(r => add('Gemini CLI', 'Tool permission', r, 'Runs without asking (tools.allowed)',
     ruleRisk(String(r).replace(/^run_shell_command/, 'Bash')), gs, { kind: 'removeArrayItem', file: gs, path: ['tools', 'allowed'], value: r }));
+  for (const p of [['general', 'defaultApprovalMode'], ['tools', 'approvalMode']]) {
+    const m = getAt(g, p);
+    if (m === 'yolo' || m === 'auto_edit') add('Gemini CLI', 'Permission mode', `${p.join('.')}: ${m}`,
+      m === 'yolo' ? 'Every Gemini session starts in YOLO mode: it acts without asking' : 'Every Gemini session changes files without asking',
+      m === 'yolo' ? 'high' : 'medium', gs, { kind: 'deleteKey', file: gs, path: p.slice(0, -1), key: p[p.length - 1], value: m });
+  }
+  const gHooks = Object.entries(g.hooks || {}).filter(([, list]) => (list || []).some(e => !isOurHook(e))).map(([k]) => k);
+  if (gHooks.length) add('Gemini CLI', 'Hooks', `Hooks: ${gHooks.join(', ')}`, 'Shell commands Gemini runs automatically on its events', 'medium', gs,
+    none('Review the "hooks" section in ~/.gemini/settings.json, or use /hooks inside Gemini.'));
   const tf = h('.gemini', 'trustedFolders.json');
   for (const [dir, lvl] of Object.entries(readJson(tf) || {})) if (lvl !== 'DO_NOT_TRUST')
     add('Gemini CLI', 'Trusted folder', dir.replace(HOME, '~'), lvl === 'TRUST_PARENT' ? 'Trusted, together with its parent folder' : 'Trusted folder',
@@ -1384,6 +1393,11 @@ function summarize(tool, input) {
   if (tool === 'Read') return { kind: 'read a file', text: String(input.file_path || ''), risk: 'low' };
   if (tool === 'WebFetch') return { kind: 'open a web page', text: String(input.url || ''), risk: 'low' };
   if (tool === 'WebSearch') return { kind: 'search the web', text: String(input.query || ''), risk: 'low' };
+  // Gemini CLI tool names
+  if (tool === 'run_shell_command') return { kind: 'run a command', text: String(input.command || '') + (input.dir_path ? `\n(in ${input.dir_path})` : ''), risk: /\b(rm|sudo|curl|wget|ssh|scp|chmod|chown|dd|mkfs|git push|npm publish|kill)\b/.test(input.command || '') ? 'high' : 'medium' };
+  if (tool === 'write_file' || tool === 'replace') return { kind: tool === 'write_file' ? 'write a file' : 'change a file', text: String(input.file_path || ''), risk: 'medium' };
+  if (tool === 'web_fetch') return { kind: 'open a web page', text: String(input.url || input.prompt || ''), risk: 'low' };
+  if (/^mcp_/.test(tool) && !tool.startsWith('mcp__')) return { kind: `use MCP tool ${tool.slice(4)}`, text: JSON.stringify(input, null, 1).slice(0, 600), risk: 'medium' };
   if (tool.startsWith('mcp__')) { const [, server, name] = tool.split('__'); return { kind: `use ${server}: ${name}`, text: JSON.stringify(input, null, 1).slice(0, 600), risk: 'medium' }; }
   return { kind: `use ${tool}`, text: JSON.stringify(input, null, 1).slice(0, 600), risk: 'medium' };
 }
@@ -1443,7 +1457,7 @@ function recordDecision(g, allow, always) {
     action: g.info.action, text: g.info.text.slice(0, 2000), cwd: g.info.cwd, risk: g.info.risk,
     decision: allow ? 'allow' : 'deny', always,
     savedRules: always ? (g.suggestions || []).flatMap(sug => (sug.rules || []).map(ruleTitle)) : [],
-    blockRule: exactRule(g.info.tool, g.input, g.cwd),
+    blockRule: g.info.agent === 'Claude Code' ? exactRule(g.info.tool, g.input, g.cwd) : '', // "Block from now on" writes a Claude Code rule
   });
   fs.writeFileSync(DECISIONS_FILE, JSON.stringify(list.slice(0, 500), null, 2));
 }
@@ -1454,6 +1468,7 @@ function listDecisions() {
   const findings = scanAll().findings.filter(f => f.agent === 'Claude Code' && f.category === 'Tool permission');
   const deny = new Set(userDenyRules());
   return (readJson(DECISIONS_FILE) || []).map(d => {
+    if (d.agent !== 'Claude Code') return { ...d, ruleIds: [], ruleActive: false, blocked: false };
     const live = findings.filter(f => d.savedRules.includes(f.title));
     return { ...d, ruleIds: live.map(f => f.id), ruleActive: live.length > 0, blocked: deny.has(d.blockRule) };
   });
@@ -1478,6 +1493,7 @@ function editUserDeny(rule, add) {
 function changeDecision({ id: did, action }) {
   const d = listDecisions().find(x => x.id === did);
   if (!d) throw new Error('Decision not found.');
+  if (d.agent !== 'Claude Code') throw new Error(`Saved rules only exist for Claude Code. ${d.agent} will ask through this app again next time.`);
   const snap = scanAll();
   const revokeSaved = () => d.ruleIds.forEach(rid => { try { revoke(rid, 'decision changed', snap); } catch {} });
   if (action === 'revoke') {
@@ -1507,11 +1523,17 @@ function nodeBin() {
   if (!process.execPath.includes('/Cellar/')) return process.execPath;
   return ['/opt/homebrew/bin/node', '/usr/local/bin/node'].find(exists) || process.execPath;
 }
+const GEMINI_SETTINGS = h('.gemini', 'settings.json');
+// our hook entry, whatever data folder it was installed from
+function isOurHook(e) { const t = JSON.stringify(e); return t.includes(GATE_MARK) || t.includes(GATE_SCRIPT) || t.includes('"ai-access-auditor"'); }
 function gateStatus() {
   const j = readJson(h('.claude', 'settings.json')) || {};
-  return { installed: JSON.stringify(j.hooks || {}).includes(GATE_MARK) };
+  const g = readJson(GEMINI_SETTINGS) || {};
+  return { installed: JSON.stringify(j.hooks || {}).includes(GATE_MARK), gemini: Object.values(g.hooks || {}).some(list => (list || []).some(isOurHook)),
+    geminiInstalled: exists(h('.gemini')) || !!sh('/bin/sh', ['-lc', 'command -v gemini'], 3000).trim() };
 }
-function gateInstall(on) {
+function gateInstall(on, agent = 'Claude Code') {
+  if (agent === 'Gemini CLI') return geminiGateInstall(on);
   const file = h('.claude', 'settings.json');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   if (!exists(file)) fs.writeFileSync(file, '{}\n');
@@ -1526,6 +1548,26 @@ function gateInstall(on) {
   writeJsonAtomic(file, j);
   log(`GATE ${on ? 'turned on' : 'turned off'} for Claude Code  backup=${bk}`);
   return { message: on ? 'Claude Code will now ask you here before it does anything new. New sessions pick this up right away.' : 'Claude Code gate turned off.' };
+}
+// Gemini CLI: a BeforeTool hook in ~/.gemini/settings.json. It only pops up when Gemini wouldn't ask you itself
+// (YOLO mode, or file edits in auto-edit mode), so you're never asked twice.
+function geminiGateInstall(on) {
+  const file = GEMINI_SETTINGS;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  if (!exists(file)) fs.writeFileSync(file, '{}\n');
+  const j = readJson(file);
+  if (!j) throw new Error('Could not read ~/.gemini/settings.json. It may contain comments; remove them or add the hook by hand.');
+  const bk = backup(file);
+  j.hooks = j.hooks || {};
+  const list = (j.hooks.BeforeTool || []).filter(e => !isOurHook(e));
+  if (on) list.push({ matcher: 'run_shell_command|write_file|replace|web_fetch|mcp_.*', hooks: [{
+    name: 'ai-access-auditor', type: 'command', command: `"${nodeBin()}" "${GATE_SCRIPT}"`, timeout: 300000,
+    description: 'Asks you in AI Access Auditor before Gemini acts on its own (YOLO / auto-edit)' }] });
+  if (list.length) j.hooks.BeforeTool = list; else delete j.hooks.BeforeTool;
+  if (!Object.keys(j.hooks).length) delete j.hooks;
+  writeJsonAtomic(file, j);
+  log(`GATE ${on ? 'turned on' : 'turned off'} for Gemini CLI  backup=${bk}`);
+  return { message: on ? 'Gemini CLI will now ask you here whenever it would otherwise act without asking (YOLO or auto-edit mode). Restart running Gemini sessions to pick this up.' : 'Gemini CLI gate turned off.' };
 }
 
 // ---------- HTTP ----------
@@ -1580,7 +1622,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { scope: getScope(), onboarded: !!next.onboarded, theme: next.theme || 'system' });
     }
     if (url.pathname === '/api/decisions/change') return send(res, 200, changeDecision(body));
-    if (url.pathname === '/api/gate/install') return send(res, 200, gateInstall(!!body.on));
+    if (url.pathname === '/api/gate/install') return send(res, 200, gateInstall(!!body.on, body.agent === 'Gemini CLI' ? 'Gemini CLI' : 'Claude Code'));
     if (url.pathname === '/api/revoke-many') return send(res, 200, revokeMany(body.ids));
     if (url.pathname === '/api/expiry') return send(res, 200, setExpiry(body.id, body.hours));
     if (url.pathname === '/api/open-app') return send(res, 200, openApp(body.id));
