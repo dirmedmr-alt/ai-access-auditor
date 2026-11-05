@@ -311,6 +311,10 @@ function scanOtherMcp() {
         risk: m[1] === HOME || m[1] === '/' ? 'high' : 'low', source: codex, action: cut(sec) });
     }
   }
+  const ch = readJson(h('.codex', 'hooks.json')) || {};
+  const cHooks = Object.entries(ch.hooks || {}).filter(([, list]) => (list || []).some(e => !isOurHook(e))).map(([k]) => k);
+  if (cHooks.length) out.push({ agent: 'Codex CLI', category: 'Hooks', title: `Hooks: ${cHooks.join(', ')}`, detail: 'Shell commands Codex runs automatically on its events',
+    risk: 'medium', source: h('.codex', 'hooks.json'), action: { kind: 'none', hint: 'Review ~/.codex/hooks.json, or type /hooks inside Codex.' } });
   // Codex sign-ins: ~/.codex/auth.json (default, plain text) or the Keychain item "Codex Auth" (found by scanKeychain)
   const ca = h('.codex', 'auth.json');
   if (exists(ca)) {
@@ -1541,7 +1545,7 @@ function startWatching() {
     targets.push([path.join(proj, '.claude'), /^settings(\.local)?\.json$/], [proj, /^\.mcp\.json$/]);
   for (const [, dir] of skillRoots()) targets.push([dir, /./]);
   for (const dir of BIN_DIRS) targets.push([dir, new RegExp(`^(${Object.keys(CLI_AGENTS).join('|')})$`)]);
-  targets.push(['/Applications', AI_APPS], [h('Applications'), AI_APPS], [h('.codex'), /^(config\.toml|auth\.json|\.credentials\.json)$/]);
+  targets.push(['/Applications', AI_APPS], [h('Applications'), AI_APPS], [h('.codex'), /^(config\.toml|auth\.json|\.credentials\.json|hooks\.json)$/]);
   for (const [dir, re] of targets) {
     try {
       fs.watch(dir, { persistent: false }, (_e, name) => {
@@ -1560,6 +1564,12 @@ function summarize(tool, input) {
   if (tool === 'Read') return { kind: 'read a file', text: String(input.file_path || ''), risk: 'low' };
   if (tool === 'WebFetch') return { kind: 'open a web page', text: String(input.url || ''), risk: 'low' };
   if (tool === 'WebSearch') return { kind: 'search the web', text: String(input.query || ''), risk: 'low' };
+  // Codex CLI: file edits arrive as a patch
+  if (tool === 'apply_patch') {
+    const patch = String(input.command || input.input || '');
+    const files = [...patch.matchAll(/^\*\*\* (Add|Update|Delete) File: (.+)$/gm)].map(m => `${m[1] === 'Add' ? 'create' : m[1] === 'Delete' ? 'delete' : 'change'} ${m[2]}`);
+    return { kind: 'change files', text: files.length ? files.join('\n') : patch.slice(0, 600), risk: /Delete File/.test(patch) ? 'high' : 'medium' };
+  }
   // Gemini CLI tool names
   if (tool === 'run_shell_command') return { kind: 'run a command', text: String(input.command || '') + (input.dir_path ? `\n(in ${input.dir_path})` : ''), risk: /\b(rm|sudo|curl|wget|ssh|scp|chmod|chown|dd|mkfs|git push|npm publish|kill)\b/.test(input.command || '') ? 'high' : 'medium' };
   if (tool === 'write_file' || tool === 'replace') return { kind: tool === 'write_file' ? 'write a file' : 'change a file', text: String(input.file_path || ''), risk: 'medium' };
@@ -1692,15 +1702,19 @@ function nodeBin() {
 }
 const GEMINI_SETTINGS = h('.gemini', 'settings.json');
 // our hook entry, whatever data folder it was installed from
-function isOurHook(e) { const t = JSON.stringify(e); return t.includes(GATE_MARK) || t.includes(GATE_SCRIPT) || t.includes('"ai-access-auditor"'); }
+function isOurHook(e) { const t = JSON.stringify(e); return t.includes(GATE_MARK) || t.includes(GATE_SCRIPT) || t.includes('"ai-access-auditor"') || t.includes('AI Access Auditor'); }
 function gateStatus() {
   const j = readJson(h('.claude', 'settings.json')) || {};
   const g = readJson(GEMINI_SETTINGS) || {};
+  const c = readJson(CODEX_HOOKS) || {};
+  const has = cmd => BIN_DIRS.some(d => exists(path.join(d, cmd)));
   return { installed: JSON.stringify(j.hooks || {}).includes(GATE_MARK), gemini: Object.values(g.hooks || {}).some(list => (list || []).some(isOurHook)),
-    geminiInstalled: exists(h('.gemini')) || !!sh('/bin/sh', ['-lc', 'command -v gemini'], 3000).trim() };
+    geminiInstalled: exists(h('.gemini')) || has('gemini'),
+    codex: Object.values(c.hooks || {}).some(list => (list || []).some(isOurHook)), codexInstalled: exists(h('.codex')) || has('codex') };
 }
 function gateInstall(on, agent = 'Claude Code') {
   if (agent === 'Gemini CLI') return geminiGateInstall(on);
+  if (agent === 'Codex CLI') return codexGateInstall(on);
   const file = h('.claude', 'settings.json');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   if (!exists(file)) fs.writeFileSync(file, '{}\n');
@@ -1716,6 +1730,29 @@ function gateInstall(on, agent = 'Claude Code') {
   log(`GATE ${on ? 'turned on' : 'turned off'} for Claude Code  backup=${bk}`);
   return { message: on ? 'Claude Code will now ask you here before it does anything new. New sessions pick this up right away.' : 'Claude Code gate turned off.' };
 }
+// Codex CLI: PermissionRequest + PreToolUse hooks in ~/.codex/hooks.json. Codex asks you to approve
+// new hooks once (type /hooks inside Codex) before it runs them.
+const CODEX_HOOKS = h('.codex', 'hooks.json');
+function codexGateInstall(on) {
+  const file = CODEX_HOOKS;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  if (!exists(file)) fs.writeFileSync(file, '{}\n');
+  const j = readJson(file);
+  if (!j) throw new Error('Could not read ~/.codex/hooks.json (is it valid JSON?)');
+  const bk = backup(file);
+  j.hooks = j.hooks || {};
+  const hook = (statusMessage) => ({ type: 'command', command: `"${nodeBin()}" "${GATE_SCRIPT}" --agent=codex`, timeout: 300, statusMessage });
+  for (const [ev, matcher, msg] of [['PermissionRequest', '*', 'Asking you in AI Access Auditor'], ['PreToolUse', '^(Bash|apply_patch|mcp__.*)$', 'Checking with AI Access Auditor']]) {
+    const list = (j.hooks[ev] || []).filter(e => !isOurHook(e));
+    if (on) list.push({ matcher, hooks: [hook(msg)] });
+    if (list.length) j.hooks[ev] = list; else delete j.hooks[ev];
+  }
+  if (!Object.keys(j.hooks).length) delete j.hooks;
+  writeJsonAtomic(file, j);
+  log(`GATE ${on ? 'turned on' : 'turned off'} for Codex CLI  backup=${bk}`);
+  return { message: on ? 'Codex CLI will now ask you here. One-time step: start Codex, type /hooks and trust the "AI Access Auditor" hooks (Codex asks this for any new hook).' : 'Codex CLI gate turned off.' };
+}
+
 // Gemini CLI: a BeforeTool hook in ~/.gemini/settings.json. It only pops up when Gemini wouldn't ask you itself
 // (YOLO mode, or file edits in auto-edit mode), so you're never asked twice.
 function geminiGateInstall(on) {
@@ -1789,7 +1826,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { scope: getScope(), onboarded: !!next.onboarded, theme: next.theme || 'system' });
     }
     if (url.pathname === '/api/decisions/change') return send(res, 200, changeDecision(body));
-    if (url.pathname === '/api/gate/install') return send(res, 200, gateInstall(!!body.on, body.agent === 'Gemini CLI' ? 'Gemini CLI' : 'Claude Code'));
+    if (url.pathname === '/api/gate/install') return send(res, 200, gateInstall(!!body.on, ['Gemini CLI', 'Codex CLI'].includes(body.agent) ? body.agent : 'Claude Code'));
     if (url.pathname === '/api/revoke-many') return send(res, 200, revokeMany(body.ids));
     if (url.pathname === '/api/expiry') return send(res, 200, setExpiry(body.id, body.hours));
     if (url.pathname === '/api/open-app') return send(res, 200, openApp(body.id));
