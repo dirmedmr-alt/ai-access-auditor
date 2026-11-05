@@ -1,8 +1,14 @@
 # AI Access Auditor
 
-A local app that lists the access you've given to AI agents and lets you revoke it.
+A Mac app that finds every access and privilege you've given to AI agents, asks before they act,
+and lets you take any of it back. Everything stays on your Mac: no account, no cloud, no tracking.
 
-**Mac app:** `./build-app.sh`, then open `dist/AI Access Auditor.app`. You can drag it into
+**Download:** [website](https://dirmedmr-alt.github.io/ai-access-auditor/) ·
+[latest release](https://github.com/dirmedmr-alt/ai-access-auditor/releases/latest)
+(free beta, macOS 13 or later, Apple Silicon and Intel; unsigned, so approve it once under
+System Settings → Privacy & Security → Open Anyway).
+
+**Build it yourself:** `./build-app.sh`, then open `dist/AI Access Auditor.app`. You can drag it into
 /Applications. It needs Node.js (`brew install node`) and doesn't use a browser.
 
     npm start        # browser version: http://localhost:4517
@@ -39,7 +45,15 @@ alerted about changes after that.
 
 **Live protection (LuLu-style):**
 - **New access pops up right away.** The app watches the agents' config files. When anything gains access, a floating window asks whether to **Keep** it (forever, or for 1 hour, 1 day or 7 days) or **Remove** it.
-- **Ask before Claude Code acts:** turn this on from the menu bar shield or the Overview. Whenever Claude Code is about to ask for permission, the app pops up **Allow / Deny** instead. Allow can be "just this once" or "always". This works through a `PermissionRequest` hook (`gate.js`) added to `~/.claude/settings.json`. If the app isn't running, or you don't answer within about 4½ minutes, Claude Code asks you in its own window.
+- **Ask before agents act** (switches on the Overview; one hook script, `gate.js`, for all three):
+  - **Claude Code:** a `PermissionRequest` hook in `~/.claude/settings.json`. The popup replaces Claude Code's prompt; Allow can be "just this once" or "always".
+  - **Codex CLI:** `PermissionRequest` and `PreToolUse` hooks in `~/.codex/hooks.json`. The popup replaces Codex's prompt, and also steps in when Codex runs without asking (bypass / full-auto). Codex asks you to trust new hooks once (`/hooks`).
+  - **Gemini CLI:** a `BeforeTool` hook in `~/.gemini/settings.json`. Gemini's own prompt can't be skipped, so the popup only appears when Gemini wouldn't ask (YOLO, or edits in auto-edit mode).
+  - If the app isn't running, each agent works as usual. Every answer is listed under Decisions.
+- **New AI agents:** when Claude Code, Codex, Gemini or another agent or AI app appears on the Mac, a popup offers to turn on Allow / Deny for it.
+- **AI tools being installed:** `npx … setup`, `npm install -g`, `brew install`, `pipx`, `uv tool install` and `… mcp add` of MCP servers, skills or agent packages, with who started it and what it's connecting to.
+- **Data leaving the Mac:** per-process upload counters (`nettop`, every 2 s). Programs an AI agent started are flagged from 64 KB to one address, other apps from 20 MB, with the sensitive files they have open. Stop it, allow it once, or always for that app.
+- **Agent skills, sign-ins and "always allow" rules:** skills in every agent's skills folder; logins saved as plain text (`~/.codex/auth.json`, `~/.gemini/oauth_creds.json`) or in the Keychain; Gemini's saved policy rules. All revocable, with a backup.
 - macOS privacy prompts (Screen Recording, Accessibility and so on) come from the system itself, so the app can only report them afterwards.
 
 **Actions:**
@@ -54,15 +68,16 @@ The server listens only on 127.0.0.1, checks a per-session token, and masks secr
 
 ## Releasing a download and the website
 
-    ./release.sh                     # or: VERSION=1.0.1-beta ./release.sh
+    VERSION=1.0.2-beta ./release.sh                                          # local preview in site/downloads
+    VERSION=1.0.2-beta REPO=dirmedmr-alt/ai-access-auditor PUBLISH=1 ./release.sh   # upload to a GitHub Release
 
 This builds `dist/AI-Access-Auditor-<version>.dmg`:
 - It runs on Apple Silicon and Intel, on macOS 13 or later.
 - It includes the official Node.js, checksum-verified, so users don't need to install anything.
 
-It also copies the `.dmg` into `site/downloads/` and updates the version, size and SHA-256 shown in
-`site/index.html`. To publish, upload the whole `site/` folder to any static host, such as Netlify,
-Cloudflare Pages, GitHub Pages or your own server.
+It also updates the download link, version, size and SHA-256 shown in `site/index.html`. With `REPO`
+set, the link points at the GitHub Release and `PUBLISH=1` uploads the DMG there. The website itself
+is published from `site/` to GitHub Pages by `.github/workflows/pages.yml` on every push to `main`.
 
 The beta is unsigned, so users approve it once in System Settings → Privacy & Security → Open Anyway.
 The website explains this step. To remove the warning, join the Apple Developer Program, then sign the

@@ -54,14 +54,28 @@ rm -rf "$STAGE"
 shasum -a 256 "$DMG" | tee "$DMG.sha256"
 echo "Built: $DMG ($(du -h "$DMG" | cut -f1))"
 
-# 4. Put the download on the website and keep its size and checksum on the page up to date
+# 4. Put the download on the website and keep its link, size, checksum and version on the page up to date.
+#    With REPO=owner/name the button points at the GitHub Release (PUBLISH=1 also uploads it there);
+#    without it, the DMG is copied into site/downloads for a local preview.
 SHA=$(cut -d' ' -f1 "$DMG.sha256")
 SIZE_MB=$(( ($(stat -f%z "$DMG") + 524288) / 1048576 ))
-mkdir -p site/downloads
-cp "$DMG" "$DMG.sha256" site/downloads/
+NAME="AI-Access-Auditor-$VERSION.dmg"
+if [ -n "${REPO:-}" ]; then
+  URL="https://github.com/$REPO/releases/download/v$VERSION/$NAME"
+else
+  URL="downloads/$NAME"
+  mkdir -p site/downloads
+  cp "$DMG" "$DMG.sha256" site/downloads/
+fi
 sed -i '' -E \
-  -e "s|AI-Access-Auditor-[0-9A-Za-z.-]+\.dmg|AI-Access-Auditor-$VERSION.dmg|g" \
+  -e "s|href=\"[^\"]*AI-Access-Auditor-[0-9A-Za-z.-]+\.dmg\"|href=\"$URL\"|g" \
   -e "s|(<span id=\"sha\">)[0-9a-f]+|\1$SHA|" \
   -e "s|· [0-9]+ MB</span>|· $SIZE_MB MB</span>|" \
+  -e "s/Version [0-9]+\.[0-9]+\.[0-9]+ beta/Version ${VERSION/-/ }/g" \
   site/index.html
-echo "Website ready: site/ (download: site/downloads/AI-Access-Auditor-$VERSION.dmg, $SIZE_MB MB)"
+if [ "${PUBLISH:-}" = "1" ] && [ -n "${REPO:-}" ]; then
+  gh release create "v$VERSION" "$DMG" "$DMG.sha256" --repo "$REPO" --prerelease \
+    --title "AI Access Auditor $VERSION" \
+    --notes "Unsigned beta for macOS 13 or later (Apple Silicon and Intel). SHA-256: $SHA. First launch: see the Install steps on the website."
+fi
+echo "Website ready: site/ (download: $URL, $SIZE_MB MB)"
