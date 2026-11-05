@@ -517,6 +517,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         switch cmd {
         case "setLogin":
             if (body["on"] as? Bool ?? false) != loginEnabled { toggleLogin() }
+        case "setTheme":
+            let t = body["theme"] as? String ?? "system"
+            NSApp.appearance = t == "dark" ? NSAppearance(named: .darkAqua) : t == "light" ? NSAppearance(named: .aqua) : nil
+            return
         case "revealApp":
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: Bundle.main.bundlePath)])
         case "relaunch":
