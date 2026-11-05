@@ -696,7 +696,7 @@ window.addEventListener('focus', () => { if ($('#setup').classList.contains('ope
 // Hooks the Mac app calls from the menu bar / notifications
 window.rescan = scan;
 window.selectFinding = async id => { await scan(); if (data.findings.some(f => f.id === id)) { view = 'all'; agentFilter = null; ui.risk = ''; ui.q = ''; ui.hideReviewed = false; selected = id; render(); document.querySelector(`[data-id="${id}"]`)?.scrollIntoView({ block: 'center' }); } };
-window.openSetup = () => openSetup(0);
+// openSetup is a top-level function, so the Mac app can already call window.openSetup()
 window.showView = v => { view = v; agentFilter = null; selected = null; scan(); };
 scan();
 </script>
