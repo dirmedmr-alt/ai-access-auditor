@@ -339,7 +339,7 @@ const agentColor = a => AGENT_COLORS[[...a].reduce((s, c) => s + c.charCodeAt(0)
 const avatar = a => `<span class="av" style="background:${agentColor(a)}">${esc(a.replace(/^.*\./, '')[0].toUpperCase())}</span>`;
 
 // ---------- state ----------
-let data = null, view = 'overview', agentFilter = null, selected = null, gateOn = false, scope = 'ai', gemOn = false, gemHere = false;
+let data = null, view = 'overview', agentFilter = null, selected = null, gateOn = false, scope = 'ai', gemOn = false, gemHere = false, cdxOn = false, cdxHere = false;
 const picked = new Set(); // grants ticked for bulk actions
 const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'uninstallExt', 'killProcess', 'removeFolder', 'removeFile', 'removeTomlBlock'];
 const canRevoke = f => REVOCABLE.includes(f.action.kind);
@@ -351,7 +351,7 @@ const toast = (m, ms = 3800) => { const t = $('#toast'); t.textContent = m; t.cl
 async function scan() {
   $('#rescan').innerHTML = icon('refresh', 'spin');
   let settings = {};
-  try { [data, { installed: gateOn, gemini: gemOn, geminiInstalled: gemHere }, settings] = await Promise.all([api('scan'), api('gate/status'), api('settings')]); scope = settings.scope; }
+  try { [data, { installed: gateOn, gemini: gemOn, geminiInstalled: gemHere, codex: cdxOn, codexInstalled: cdxHere }, settings] = await Promise.all([api('scan'), api('gate/status'), api('settings')]); scope = settings.scope; }
   catch (e) { $('#when').textContent = e.message; return; }
   finally { $('#rescan').innerHTML = icon('refresh'); }
   if (settings.theme && !themeLoaded) { themeLoaded = true; applyTheme(settings.theme, false); }
@@ -440,6 +440,7 @@ function renderOverview() {
       ${prot('info', 'Live popups', 'New access from any agent', '<span class="ok-pill yes">On</span>', true)}
       ${prot('hand', 'Ask before Claude Code acts', gateOn ? 'You approve each new action' : 'Claude Code asks in its own window', `<label class="switch"><input type="checkbox" id="gateSw" ${gateOn ? 'checked' : ''}></label>`, gateOn)}
       ${gemHere || gemOn ? prot('hand', 'Ask before Gemini CLI acts', gemOn ? 'When Gemini would act without asking' : 'Gemini asks in its own window', `<label class="switch"><input type="checkbox" id="gemSw" ${gemOn ? 'checked' : ''}></label>`, gemOn) : ''}
+      ${cdxHere || cdxOn ? prot('hand', 'Ask before Codex CLI acts', cdxOn ? 'You approve each action here' : 'Codex asks in its own window', `<label class="switch"><input type="checkbox" id="cdxSw" ${cdxOn ? 'checked' : ''}></label>`, cdxOn) : ''}
       ${prot('macOS privacy', 'macOS permissions', fda ? 'Screen, files, camera and more' : 'Needs Full Disk Access', fda ? '<span class="ok-pill yes">On</span>' : '<button class="btn" data-setup-step="1">Fix</button>', fda)}
       ${prot('Folder access', 'Watch all apps', scope === 'all' ? 'Every app, not just AI' : 'AI apps only', `<label class="switch"><input type="checkbox" id="scopeSw" ${scope === 'all' ? 'checked' : ''}></label>`, scope === 'all')}
     </div>
@@ -536,7 +537,7 @@ async function renderDecisions() {
       !d.blockRule ? '' : !d.blocked ? `<button class="btn danger" data-dec="block" data-did="${d.id}" title="${esc(d.blockRule)}">Block from now on</button>` : `<button class="btn" data-dec="unblock" data-did="${d.id}" title="${esc(d.blockRule)}">Unblock</button>`,
     ].join('');
     return `<div class="item" style="grid-template-columns:32px 1fr auto">
-      <span class="ic ${d.risk}">${icon(/^(Bash|run_shell_command)$/.test(d.tool) ? 'Tool permission' : /^mcp_/.test(d.tool) ? 'MCP server' : 'hand')}</span>
+      <span class="ic ${d.risk}">${icon(/^(Bash|run_shell_command)$/.test(d.tool) ? 'Tool permission' : /^mcp_/.test(d.tool) ? 'MCP server' : d.tool === 'apply_patch' ? 'Folder access' : 'hand')}</span>
       <div style="min-width:0"><div class="ttl" title="${esc(d.text)}">${esc(d.text || d.tool)}</div>
         <div class="sub">${esc(d.agent)} · ${esc(d.action)} · ${esc(when(d.at))}${d.cwd ? ' · ' + esc(d.cwd) : ''}</div></div>
       <div class="meta">${status}${btns}</div></div>`;
@@ -661,6 +662,11 @@ document.addEventListener('input', e => {
   if (e.target.id === 'hideRev') { ui.hideReviewed = e.target.checked; renderMain(); }
   if (e.target.id === 'scopeSw') {
     api('settings', { scope: e.target.checked ? 'all' : 'ai' }).then(r => { toast(r.scope === 'all' ? 'Now watching every app for macOS permissions and background jobs' : 'Watching AI apps only', 4000); scan(); });
+  }
+  if (e.target.id === 'cdxSw') {
+    const on = e.target.checked;
+    if (on && !confirm('Ask before Codex CLI acts?\n\nWhenever Codex is about to ask for permission, a window pops up here instead, so you can Allow or Deny. When Codex runs without asking (full-auto or bypass mode), you\'re asked here before each command, file change or MCP tool.\n\nThis adds hooks to ~/.codex/hooks.json (a backup is saved). One-time step: start Codex, type /hooks and trust them.')) { e.target.checked = false; return; }
+    api('gate/install', { on, agent: 'Codex CLI' }).then(r => { toast(r.message, 9000); scan(); }).catch(err => { toast(err.message); scan(); });
   }
   if (e.target.id === 'gemSw') {
     const on = e.target.checked;

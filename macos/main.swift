@@ -223,7 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func showGatePrompt(_ g: GateRequest) {
         guard panels[g.id] == nil else { return }
         let symbol = ["Bash", "run_shell_command"].contains(g.tool) ? "terminal.fill" : g.tool.hasPrefix("mcp_") ? "server.rack"
-            : ["Write", "Edit", "MultiEdit", "NotebookEdit", "write_file", "replace"].contains(g.tool) ? "square.and.pencil"
+            : ["Write", "Edit", "MultiEdit", "NotebookEdit", "write_file", "replace", "apply_patch"].contains(g.tool) ? "square.and.pencil"
             : g.tool.hasPrefix("Web") || g.tool == "web_fetch" ? "globe" : "hand.raised.fill"
         let panel = PromptPanel(.init(
             symbol: symbol, risk: g.risk,
@@ -249,6 +249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func promptNewGrants(_ grants: [Grant]) {
         let ordered = grants.sorted { rank($0.risk) < rank($1.risk) }
         for g in ordered.prefix(3) where panels["grant-\(g.id)"] == nil {
+            if g.category == "AI agent installed", ["Claude Code", "Gemini CLI", "Codex CLI"].contains(g.agent) { offerGate(g); continue }
             let canRemove = g.revocable ?? false
             let isUpload = g.category == "Data upload"
             let isProcess = g.category == "Running agent" || g.category == "AI tool install" || isUpload
@@ -287,6 +288,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             panel.present()
         }
         if ordered.count > 3 { notify(Array(ordered.dropFirst(3))) }
+    }
+
+    /// A new agent we can put behind Allow / Deny: offer to turn that on right away.
+    func offerGate(_ g: Grant) {
+        let key = "grant-\(g.id)"
+        let panel = PromptPanel(.init(
+            symbol: "hand.raised.fill", risk: "medium",
+            title: "New AI agent on this Mac: \(g.agent)",
+            subtitle: "AI agent installed",
+            detail: "\(g.title)\n\(g.detail)",
+            footnote: "\"Ask before it acts\" adds a small hook (a backup is saved) so \(g.agent) asks you here before it runs commands or changes files. You can turn it off any time on the Overview.",
+            allowTitle: "Ask before it acts", denyTitle: "Not now"))
+        panel.onDecision = { [weak self] allowed, _ in
+            guard let self else { return }
+            self.panels.removeValue(forKey: key)
+            self.api("review", method: "POST", body: ["id": g.id, "on": true]) { _ in self.checkForChanges() }
+            guard allowed == true else { return }
+            self.api("gate/install", method: "POST", body: ["on": true, "agent": g.agent]) { data in
+                let msg = (data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?["message"] as? String
+                let a = NSAlert()
+                a.messageText = msg == nil ? "Couldn't turn it on" : "\(g.agent) will ask you here"
+                a.informativeText = msg ?? "Open AI Access Auditor and use the switch on the Overview."
+                a.runModal()
+            }
+        }
+        panels[key] = panel
+        panel.present()
     }
 
     func refreshGateStatus() {

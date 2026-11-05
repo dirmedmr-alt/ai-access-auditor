@@ -2,6 +2,8 @@
 // Allow / Deny gate for AI Access Auditor. One script, two agents:
 //  - Claude Code runs it as a PermissionRequest hook whenever it is about to ask you for permission.
 //  - Gemini CLI runs it as a BeforeTool hook before every tool call.
+//  - Codex CLI runs it (with --agent=codex) as a PermissionRequest hook, and as a PreToolUse hook for
+//    sessions where Codex wouldn't ask you itself.
 // It forwards the request to the AI Access Auditor app, which pops up an Allow / Deny window, and returns
 // your decision. If the app isn't running, the agent carries on exactly as it would without this hook.
 'use strict';
@@ -18,6 +20,7 @@ function main() {
   let req;
   try { req = JSON.parse(input); } catch { return process.exit(0); }
   if (req.hook_event_name === 'BeforeTool') return gemini(req);
+  if (process.argv.includes('--agent=codex')) return codex(req);
   return claude(req);
 }
 
@@ -109,4 +112,41 @@ function gemini(req) {
     if (j && j.behavior === 'ask') return reply({ decision: 'deny', reason: 'No answer in AI Access Auditor, so this was not run. Ask the user to try again.' });
     return reply({}); // app not reachable: carry on as if this hook weren't installed
   });
+}
+
+// ---------- Codex CLI ----------
+// PermissionRequest: Codex is about to ask you. Our answer replaces its prompt (allow really skips it).
+// PreToolUse: runs before every tool call; we only step in when Codex won't ask by itself.
+const CODEX_GATED = /^(Bash|apply_patch|mcp__.+)$/;
+function codex(req) {
+  const ev = req.hook_event_name, tool = String(req.tool_name || ''), mode = String(req.permission_mode || 'default');
+  const quiet = () => process.exit(0); // no output = Codex carries on as usual
+  if (ev === 'PermissionRequest') {
+    const cfg = config();
+    if (!cfg) return quiet();
+    return ask(cfg, { agent: 'Codex CLI', tool, input: req.tool_input, cwd: req.cwd, session: req.session_id, mode }, j => {
+      if (j && (j.behavior === 'allow' || j.behavior === 'deny'))
+        process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PermissionRequest',
+          decision: j.behavior === 'allow' ? { behavior: 'allow' } : { behavior: 'deny', message: j.message || 'Denied in AI Access Auditor.' } } }));
+      quiet();
+    });
+  }
+  if (ev === 'PreToolUse') {
+    if (!CODEX_GATED.test(tool)) return quiet();
+    const codexWontAsk = mode === 'bypassPermissions' || mode === 'dontAsk' || (mode === 'acceptEdits' && tool === 'apply_patch');
+    if (!codexWontAsk) return quiet(); // PermissionRequest covers anything Codex asks about
+    const cfg = config();
+    if (!cfg) return quiet();
+    const out = (decision, reason) => {
+      process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: decision, ...(reason ? { permissionDecisionReason: reason } : {}) } }));
+      quiet();
+    };
+    return ask(cfg, { agent: 'Codex CLI', tool, input: req.tool_input, cwd: req.cwd, session: req.session_id, mode }, j => {
+      if (j && j.behavior === 'allow') return out('allow');
+      if (j && j.behavior === 'deny') return out('deny', j.message || 'Denied in AI Access Auditor.');
+      if (j && j.behavior === 'ask') return out('deny', 'No answer in AI Access Auditor, so this was not run. Ask the user to try again.');
+      quiet();
+    });
+  }
+  quiet();
 }
