@@ -795,9 +795,22 @@ function scanProcesses() {
     if (m) procs.push({ pid: m[1], ppid: m[2], uid: m[3], etime: m[4], cmd: m[5] });
   }
   out.push(...scanInstalls(procs));
-  for (const { pid, uid, etime, cmd } of procs) {
+  // Which agent (if any) a process is. Only the program actually running counts, not text in its arguments.
+  const agentKey = cmd => {
+    const tokens = cmd.split(/\s+/);
+    const exe = path.basename(tokens[0] || '');
+    if (AGENT_NAMES[exe]) return exe;
+    if (!/^(node|bun|deno|python3?(\.\d+)?)$/.test(exe)) return null;
+    const script = tokens.slice(1).find(t => !t.startsWith('-')) || '';
+    const pm = script.match(AGENT_PROC_RE);
+    return pm ? pm[1] || (pm[0].match(/claude|codex|gemini|copilot|amp|opencode/) || ['agent'])[0] : null;
+  };
+  const byPid = new Map(procs.map(p => [p.pid, p]));
+  for (const { pid, ppid, uid, etime, cmd } of procs) {
     if (Number(pid) === process.pid) continue;
-    // Only the program actually running counts, not text that merely appears in its arguments
+    // Some agents (Gemini CLI) relaunch themselves as a child process: report the session once, at the top
+    const k0 = agentKey(cmd);
+    if (k0 && byPid.has(ppid) && agentKey(byPid.get(ppid).cmd) === k0) continue;
     const tokens = cmd.split(/\s+/);
     const exe = path.basename(tokens[0] || '');
     let key = AGENT_NAMES[exe] ? exe : null;
@@ -817,7 +830,7 @@ function scanProcesses() {
       agent, category: 'Running agent', title: root ? `${agent} is running as administrator (root)` : `${agent} ${reason}`,
       detail: `Process ${pid}, running for ${etime}${cwd ? ` in ${cwd.replace(HOME, '~')}` : ''}: ${shortCmd}`,
       risk: 'high', source: `process ${pid}`,
-      action: root ? { kind: 'none', hint: `Stop it with: sudo kill ${pid}` } : { kind: 'killProcess', pid: Number(pid), cmdStart: cmd.slice(0, 200) },
+      action: root ? { kind: 'none', hint: `Stop it with: sudo kill ${pid}` } : { kind: 'killProcess', pid: Number(pid), cmdStart: cmd.slice(0, 200), tree: true },
     });
   }
   return out;
@@ -1258,7 +1271,7 @@ function doRevoke(f, reason) {
   }
   if (a.kind === 'killProcess') {
     const now = sh('ps', ['-p', String(a.pid), '-o', 'command='], 2000).trim();
-    if (!now || !now.startsWith(a.cmdStart.slice(0, 100))) throw new Error('That process has already ended.');
+    if (!now || !now.startsWith(a.cmdStart.slice(0, 100))) return { message: `It had already stopped (process ${a.pid}).` };
     const tree = a.tree ? descendants(sh('ps', ['-axo', 'pid=,ppid='], 3000).split('\n').map(l => l.trim().split(/\s+/)).filter(x => x.length === 2).map(([pid, ppid]) => ({ pid, ppid })), String(a.pid)) : [];
     process.kill(a.pid, 'SIGTERM');
     for (const k of tree) try { process.kill(Number(k.pid), 'SIGTERM'); } catch {}
