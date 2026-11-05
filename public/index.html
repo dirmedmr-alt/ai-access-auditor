@@ -358,7 +358,7 @@ async function scan() {
 function score() {
   const open = data.findings.filter(f => !f.reviewedAt);
   const w = open.reduce((s, f) => s + ({ high: 12, medium: 4, low: 1 }[f.risk]), 0);
-  return Math.max(0, 100 - w);
+  return Math.round(100 * Math.exp(-w / 80)); // falls gradually: never stuck at 0, still drops fast for broad access
 }
 
 // ---------- rendering ----------

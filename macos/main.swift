@@ -108,6 +108,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     // MARK: scanner process
     func findNode() -> String? {
+        // Release builds carry their own Node.js runtime, so people don't need to install it
+        if let bundled = Bundle.main.resourcePath.map({ $0 + "/runtime/node" }),
+           FileManager.default.isExecutableFile(atPath: bundled) { return bundled }
         let nvmDir = NSHomeDirectory() + "/.nvm/versions/node"
         let nvm = ((try? FileManager.default.contentsOfDirectory(atPath: nvmDir)) ?? [])
             .sorted().reversed().map { "\(nvmDir)/\($0)/bin/node" }
