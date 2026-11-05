@@ -11,6 +11,7 @@ const { execFileSync } = require('child_process');
 
 const HOME = os.homedir();
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4517;
+const DEMO = !!process.env.AUDIT_DEMO; // screenshots: only scan the (fake) home folder, nothing system-wide
 const DATA_DIR = process.env.AUDIT_DATA_DIR || path.join(HOME, '.ai-access-audit'); // override for tests
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const REVIEW_FILE = path.join(DATA_DIR, 'reviews.json');
@@ -263,7 +264,7 @@ const AI_CLIENT_RE = /claude|anthropic|openai|chatgpt|cursor|codeium|windsurf|co
 function scanTcc() {
   const out = [];
   const status = { readable: [], unreadable: [] };
-  for (const db of [h('Library', 'Application Support', 'com.apple.TCC', 'TCC.db'), '/Library/Application Support/com.apple.TCC/TCC.db']) {
+  for (const db of DEMO ? [] : [h('Library', 'Application Support', 'com.apple.TCC', 'TCC.db'), '/Library/Application Support/com.apple.TCC/TCC.db']) {
     if (!exists(db)) { status.unreadable.push(db); continue; }
     let rows;
     try {
@@ -323,6 +324,7 @@ function scanEnvKeys() {
 // Logins and tokens AI tools keep in the login Keychain (names only; secrets are never read)
 function scanKeychain() {
   const out = [];
+  if (DEMO) return out;
   const dump = sh('security', ['dump-keychain'], 20000);
   for (const block of dump.split(/^keychain: /m).slice(1)) {
     const attr = k => { const m = block.match(new RegExp(`"${k}"<(?:blob|timedate)>=(?:0x[0-9A-F]+\\s+)?"([^"]*)`)); return m ? m[1].replace(/\\000$/, '') : ''; };
@@ -360,7 +362,7 @@ function vendorName(label, prog) {
 // Background jobs that start AI tools without you: LaunchAgents/Daemons and crontab
 function scanBackgroundAgents() {
   const out = [];
-  const dirs = [[h('Library', 'LaunchAgents'), true], ['/Library/LaunchAgents', false], ['/Library/LaunchDaemons', false]];
+  const dirs = [[h('Library', 'LaunchAgents'), true], ...(DEMO ? [] : [['/Library/LaunchAgents', false], ['/Library/LaunchDaemons', false]])];
   for (const [dir, userOwned] of dirs) {
     let files = [];
     try { files = fs.readdirSync(dir).filter(f => f.endsWith('.plist')); } catch { continue; }
@@ -374,7 +376,7 @@ function scanBackgroundAgents() {
       const when = j.StartInterval ? `every ${Math.round(j.StartInterval / 60)} min` : j.StartCalendarInterval ? 'on a schedule' : j.KeepAlive ? 'always running' : j.RunAtLoad ? 'at login' : 'on demand';
       const aiMatch = (`${j.Label} ${prog}`.match(AI_NAME_RE) || [])[0];
       out.push({
-        agent: aiMatch ? aiMatch.replace(/^./, c => c.toUpperCase()) : vendorName(j.Label || f, prog),
+        agent: aiMatch ? (AGENT_NAMES[aiMatch.toLowerCase()] || aiMatch.replace(/^./, c => c.toUpperCase())) : vendorName(j.Label || f, prog),
         category: 'Background agent', title: j.Label || f,
         detail: `Runs ${when}: ${prog.replace(HOME, '~').slice(0, 160)}${userOwned ? '' : ' (system-wide)'}`,
         // AI jobs that are always on are the real concern; other apps' services are shown for completeness (all-apps mode)
@@ -383,7 +385,7 @@ function scanBackgroundAgents() {
       });
     }
   }
-  sh('crontab', ['-l'], 3000).split('\n').forEach((line, i) => {
+  (DEMO ? '' : sh('crontab', ['-l'], 3000)).split('\n').forEach((line, i) => {
     if (!line.trim() || line.trim().startsWith('#') || !AI_NAME_RE.test(line)) return;
     out.push({
       agent: (line.match(AI_NAME_RE) || ['Cron'])[0].replace(/^./, c => c.toUpperCase()), category: 'Background agent',
@@ -477,6 +479,7 @@ function scanBrowserExtensions() {
 // Local AI model servers listening on the network (others on your Wi-Fi could use them)
 function scanLocalServers() {
   const out = [];
+  if (DEMO) return out;
   const known = { 11434: 'Ollama', 1234: 'LM Studio', 8080: null, 5000: null };
   for (const line of sh('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN'], 5000).split('\n').slice(1)) {
     const cols = line.trim().split(/\s+/);
@@ -607,6 +610,7 @@ function dangerReason(agentKey, cmd) {
 }
 function scanProcesses() {
   const out = [];
+  if (DEMO) return out;
   for (const line of sh('ps', ['-axo', 'pid=,uid=,etime=,command='], 5000).split('\n')) {
     const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/);
     if (!m) continue;
@@ -640,9 +644,13 @@ function scanProcesses() {
 
 // Privileges every agent inherits from your account: admin rights, SSH keys, cloud and developer logins
 let sudoCache = { at: 0, ok: false };
+function demoInherited() {
+  return [{ agent: 'Your account', category: 'Inherited credential', title: 'SSH key: ~/.ssh/id_ed25519', detail: 'Loaded in ssh-agent: any agent can use it to log in to servers or push code', risk: 'medium', source: 'ssh-agent', action: { kind: 'none', hint: 'ssh-add -D' } }];
+}
 function scanInherited() {
   const out = [];
   const add = (agent, category, title, detail, risk, source, hint) => out.push({ agent, category, title, detail, risk, source, action: { kind: 'none', hint } });
+  if (DEMO) return out.concat(demoInherited());
   if (Date.now() - sudoCache.at > 10 * 60e3) {
     let ok = false;
     try { execFileSync('sudo', ['-n', 'true'], { stdio: 'ignore', timeout: 3000 }); ok = true; } catch {}
@@ -1103,7 +1111,12 @@ function changeDecision({ id: did, action }) {
 }
 
 // Turn the Claude Code gate on/off by adding/removing our PermissionRequest hook in ~/.claude/settings.json
-function nodeBin() { return ['/opt/homebrew/bin/node', '/usr/local/bin/node'].find(exists) || process.execPath; }
+// The Node.js the hook should use: the one running us (e.g. bundled in the app), except Homebrew's
+// versioned Cellar path, which changes on every upgrade, so use its stable symlink instead.
+function nodeBin() {
+  if (!process.execPath.includes('/Cellar/')) return process.execPath;
+  return ['/opt/homebrew/bin/node', '/usr/local/bin/node'].find(exists) || process.execPath;
+}
 function gateStatus() {
   const j = readJson(h('.claude', 'settings.json')) || {};
   return { installed: JSON.stringify(j.hooks || {}).includes(GATE_MARK) };

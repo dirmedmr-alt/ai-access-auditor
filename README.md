@@ -51,3 +51,21 @@ alerted about changes after that.
 Install the app with `./build-app.sh --install`. Every action is logged in `~/.ai-access-audit/`.
 
 The server listens only on 127.0.0.1, checks a per-session token, and masks secrets in its output.
+
+## Releasing a download and the website
+
+    ./release.sh                     # or: VERSION=1.0.1-beta ./release.sh
+
+This builds `dist/AI-Access-Auditor-<version>.dmg`:
+- It runs on Apple Silicon and Intel, on macOS 13 or later.
+- It includes the official Node.js, checksum-verified, so users don't need to install anything.
+
+It also copies the `.dmg` into `site/downloads/` and updates the version, size and SHA-256 shown in
+`site/index.html`. To publish, upload the whole `site/` folder to any static host, such as Netlify,
+Cloudflare Pages, GitHub Pages or your own server.
+
+The beta is unsigned, so users approve it once in System Settings → Privacy & Security → Open Anyway.
+The website explains this step. To remove the warning, join the Apple Developer Program, then sign the
+app with a Developer ID and notarize it.
+
+Website screenshots come from invented demo data (`AUDIT_DEMO=1`), never from a real Mac.
