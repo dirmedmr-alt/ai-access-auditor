@@ -226,6 +226,12 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
       <h3>One-click revoke, with undo</h3><p>Every change is backed up first. Restore anything from History at any time.</p></div>
     <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
       <h3>Access that expires</h3><p>Allow a folder or tool for an hour, a day or a week. It's removed automatically when the time is up.</p></div>
+    <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/></svg></div>
+      <h3>Sees data leaving your Mac</h3><p>If a script or tool an agent started sends data out, or any app uploads a lot, you see where it's going and which files it has open. Stop it or allow it.</p></div>
+    <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></div>
+      <h3>Catches AI tools as they install</h3><p>When an MCP server, agent skill or plugin is being set up, by you or by an agent, it tells you what it is and what it's connecting to.</p></div>
+    <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/></svg></div>
+      <h3>Checks agent skills</h3><p>Lists the skills your agents load on their own, and flags the ones that bring scripts or reverse-engineering tools. Remove one with a click.</p></div>
   </div>
 </div></section>
 
@@ -269,7 +275,7 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
     <div class="card"><div class="num">01</div><h3>It asks before the agent acts</h3>
       <div class="vs"><p class="them"><span>Most scanners</span>Tell you about risky settings after they&rsquo;re already in place.</p><p class="us"><span>AI Access Auditor</span>Shows an Allow / Deny popup before Claude Code runs a new action. Every answer can be taken back later.</p></div></div>
     <div class="card"><div class="num">02</div><h3>It looks beyond MCP</h3>
-      <div class="vs"><p class="them"><span>Most scanners</span>Focus on MCP servers and their tool descriptions.</p><p class="us"><span>AI Access Auditor</span>Also checks macOS privacy permissions, background jobs, extensions, agents running with safety off, and the access agents quietly get from your own logins: sudo, SSH keys, GitHub, AWS, Google Cloud and Kubernetes.</p></div></div>
+      <div class="vs"><p class="them"><span>Most scanners</span>Focus on MCP servers and their tool descriptions.</p><p class="us"><span>AI Access Auditor</span>Also checks macOS privacy permissions, background jobs, extensions, agents running with safety off, AI tools being installed, data leaving your Mac, and the access agents quietly get from your own logins: sudo, SSH keys, GitHub, AWS, Google Cloud and Kubernetes.</p></div></div>
     <div class="card"><div class="num">03</div><h3>It fixes what it finds</h3>
       <div class="vs"><p class="them"><span>Most scanners</span>Report the issue and leave the fix to you.</p><p class="us"><span>AI Access Auditor</span>Removes, turns off or stops each item in one click, backs up the file first, and can undo it from History.</p></div></div>
     <div class="card"><div class="num">04</div><h3>It speaks plain language</h3>
@@ -311,6 +317,7 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
   <details><summary>Which Macs does it run on?</summary><p>macOS 13 Ventura or later, on Apple Silicon and Intel. Everything it needs is included, so there's nothing else to install.</p></details>
   <details><summary>Can it stop an agent before it does something?</summary><p>For Claude Code, yes: turn on "Ask before Claude Code acts" and you approve each new action before it runs. Other agents don't offer a way to be paused from outside, so for them you're alerted within seconds of any new access, and can remove it right away.</p></details>
   <details><summary>How is it different from MCP scanners?</summary><p>MCP scanners such as Snyk Agent Scan look deeply at MCP servers, for example checking their tool descriptions for hidden instructions. AI Access Auditor doesn&rsquo;t do that deep analysis. It covers the wider picture instead: every kind of access your agents have, a popup before Claude Code acts, and one-click removal. The two work well side by side.</p></details>
+  <details><summary>Can it block data from leaving my Mac?</summary><p>It can stop the program that's sending it, and it asks you first. It can't block a single connection while letting the program run. That needs a network filter, like the free LuLu firewall, and the two work well together. It checks every 2 seconds, so a very short upload can slip past it, and it shows the IP address rather than a website name, because looking names up would mean contacting the internet.</p></details>
   <details><summary>Why does it want Full Disk Access?</summary><p>Only to read macOS's list of which apps can record your screen, control your Mac or read all your files. Without it, everything else still works. Those system permissions just aren't included.</p></details>
   <details><summary>How do I uninstall it?</summary>
     <ol>
