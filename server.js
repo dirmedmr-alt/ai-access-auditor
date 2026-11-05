@@ -11,7 +11,7 @@ const { execFileSync } = require('child_process');
 
 const HOME = os.homedir();
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4517;
-const DATA_DIR = path.join(HOME, '.ai-access-audit');
+const DATA_DIR = process.env.AUDIT_DATA_DIR || path.join(HOME, '.ai-access-audit'); // override for tests
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const REVIEW_FILE = path.join(DATA_DIR, 'reviews.json');
 const LOG_FILE = path.join(DATA_DIR, 'actions.log');
@@ -332,9 +332,11 @@ function scanKeychain() {
     if (!name || !(AI_NAME_RE.test(`${svc} ${label} ${server}`) || /^gh:github\.com|^github\.com$/.test(name))) continue;
     const mdat = attr('mdat');
     const when = /^\d{14}/.test(mdat) ? `${mdat.slice(0, 4)}-${mdat.slice(4, 6)}-${mdat.slice(6, 8)}` : '';
-    const agent = (name.match(AI_NAME_RE) || [/github/i.test(name) ? 'GitHub' : 'Keychain'])[0];
+    const who = `${svc} ${label} ${server}`;
+    const agent = /claude code/i.test(who) ? 'Claude Code' : /claude/i.test(who) ? 'Claude Desktop' : /chatgpt|openai/i.test(who) ? 'ChatGPT'
+      : /github|^gh:/i.test(who) ? 'GitHub CLI' : ((who.match(AI_NAME_RE) || ['Keychain'])[0].replace(/^./, c => c.toUpperCase()));
     out.push({
-      agent: agent.charAt(0).toUpperCase() + agent.slice(1), category: 'Saved login', title: label || name,
+      agent, category: 'Saved login', title: label || name,
       detail: /Safe Storage$/.test(name)
         ? `Key the app uses to encrypt its own local data${when ? ` · updated ${when}` : ''}`
         : `${cls === 'inet' ? 'Internet password' : 'App password/token'} for ${name}${acct ? ` (account ${mask(acct)})` : ''}${when ? ` · updated ${when}` : ''}`,
@@ -343,6 +345,16 @@ function scanKeychain() {
     });
   }
   return out;
+}
+
+// A readable owner for a background job: the app it belongs to, or the vendor in its label
+function vendorName(label, prog) {
+  const parts = String(label).split('.');
+  const v = ['com', 'org', 'net', 'io', 'sh', 'de', 'co'].includes(parts[0]) ? parts[1] : parts[0];
+  const known = { brew: 'Homebrew', microsoft: 'Microsoft', google: 'Google', apple: 'Apple', vmware: 'VMware', docker: 'Docker', tenablesecurity: 'Tenable', fortinet: 'Fortinet' };
+  if (v && v.length > 1) return known[v] || v.replace(/^./, c => c.toUpperCase());
+  const app = (prog.match(/\/Applications\/([^/]+)\.app\//) || [])[1];
+  return app || (prog.match(/\/Library\/Application Support\/([^/]+)\//) || [])[1] || 'Background';
 }
 
 // Background jobs that start AI tools without you: LaunchAgents/Daemons and crontab
@@ -360,11 +372,13 @@ function scanBackgroundAgents() {
       const prog = [j.Program, ...(j.ProgramArguments || [])].filter(Boolean).join(' ');
       if (getScope() === 'ai' && !AI_NAME_RE.test(`${j.Label} ${prog}`)) continue;
       const when = j.StartInterval ? `every ${Math.round(j.StartInterval / 60)} min` : j.StartCalendarInterval ? 'on a schedule' : j.KeepAlive ? 'always running' : j.RunAtLoad ? 'at login' : 'on demand';
+      const aiMatch = (`${j.Label} ${prog}`.match(AI_NAME_RE) || [])[0];
       out.push({
-        agent: ((`${j.Label} ${prog}`.match(AI_NAME_RE) || [])[0] || (j.Label || f).split('.').slice(0, 2).join('.') || 'Background').replace(/^./, c => c.toUpperCase()),
+        agent: aiMatch ? aiMatch.replace(/^./, c => c.toUpperCase()) : vendorName(j.Label || f, prog),
         category: 'Background agent', title: j.Label || f,
         detail: `Runs ${when}: ${prog.replace(HOME, '~').slice(0, 160)}${userOwned ? '' : ' (system-wide)'}`,
-        risk: dir.includes('Daemons') || j.KeepAlive ? 'high' : 'medium', source: file,
+        // AI jobs that are always on are the real concern; other apps' services are shown for completeness (all-apps mode)
+        risk: aiMatch ? (dir.includes('Daemons') || j.KeepAlive ? 'high' : 'medium') : 'low', source: file,
         action: userOwned ? { kind: 'disableLaunchAgent', file } : { kind: 'none', hint: `Needs an admin: sudo launchctl bootout system ${file}` },
       });
     }
@@ -678,13 +692,18 @@ function scanAll() {
   const seen = new Set();
   const list = [];
   for (const f of findings) {
-    f.id = id(f.source, f.action, f.title, f.agent);
+    f.legacyId = id(f.source, f.action, f.title, f.agent);
+    f.id = id(f.source, f.action, f.title); // display names can change; what the grant *is* doesn't
     if (seen.has(f.id)) continue;
     seen.add(f.id);
     f.reviewedAt = reviews[f.id] || null;
     f.expiresAt = expiries[f.id] ? expiries[f.id].at : null;
     f.source = f.source.replace(HOME, '~');
     list.push(f);
+  }
+  if (migrateIds(list)) { // re-read what the migration just carried over
+    const rv = readJson(REVIEW_FILE) || {}, ex = readJson(EXPIRY_FILE) || {};
+    list.forEach(f => { f.reviewedAt = rv[f.id] || null; f.expiresAt = ex[f.id] ? ex[f.id].at : null; });
   }
   // First run: everything that exists today becomes the baseline, so you aren't flooded with alerts
   let known = readJson(KNOWN_FILE);
@@ -694,10 +713,28 @@ function scanAll() {
   return { scannedAt: new Date().toISOString(), findings: list, tcc: tcc.status, manual: MANUAL_CHECKS };
 }
 
+// One-time move from v1 ids (which included the agent's display name) to v2 ids.
+// Carries over reviews, expiries, seen and notified state; anything only renamed is treated as already seen.
+function migrateIds(list) {
+  const st = readJson(SETTINGS_FILE) || {};
+  if (st.idVersion === 2) return false;
+  const map = new Map(list.map(f => [f.legacyId, f.id]));
+  const remapObj = file => { const o = readJson(file); if (!o) return; const n = {}; for (const [k, v] of Object.entries(o)) n[map.get(k) || k] = v; fs.writeFileSync(file, JSON.stringify(n, null, 2)); };
+  remapObj(REVIEW_FILE);
+  remapObj(EXPIRY_FILE);
+  const notified = readJson(NOTIFIED_FILE);
+  if (Array.isArray(notified)) writeIds(NOTIFIED_FILE, [...notified.map(i => map.get(i) || i), ...list.map(f => f.id)]);
+  const known = readJson(KNOWN_FILE);
+  if (Array.isArray(known)) writeIds(KNOWN_FILE, [...known.map(i => map.get(i) || i), ...list.map(f => f.id)]);
+  fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ ...st, idVersion: 2 }, null, 2));
+  log(`MIGRATED grant ids to v2 (${map.size} grants)`);
+  return true;
+}
+
 // What the page and the menu bar receive: no raw config values (those can hold unmasked tokens)
 function publicScan() {
   const r = scanAll();
-  r.findings = r.findings.map(f => ({ ...f, action: { kind: f.action.kind, hint: f.action.hint, url: f.action.url, label: f.action.label } }));
+  r.findings = r.findings.map(({ legacyId, ...f }) => ({ ...f, action: { kind: f.action.kind, hint: f.action.hint, url: f.action.url, label: f.action.label } }));
   return r;
 }
 
@@ -1155,7 +1192,7 @@ if (require.main === module) {
     for (const f of r.findings) console.log(`[${f.risk.toUpperCase().padEnd(6)}] ${f.agent} · ${f.category} · ${f.title}\n          ${f.detail}`);
     console.log(`\n${r.findings.length} grants found. TCC readable: ${r.tcc.readable.length ? 'yes' : 'no'}`);
   } else server.listen(process.env.PORT === '0' ? 0 : PORT, '127.0.0.1', () => {
-    try {
+    if (!process.env.AUDIT_PREVIEW) try { // preview copies (screenshots/tests) must not take over the gate
       fs.copyFileSync(path.join(__dirname, 'gate.js'), GATE_SCRIPT);
       fs.writeFileSync(GATE_INFO, JSON.stringify({ port: server.address().port, token: GATE_TOKEN, pid: process.pid }), { mode: 0o600 });
       fs.chmodSync(GATE_INFO, 0o600);
