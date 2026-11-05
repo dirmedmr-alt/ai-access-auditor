@@ -222,9 +222,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     func showGatePrompt(_ g: GateRequest) {
         guard panels[g.id] == nil else { return }
-        let symbol = g.tool == "Bash" ? "terminal.fill" : g.tool.hasPrefix("mcp__") ? "server.rack"
-            : ["Write", "Edit", "MultiEdit", "NotebookEdit"].contains(g.tool) ? "square.and.pencil"
-            : g.tool.hasPrefix("Web") ? "globe" : "hand.raised.fill"
+        let symbol = ["Bash", "run_shell_command"].contains(g.tool) ? "terminal.fill" : g.tool.hasPrefix("mcp_") ? "server.rack"
+            : ["Write", "Edit", "MultiEdit", "NotebookEdit", "write_file", "replace"].contains(g.tool) ? "square.and.pencil"
+            : g.tool.hasPrefix("Web") || g.tool == "web_fetch" ? "globe" : "hand.raised.fill"
         let panel = PromptPanel(.init(
             symbol: symbol, risk: g.risk,
             title: "\(g.agent) wants to \(g.action)",
@@ -236,7 +236,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         panel.onDecision = { [weak self] allowed, option in
             guard let self else { return }
             self.panels.removeValue(forKey: g.id)
-            guard let allowed else { return } // closed without deciding → Claude Code will ask normally after timeout
+            guard let allowed else { return } // closed without deciding → after the timeout Claude Code asks normally; Gemini skips it
             self.api("gate/decide", method: "POST", body: [
                 "id": g.id, "decision": allowed ? "allow" : "deny", "remember": option == 1 ? "always" : "once",
             ]) { _ in }
