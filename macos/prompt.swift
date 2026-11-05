@@ -87,7 +87,7 @@ final class PromptPanel: NSPanel {
         detail.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         detail.isSelectable = true
         detail.maximumNumberOfLines = 8
-        detail.lineBreakMode = .byCharWrapping
+        detail.lineBreakMode = .byWordWrapping
         let box = NSView()
         box.wantsLayer = true
         box.layer?.cornerRadius = 8
@@ -111,13 +111,18 @@ final class PromptPanel: NSPanel {
 
         // buttons
         let deny = NSButton(title: c.denyTitle, target: self, action: #selector(denyClicked))
-        deny.keyEquivalent = "\u{1b}"
         deny.bezelStyle = .rounded
         deny.controlSize = .large
+        deny.hasDestructiveAction = c.denyTitle != "Deny" && c.denyTitle != "Review" // Remove / Stop it
         let allow = NSButton(title: c.allowTitle, target: self, action: #selector(allowClicked))
-        allow.keyEquivalent = "\r"
         allow.bezelStyle = .rounded
         allow.controlSize = .large
+        // Return picks the safe choice for high-risk requests, so a reflexive Enter can't approve them
+        let primary = c.risk == "high" && c.denyTitle == "Deny" ? deny : allow
+        let other = primary === deny ? allow : deny
+        primary.keyEquivalent = "\r"
+        primary.bezelColor = primary === deny ? .systemRed : .controlAccentColor
+        other.keyEquivalent = primary === deny ? "" : "\u{1b}"
         var buttonRow: [NSView] = []
         if !c.options.isEmpty {
             let p = NSPopUpButton(frame: .zero, pullsDown: false)
