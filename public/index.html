@@ -339,7 +339,7 @@ const avatar = a => `<span class="av" style="background:${agentColor(a)}">${esc(
 // ---------- state ----------
 let data = null, view = 'overview', agentFilter = null, selected = null, gateOn = false, scope = 'ai', gemOn = false, gemHere = false;
 const picked = new Set(); // grants ticked for bulk actions
-const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'uninstallExt', 'killProcess', 'removeFolder', 'removeFile'];
+const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'uninstallExt', 'killProcess', 'removeFolder', 'removeFile', 'removeTomlBlock'];
 const canRevoke = f => REVOCABLE.includes(f.action.kind);
 const timeLeft = iso => { const ms = Date.parse(iso) - Date.now(); if (ms <= 0) return 'now'; const h = ms / 3600e3; return h < 1 ? Math.ceil(ms / 60e3) + 'm' : h < 48 ? Math.round(h) + 'h' : Math.round(h / 24) + 'd'; };
 const ui = { q: '', risk: '', hideReviewed: false };

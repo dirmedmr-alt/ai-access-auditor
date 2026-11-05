@@ -592,6 +592,20 @@ function scanMoreAgents() {
   const gHooks = Object.entries(g.hooks || {}).filter(([, list]) => (list || []).some(e => !isOurHook(e))).map(([k]) => k);
   if (gHooks.length) add('Gemini CLI', 'Hooks', `Hooks: ${gHooks.join(', ')}`, 'Shell commands Gemini runs automatically on its events', 'medium', gs,
     none('Review the "hooks" section in ~/.gemini/settings.json, or use /hooks inside Gemini.'));
+  // Gemini "Allow always" rules: [[rule]] blocks in policies/*.toml (user-wide, and per project)
+  for (const [file, scopeLabel] of geminiPolicyFiles()) {
+    for (const r of geminiRules(file)) {
+      if (r.fields.decision !== 'allow') continue;
+      const tool = r.fields.toolName || '*', mcp = r.fields.mcpName;
+      const what = r.fields.commandPrefix ? `${tool}: ${[].concat(r.fields.commandPrefix).join(' | ')}` : r.fields.argsPattern ? `${tool} matching ${r.fields.argsPattern}` : mcp ? `MCP ${mcp}: ${tool}` : tool;
+      const risk = tool === 'run_shell_command'
+        ? (r.fields.commandPrefix ? [].concat(r.fields.commandPrefix).map(c => ruleRisk(`Bash(${c})`)).sort()[0] : 'high')
+        : tool === '*' ? 'high' : /^(write_file|replace)$/.test(tool) || mcp ? 'medium' : 'low';
+      add('Gemini CLI', 'Tool permission', what,
+        `Runs without asking (${scopeLabel}${r.fields.modes ? `, in ${[].concat(r.fields.modes).join('/')} mode` : ''})`, risk, file,
+        { kind: 'removeTomlBlock', file, block: r.text });
+    }
+  }
   // Gemini sign-ins: the Keychain item "gemini-cli-oauth" (found by scanKeychain), or these files
   const gAcct = (readJson(h('.gemini', 'google_accounts.json')) || {}).active;
   const who = gAcct ? ` (${mask(String(gAcct))})` : '';
@@ -605,8 +619,13 @@ function scanMoreAgents() {
   }
   const tf = h('.gemini', 'trustedFolders.json');
   for (const [dir, lvl] of Object.entries(readJson(tf) || {})) if (lvl !== 'DO_NOT_TRUST')
-    add('Gemini CLI', 'Trusted folder', dir.replace(HOME, '~'), lvl === 'TRUST_PARENT' ? 'Trusted, together with its parent folder' : 'Trusted folder',
-      dir === HOME || dir === '/' ? 'high' : 'low', tf, { kind: 'deleteKey', file: tf, path: [], key: dir, value: lvl });
+    { // macOS paths aren't case-sensitive, and Gemini may store them lowercased
+      const d = dir.toLowerCase().replace(/\/+$/, ''), home = HOME.toLowerCase();
+      const wide = d === '' || d === home || (lvl === 'TRUST_PARENT' && (home.startsWith(d + '/') || path.dirname(d) === '/' || d === home));
+      add('Gemini CLI', 'Trusted folder', dir.replace(new RegExp('^' + HOME.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), '~'),
+        lvl === 'TRUST_PARENT' ? `Trusted, together with its parent folder (${path.dirname(dir)})` : 'Trusted folder',
+        wide ? 'high' : 'low', tf, { kind: 'deleteKey', file: tf, path: [], key: dir, value: lvl });
+    }
 
   // Cursor CLI
   const cc = h('.cursor', 'cli-config.json');
@@ -660,6 +679,41 @@ function scanMoreAgents() {
       mcpRisk({ command: mf.name, args: [JSON.stringify(mf.server || {})] }), path.join(extDir, e), none('Remove it in Claude Desktop → Settings → Extensions.'));
   }
   return out;
+}
+
+// Gemini CLI policy files and a small reader for the [[rule]] blocks Gemini writes (flat key = value lines)
+function geminiPolicyFiles() {
+  const out = [];
+  const dirs = [[h('.gemini', 'policies'), 'all projects']];
+  for (const proj of Object.keys((readJson(h('.gemini', 'projects.json')) || {}).projects || {}))
+    if (proj !== HOME) dirs.push([path.join(proj, '.gemini', 'policies'), `project ${path.basename(proj)}`]);
+  for (const [dir, label] of dirs) {
+    let names = [];
+    try { names = fs.readdirSync(dir).filter(n => n.endsWith('.toml')); } catch {}
+    names.forEach(n => out.push([path.join(dir, n), label]));
+  }
+  return out;
+}
+function tomlValue(v) {
+  v = v.trim();
+  if (/^".*"$/.test(v)) { try { return JSON.parse(v); } catch { return v.slice(1, -1); } }
+  if (/^'.*'$/.test(v)) return v.slice(1, -1);
+  if (v === 'true' || v === 'false') return v === 'true';
+  if (/^\[.*\]$/.test(v)) return [...v.slice(1, -1).matchAll(/"((?:[^"\\]|\\.)*)"|'([^']*)'/g)].map(m => (m[1] !== undefined ? JSON.parse(`"${m[1]}"`) : m[2]));
+  return Number.isNaN(Number(v)) ? v : Number(v);
+}
+function geminiRules(file) {
+  let text = '';
+  try { text = fs.readFileSync(file, 'utf8'); } catch { return []; }
+  const parts = text.split(/^(?=\[\[rule\]\]\s*$)/m).filter(p => /^\[\[rule\]\]/.test(p));
+  return parts.map(p => {
+    const fields = {};
+    for (const line of p.split('\n').slice(1)) {
+      const m = line.match(/^\s*([A-Za-z_]+)\s*=\s*(.+?)\s*$/);
+      if (m) fields[m[1]] = tomlValue(m[2]);
+    }
+    return { text: p, fields };
+  });
 }
 
 // Agent skills: folders of instructions (and often scripts) an agent loads and follows on its own
@@ -1211,6 +1265,14 @@ function doRevoke(f, reason) {
     log(`STOP process ${a.pid}${tree.length ? ` and ${tree.length} helpers` : ''} [${f.agent}] ${f.title}${why}`);
     return { message: `Stopped ${f.category === 'Data upload' ? f.title.split(' is sending')[0] : f.agent} (process ${a.pid}).` };
   }
+  if (a.kind === 'removeTomlBlock') {
+    const text = exists(a.file) ? fs.readFileSync(a.file, 'utf8') : '';
+    if (!text.includes(a.block)) throw new Error('That rule is no longer in the file. Rescan.');
+    const bk = backup(a.file);
+    fs.writeFileSync(a.file, text.replace(a.block, ''));
+    log(`REVOKE [${f.agent}] ${f.category}: ${f.title}  file=${a.file}  backup=${bk}${why}`);
+    return { message: `Revoked "${f.title}". Gemini will ask again (restart running Gemini sessions). Backup saved.`, backup: bk };
+  }
   if (a.kind === 'removeFile') {
     const file = a.file;
     if (!exists(file)) throw new Error('That file is already gone. Rescan.');
@@ -1258,7 +1320,7 @@ function doRevoke(f, reason) {
   return { message: `Revoked "${f.title}". Backup saved.${restartHint}`, backup: bk };
 }
 
-const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'uninstallExt', 'killProcess', 'removeFolder', 'removeFile'];
+const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'uninstallExt', 'killProcess', 'removeFolder', 'removeFile', 'removeTomlBlock'];
 
 // Revoke several grants in one go. One scan up front; each revoke re-reads its file, so they don't clash.
 function revokeMany(ids) {
@@ -1366,7 +1428,8 @@ function waitEvents(res) {
 // Things files can't tell us about (running agents, ssh keys, sudo, network ports): check every few seconds
 let liveSig = '';
 function pollLive() {
-  const sig = [...scanProcesses(), ...scanLocalServers()].map(f => f.title + f.source).sort().join('|');
+  const policySig = geminiPolicyFiles().map(([f]) => { try { return f + fs.statSync(f).mtimeMs; } catch { return f; } }).join('|');
+  const sig = [...scanProcesses(), ...scanLocalServers()].map(f => f.title + f.source).sort().join('|') + policySig;
   if (liveSig && sig !== liveSig) { changedFlag = true; flushEvents(); }
   liveSig = sig;
 }
