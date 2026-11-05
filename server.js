@@ -84,8 +84,20 @@ function execPackage(cmd) {
   let i = t.findIndex(x => /(?:^|\/)(npx|bunx|pnpx|uvx)$/.test(x)), skip = 1;
   if (i < 0) { i = t.findIndex((x, k) => /(?:^|\/)(npm|pnpm|yarn|bun)$/.test(x) && /^(exec|dlx|x)$/.test(t[k + 1] || '')); skip = 2; }
   if (i < 0) { i = t.findIndex((x, k) => /(?:^|\/)pipx$/.test(x) && t[k + 1] === 'run'); skip = 2; }
+  // global installs: npm install -g X, pnpm add -g X, bun add -g X, yarn global add X, brew install X, pipx install X, uv tool install X
+  if (i < 0) {
+    i = t.findIndex((x, k) => (/(?:^|\/)(npm|pnpm|bun)$/.test(x) && /^(install|i|add)$/.test(t[k + 1] || '') && t.slice(k + 2).some(a => a === '-g' || a === '--global'))
+      || (/(?:^|\/)brew$/.test(x) && /^(install|reinstall)$/.test(t[k + 1] || ''))
+      || (/(?:^|\/)pipx$/.test(x) && t[k + 1] === 'install'));
+    skip = 2;
+    if (i < 0) { i = t.findIndex((x, k) => (/(?:^|\/)yarn$/.test(x) && t[k + 1] === 'global' && t[k + 2] === 'add') || (/(?:^|\/)uv$/.test(x) && t[k + 1] === 'tool' && t[k + 2] === 'install')); skip = 3; }
+    if (i >= 0) { const r = execPackageAfter(t, i + skip); return r && { ...r, rest: ['install', ...r.rest] }; }
+  }
   if (i < 0) return null;
-  for (let k = i + skip; k < t.length; k++) {
+  return execPackageAfter(t, i + skip);
+}
+function execPackageAfter(t, from) {
+  for (let k = from; k < t.length; k++) {
     const a = t[k];
     let pkg = null, rest = t.slice(k + 1);
     if (a === '-p' || a === '--package' || a === '--from') { pkg = t[k + 1]; rest = t.slice(k + 2); }
@@ -271,22 +283,46 @@ function scanOtherMcp() {
     const servers = getAt(readJson(f), p) || {};
     for (const [name, cfg] of Object.entries(servers)) out.push(mcpFinding(agent, name, cfg || {}, f, p, ''));
   }
-  // Codex CLI (TOML) — detect only
+  // Codex CLI (~/.codex/config.toml). Each item is removed by cutting its exact lines/section out of the file.
   const codex = h('.codex', 'config.toml');
   if (exists(codex)) {
     const t = fs.readFileSync(codex, 'utf8');
-    for (const m of t.matchAll(/^\[mcp_servers\.([^\]]+)\]/gm)) out.push({
-      agent: 'Codex CLI', category: 'MCP server', title: m[1], detail: 'Defined in config.toml', risk: 'medium', source: codex,
-      action: { kind: 'none', hint: 'Edit ~/.codex/config.toml to remove.' },
-    });
-    const sb = t.match(/^sandbox_mode\s*=\s*"([^"]+)"/m);
-    if (sb && sb[1] === 'danger-full-access') out.push({ agent: 'Codex CLI', category: 'Permission mode', title: 'sandbox_mode = danger-full-access', detail: 'No sandbox: full access to your disk and network', risk: 'high', source: codex, action: { kind: 'none', hint: 'Edit ~/.codex/config.toml.' } });
-    for (const m of t.matchAll(/^\[projects\."([^"]+)"\]\s*\n\s*trust_level\s*=\s*"trusted"/gm)) out.push({
-      agent: 'Codex CLI', category: 'Trusted folder', title: m[1].replace(HOME, '~'), detail: 'Trusted project: Codex works here with fewer prompts', risk: m[1] === HOME || m[1] === '/' ? 'high' : 'low', source: codex,
-      action: { kind: 'none', hint: `Remove the [projects."${m[1]}"] section from ~/.codex/config.toml.` } });
-    const ap = t.match(/^approval_policy\s*=\s*"([^"]+)"/m);
-    if (ap && ap[1] === 'never') out.push({ agent: 'Codex CLI', category: 'Permission mode', title: 'approval_policy = never', detail: 'Runs commands without asking', risk: 'high', source: codex, action: { kind: 'none', hint: 'Edit config.toml.' } });
+    const top = t.split(/^\[/m)[0]; // keys before the first [section] apply to every session
+    const cut = text => ({ kind: 'removeTomlBlock', file: codex, block: text });
+    const section = header => { const k = t.indexOf(header); if (k < 0) return null; const rest = t.slice(k + header.length); const e = rest.search(/^\[/m); return header + (e < 0 ? rest : rest.slice(0, e)); };
+    for (const m of t.matchAll(/^\[mcp_servers\.("?)([^\]"]+)\1\]\s*$/gm)) {
+      const sec = section(m[0]);
+      const cmd = (sec.match(/^\s*command\s*=\s*"([^"]*)"/m) || [])[1] || (sec.match(/^\s*url\s*=\s*"([^"]*)"/m) || [])[1] || '';
+      const args = ((sec.match(/^\s*args\s*=\s*\[(.*)\]/m) || [])[1] || '').replace(/"/g, '');
+      out.push({ agent: 'Codex CLI', category: 'MCP server', title: m[2], detail: `${cmd} ${args}`.trim() || 'Defined in config.toml',
+        risk: mcpRisk({ command: cmd, args: args.split(',').map(x => x.trim()).filter(Boolean) }), source: codex, action: cut(sec) });
+    }
+    const line = re => { const m = top.match(re); return m ? { value: m[1], text: m[0] + '\n' } : null; };
+    const sb = line(/^sandbox_mode\s*=\s*"([^"]+)"[^\n]*/m);
+    if (sb && sb.value === 'danger-full-access') out.push({ agent: 'Codex CLI', category: 'Permission mode', title: 'sandbox_mode = danger-full-access',
+      detail: 'No sandbox: full access to your disk and network', risk: 'high', source: codex, action: cut(sb.text) });
+    const ap = line(/^approval_policy\s*=\s*"([^"]+)"[^\n]*/m);
+    if (ap && (ap.value === 'never' || ap.value === 'on-failure')) out.push({ agent: 'Codex CLI', category: 'Permission mode', title: `approval_policy = ${ap.value}`,
+      detail: ap.value === 'never' ? 'Runs commands without ever asking' : 'Only asks after a command fails', risk: ap.value === 'never' ? 'high' : 'medium', source: codex, action: cut(ap.text) });
+    for (const m of t.matchAll(/^\[projects\."([^"]+)"\]\s*$/gm)) {
+      const sec = section(m[0]);
+      if (!/^\s*trust_level\s*=\s*"trusted"/m.test(sec)) continue;
+      out.push({ agent: 'Codex CLI', category: 'Trusted folder', title: m[1].replace(HOME, '~'), detail: 'Trusted project: Codex works here with fewer prompts',
+        risk: m[1] === HOME || m[1] === '/' ? 'high' : 'low', source: codex, action: cut(sec) });
+    }
   }
+  // Codex sign-ins: ~/.codex/auth.json (default, plain text) or the Keychain item "Codex Auth" (found by scanKeychain)
+  const ca = h('.codex', 'auth.json');
+  if (exists(ca)) {
+    const j = readJson(ca) || {};
+    const how = j.OPENAI_API_KEY ? 'an OpenAI API key' : j.tokens ? 'your ChatGPT login' : 'your OpenAI login';
+    out.push({ agent: 'Codex CLI', category: 'Saved login', title: 'OpenAI sign-in (auth.json)',
+      detail: `Codex keeps ${how} here as plain text: any program you run can read it and use your OpenAI access. Setting cli_auth_credentials_store = "keyring" in config.toml moves it to the Keychain.`,
+      risk: 'high', source: ca, action: { kind: 'removeFile', file: ca } });
+  }
+  const cm = h('.codex', '.credentials.json');
+  if (exists(cm)) out.push({ agent: 'Codex CLI', category: 'Saved login', title: 'MCP server logins', detail: 'Logins Codex saved for MCP servers, as plain text',
+    risk: 'medium', source: cm, action: { kind: 'removeFile', file: cm } });
   return out;
 }
 
@@ -388,7 +424,7 @@ function scanKeychain() {
     const when = /^\d{14}/.test(mdat) ? `${mdat.slice(0, 4)}-${mdat.slice(4, 6)}-${mdat.slice(6, 8)}` : '';
     const who = `${svc} ${label} ${server}`;
     const agent = /claude code/i.test(who) ? 'Claude Code' : /claude/i.test(who) ? 'Claude Desktop' : /chatgpt|openai/i.test(who) ? 'ChatGPT'
-      : /github|^gh:/i.test(who) ? 'GitHub CLI' : /gemini-cli/i.test(who) ? 'Gemini CLI' : ((who.match(AI_NAME_RE) || ['Keychain'])[0].replace(/^./, c => c.toUpperCase()));
+      : /github|^gh:/i.test(who) ? 'GitHub CLI' : /gemini-cli/i.test(who) ? 'Gemini CLI' : /codex/i.test(who) ? 'Codex CLI' : ((who.match(AI_NAME_RE) || ['Keychain'])[0].replace(/^./, c => c.toUpperCase()));
     out.push({
       agent, category: 'Saved login', title: label || name,
       detail: /Safe Storage$/.test(name)
@@ -716,6 +752,34 @@ function geminiRules(file) {
   });
 }
 
+// AI agents installed on this Mac: command-line agents in the usual bin folders, and AI apps
+const BIN_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', h('.local', 'bin'), h('.npm-global', 'bin'), h('.bun', 'bin'), h('.cargo', 'bin'), h('.volta', 'bin')];
+const CLI_AGENTS = { claude: ['Claude Code', 'npm uninstall -g @anthropic-ai/claude-code'], codex: ['Codex CLI', 'npm uninstall -g @openai/codex'],
+  gemini: ['Gemini CLI', 'npm uninstall -g @google/gemini-cli'], 'cursor-agent': ['Cursor CLI', 'rm "$(command -v cursor-agent)"'], aider: ['Aider', 'pipx uninstall aider-chat'],
+  goose: ['Goose', 'brew uninstall block-goose-cli'], opencode: ['OpenCode', 'npm uninstall -g opencode-ai'], copilot: ['Copilot CLI', 'npm uninstall -g @github/copilot'],
+  qwen: ['Qwen Code', 'npm uninstall -g @qwen-code/qwen-code'], amp: ['Amp', 'npm uninstall -g @sourcegraph/amp'], crush: ['Crush', 'brew uninstall crush'], 'kiro-cli': ['Kiro', ''] };
+const AI_APPS = /^(Claude|ChatGPT|Codex|Cursor|Windsurf|Perplexity|Ollama|LM Studio|Kiro|Zed|Warp|Msty|Jan|Copilot|Gemini|Comet|Dia|Atlas|ChatGPT Atlas|Raycast)\.app$/;
+function scanInstalledAgents() {
+  const out = [];
+  if (DEMO) return out;
+  const seen = new Set();
+  for (const dir of BIN_DIRS) for (const [cmd, [name, how]] of Object.entries(CLI_AGENTS)) {
+    const f = path.join(dir, cmd);
+    if (seen.has(cmd) || !exists(f)) continue;
+    seen.add(cmd);
+    let target = f; try { target = fs.realpathSync(f); } catch {}
+    out.push({ agent: name, category: 'AI agent installed', title: `${name} (${cmd} command)`, detail: `${f.replace(HOME, '~')}${target !== f ? ` → ${target.replace(HOME, '~')}` : ''}`,
+      risk: 'low', source: f, action: { kind: 'none', hint: how ? `To uninstall: ${how}` : 'Uninstall it the way you installed it.' } });
+  }
+  for (const dir of ['/Applications', h('Applications')]) {
+    let names = [];
+    try { names = fs.readdirSync(dir).filter(n => AI_APPS.test(n)); } catch {}
+    for (const n of names) out.push({ agent: n.replace(/\.app$/, ''), category: 'AI agent installed', title: `${n.replace(/\.app$/, '')} app`,
+      detail: path.join(dir, n).replace(HOME, '~'), risk: 'low', source: path.join(dir, n), action: { kind: 'none', hint: 'To uninstall, quit it and move it to the Trash.' } });
+  }
+  return out;
+}
+
 // Agent skills: folders of instructions (and often scripts) an agent loads and follows on its own
 const SKILL_ROOTS = [
   ['Claude Code', h('.claude', 'skills')], ['Codex CLI', h('.codex', 'skills')], ['Gemini CLI', h('.gemini', 'skills')],
@@ -839,7 +903,7 @@ function scanProcesses() {
 // Someone (you, or an agent) is installing or setting up an AI tool right now: an MCP server, agent skills, an agent plugin
 const SHELL_RE = /^-?(zsh|bash|sh|fish|dash|login|tmux|screen)$/;
 const SETUP_RE = /^(setup|install|init|add|configure|register|enable|login|onboard)$/i;
-const AGENT_PKG_RE = /mcp|agent|claude|codex|gemini|copilot|cursor|skill|anthropic|openai/i;
+const AGENT_PKG_RE = /mcp|agent|claude|codex|gemini|copilot|cursor|skill|anthropic|openai|aider|goose|opencode|qwen|crush|kiro|llm|gpt/i;
 function descendants(procs, pid) {
   const kids = new Map();
   for (const p of procs) { if (!kids.has(p.ppid)) kids.set(p.ppid, []); kids.get(p.ppid).push(p); }
@@ -1153,7 +1217,7 @@ function scanAll() {
   const tcc = scanTcc();
   const findings = [...scanClaudeCode(), ...scanClaudeDesktop(), ...scanOtherMcp(), ...tcc.findings, ...scanEnvKeys(),
     ...scanKeychain(), ...scanBackgroundAgents(), ...scanEditorExtensions(), ...scanBrowserExtensions(), ...scanLocalServers(),
-    ...scanMoreAgents(), ...scanSkills(), ...scanProcesses(), ...scanUploads(), ...scanInherited()];
+    ...scanMoreAgents(), ...scanInstalledAgents(), ...scanSkills(), ...scanProcesses(), ...scanUploads(), ...scanInherited()];
   const reviews = readJson(REVIEW_FILE) || {};
   const expiries = readJson(EXPIRY_FILE) || {};
   const seen = new Set();
@@ -1175,6 +1239,12 @@ function scanAll() {
   // First run: everything that exists today becomes the baseline, so you aren't flooded with alerts
   let known = readJson(KNOWN_FILE);
   if (!Array.isArray(known)) { known = list.map(f => f.id); writeIds(KNOWN_FILE, known); }
+  const st0 = readJson(SETTINGS_FILE) || {};
+  if (!st0.agentsBaselined) {
+    const add = list.filter(f => f.category === 'AI agent installed').map(f => f.id);
+    known = [...known, ...add]; writeIds(KNOWN_FILE, known);
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ ...st0, agentsBaselined: true }, null, 2));
+  }
   const knownSet = new Set(known);
   list.forEach(f => { f.isNew = !knownSet.has(f.id) && !f.reviewedAt; });
   return { scannedAt: new Date().toISOString(), findings: list, tcc: tcc.status, manual: MANUAL_CHECKS };
@@ -1284,7 +1354,7 @@ function doRevoke(f, reason) {
     const bk = backup(a.file);
     fs.writeFileSync(a.file, text.replace(a.block, ''));
     log(`REVOKE [${f.agent}] ${f.category}: ${f.title}  file=${a.file}  backup=${bk}${why}`);
-    return { message: `Revoked "${f.title}". Gemini will ask again (restart running Gemini sessions). Backup saved.`, backup: bk };
+    return { message: `Revoked "${f.title}". ${f.agent} will ask again (restart any running ${f.agent} sessions). Backup saved.`, backup: bk };
   }
   if (a.kind === 'removeFile') {
     const file = a.file;
@@ -1470,6 +1540,8 @@ function startWatching() {
   for (const proj of Object.keys((readJson(h('.claude.json')) || {}).projects || {}))
     targets.push([path.join(proj, '.claude'), /^settings(\.local)?\.json$/], [proj, /^\.mcp\.json$/]);
   for (const [, dir] of skillRoots()) targets.push([dir, /./]);
+  for (const dir of BIN_DIRS) targets.push([dir, new RegExp(`^(${Object.keys(CLI_AGENTS).join('|')})$`)]);
+  targets.push(['/Applications', AI_APPS], [h('Applications'), AI_APPS], [h('.codex'), /^(config\.toml|auth\.json|\.credentials\.json)$/]);
   for (const [dir, re] of targets) {
     try {
       fs.watch(dir, { persistent: false }, (_e, name) => {

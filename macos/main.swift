@@ -254,7 +254,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             let isProcess = g.category == "Running agent" || g.category == "AI tool install" || isUpload
             let panel = PromptPanel(.init(
                 symbol: isUpload ? "arrow.up.doc.fill" : isProcess ? "bolt.trianglebadge.exclamationmark.fill" : "exclamationmark.shield.fill", risk: g.risk,
-                title: isProcess ? g.title : "\(g.agent) got new access",
+                title: isProcess ? g.title : g.category == "AI agent installed" ? "New AI agent on this Mac: \(g.agent)" : "\(g.agent) got new access",
                 subtitle: g.category,
                 detail: "\(g.title)\n\(g.detail)",
                 footnote: isUpload ? "\"Stop it\" ends the program now. \"Always\" lets this app send data without asking again (undo it under Decisions)."
