@@ -250,16 +250,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let ordered = grants.sorted { rank($0.risk) < rank($1.risk) }
         for g in ordered.prefix(3) where panels["grant-\(g.id)"] == nil {
             let canRemove = g.revocable ?? false
-            let isProcess = g.category == "Running agent" || g.category == "AI tool install"
+            let isUpload = g.category == "Data upload"
+            let isProcess = g.category == "Running agent" || g.category == "AI tool install" || isUpload
             let panel = PromptPanel(.init(
-                symbol: isProcess ? "bolt.trianglebadge.exclamationmark.fill" : "exclamationmark.shield.fill", risk: g.risk,
+                symbol: isUpload ? "arrow.up.doc.fill" : isProcess ? "bolt.trianglebadge.exclamationmark.fill" : "exclamationmark.shield.fill", risk: g.risk,
                 title: isProcess ? g.title : "\(g.agent) got new access",
                 subtitle: g.category,
                 detail: "\(g.title)\n\(g.detail)",
-                footnote: isProcess ? "\"Stop it\" ends the process now. \"Let it run\" can also be limited to 1 hour, 1 day or 7 days."
+                footnote: isUpload ? "\"Stop it\" ends the program now. \"Always\" lets this app send data without asking again (undo it under Decisions)."
+                    : isProcess ? "\"Stop it\" ends the process now. \"Let it run\" can also be limited to 1 hour, 1 day or 7 days."
                     : canRemove ? "Remove takes the access away now (a backup is saved, so you can undo it)." : "This one has to be removed by hand. Choose \"Review\" to see how.",
-                options: isProcess ? ["Until it ends", "For 1 hour", "For 1 day", "For 7 days"] : ["Keep it", "Keep for 1 hour", "Keep for 1 day", "Keep for 7 days"],
-                allowTitle: isProcess ? "Let it run" : "Keep", denyTitle: canRemove ? (isProcess ? "Stop it" : "Remove") : "Review"))
+                options: isUpload ? ["Allow this time", "Always for this app"] : isProcess ? ["Until it ends", "For 1 hour", "For 1 day", "For 7 days"] : ["Keep it", "Keep for 1 hour", "Keep for 1 day", "Keep for 7 days"],
+                allowTitle: isUpload ? "Allow" : isProcess ? "Let it run" : "Keep", denyTitle: canRemove ? (isProcess ? "Stop it" : "Remove") : "Review"))
             panel.onDecision = { [weak self] allowed, option in
                 guard let self else { return }
                 self.panels.removeValue(forKey: "grant-\(g.id)")
@@ -272,6 +274,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                         }
                         self.checkForChanges()
                     }
+                } else if isUpload && option == 1 {
+                    self.api("uploads/trust", method: "POST", body: ["id": g.id]) { _ in self.checkForChanges() }
                 } else if option == 0 || !canRemove {
                     self.api("review", method: "POST", body: ["id": g.id, "on": true]) { _ in self.checkForChanges() }
                 } else {

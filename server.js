@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
-const { execFileSync } = require('child_process');
+const { execFileSync, execFile } = require('child_process');
 
 const HOME = os.homedir();
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4517;
@@ -27,6 +27,7 @@ const GATE_SCRIPT = path.join(DATA_DIR, 'gate.js');          // stable copy of t
 const GATE_MARK = 'ai-access-audit/gate.js';
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');   // { scope: 'ai' | 'all' }
 const getScope = () => ((readJson(SETTINGS_FILE) || {}).scope === 'all' ? 'all' : 'ai');
+const UPLOADS_FILE = path.join(DATA_DIR, 'uploads.json');     // apps caught sending data out, and apps you trust to
 const DECISIONS_FILE = path.join(DATA_DIR, 'decisions.json'); // every Allow / Deny you gave in the popup
 function sh(cmd, args, timeout = 10000) {
   try { return execFileSync(cmd, args, { encoding: 'utf8', timeout, maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }); }
@@ -819,6 +820,200 @@ function scanInstalls(procs) {
   return out;
 }
 
+// ---------- uploads: apps sending data from this Mac to another computer ----------
+// nettop reports how many bytes each process has sent on each connection (no admin rights needed).
+// Sampled every 2 seconds, so a connection that opens and closes in between can slip through.
+const UPLOAD_WINDOW = 10 * 60e3;
+const AI_LIMIT = 64 * 1024, ANY_LIMIT = 20 * 1024 * 1024;
+const SYSTEM_EXE_RE = /^\/(System|usr\/libexec|usr\/sbin|sbin|usr\/bin\/(nsurlsessiond|trustd))\//;
+const SENSITIVE_RE = /\/\.ssh\/|\/\.aws\/|\/\.config\/(gh|gcloud)\/|\/\.kube\/|\/\.gnupg\/|\/\.docker\/config|\/Keychains\/|\/\.env(\.|$)|\/Cookies$|\/Login Data$|\/\.npmrc$|\/\.netrc$|\/\.git-credentials$|credentials/i;
+const INTERP_RE = /^(node|python3?(\.\d+)?|Python|ruby|perl|bun|deno|php|java)$/;
+const uploads = { conns: new Map(), sent: new Map(), primed: false, timer: null, ps: null };
+function uploadStore() { const j = readJson(UPLOADS_FILE) || {}; return { events: j.events || [], trusted: j.trusted || [] }; }
+function saveUploads(st) { fs.writeFileSync(UPLOADS_FILE, JSON.stringify(st, null, 2)); }
+function fmtBytes(n) { return n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} bytes`; }
+// "the app" for trust purposes: the program, plus the script when the program is an interpreter
+// the program's path; Mac apps have spaces in their paths, so use the .app bundle when there is one
+function exeOf(cmd) { const m = cmd.match(/^(.+?\.app)\//); return m ? m[1] : (cmd.split(/\s+/)[0] || ''); }
+function appName(cmd) { const e = exeOf(cmd); return path.basename(e).replace(/\.app$/, ''); }
+function appKey(cmd) {
+  const t = cmd.split(/\s+/);
+  const exe = exeOf(cmd);
+  // where the program's own name ends (inside a bundle, or the first word)
+  let k = t.findIndex(x => /\/Contents\/MacOS\/[^/]+$/.test(x));
+  if (k < 0) k = 0;
+  const bin = path.basename(t[k] || '');
+  if (!INTERP_RE.test(bin)) return exe;
+  // node, python…: trust is per script, never the interpreter as a whole
+  let script = '(inline code)';
+  for (let i = k + 1; i < t.length; i++) {
+    if (/^(-c|-e|--eval|-p|--print)$/.test(t[i])) break;      // code given on the command line
+    if (t[i] === '-m') { script = `-m ${t[i + 1] || ''}`; break; } // python -m module
+    if (!t[i].startsWith('-')) { script = t[i]; break; }
+  }
+  return `${exe} ${script}`;
+}
+function startUploadMonitor() {
+  if (DEMO || uploads.timer) return;
+  // tests (preview mode only) can replay recorded nettop output instead of watching the real network
+  const replay = process.env.AUDIT_PREVIEW && process.env.AUDIT_NETTOP_REPLAY;
+  if (replay) {
+    setTimeout(() => {
+      const samples = fs.readFileSync(replay, 'utf8').split(/^,.*\n/m).map(x => x.split('\n').filter(Boolean)).filter(x => x.length);
+      samples.forEach(handleSample);
+    }, 4000).unref();
+    uploads.timer = true;
+    return;
+  }
+  // one snapshot every 2 seconds: nettop's streaming mode is far heavier than a quick snapshot
+  let busy = false;
+  uploads.timer = setInterval(() => {
+    if (busy) return;
+    busy = true;
+    execFile('nettop', ['-L', '1', '-n', '-x', '-J', 'bytes_out'], { timeout: 5000, maxBuffer: 8 << 20 }, (err, out) => {
+      busy = false;
+      if (err || !out) return;
+      handleSample(out.split('\n').filter(l => l && !l.startsWith(',')));
+    });
+  }, 2000);
+  uploads.timer.unref();
+}
+function parseRemote(conn) {
+  const m = conn.match(/^(tcp|udp)[46]\s+(\S+)<->(\S+)$/);
+  if (!m || m[3].startsWith('*')) return null;
+  const r = m[3];
+  const v4 = r.match(/^(\d+\.\d+\.\d+\.\d+):(\d+)$/);
+  const ip = v4 ? v4[1] : r.replace(/\.\d+$/, ''), port = v4 ? v4[2] : (r.match(/\.(\d+)$/) || [])[1];
+  if (/^(127\.|0\.|169\.254\.|::1$|fe80:|::ffff:127\.)/i.test(ip)) return null;
+  return { ip, port, key: `${m[1]} ${m[2]}<->${r}` };
+}
+function handleSample(lines) {
+  const now = Date.now();
+  let pid = null;
+  const live = new Set();
+  for (const line of lines) {
+    const pm = line.match(/^(.*)\.(\d+),(\d*),?$/);
+    if (pm && !/^(tcp|udp)[46]\s/.test(line)) { pid = pm[2]; continue; }
+    const cm = line.match(/^([^,]*),(\d*),?$/);
+    if (!cm || !pid) continue;
+    const rem = parseRemote(cm[1]);
+    if (!rem) continue;
+    const out = Number(cm[2] || 0), ck = `${pid}|${rem.key}`;
+    live.add(ck);
+    const prev = uploads.conns.get(ck);
+    // connections already open when we start only count from now on
+    const delta = prev == null ? (uploads.primed ? out : 0) : Math.max(0, out - prev);
+    uploads.conns.set(ck, out);
+    if (!delta) continue;
+    const sk = `${pid}|${rem.ip}`;
+    const e = uploads.sent.get(sk) || { pid, ip: rem.ip, port: rem.port, chunks: [] };
+    e.chunks.push([now, delta]); e.port = rem.port;
+    uploads.sent.set(sk, e);
+  }
+  for (const k of uploads.conns.keys()) if (!live.has(k)) uploads.conns.delete(k);
+  uploads.primed = true;
+  checkUploads(now);
+}
+function checkUploads(now) {
+  let procs = null, st = null, changed = false;
+  for (const [sk, e] of uploads.sent) {
+    e.chunks = e.chunks.filter(([t]) => now - t < UPLOAD_WINDOW);
+    if (!e.chunks.length) { uploads.sent.delete(sk); continue; }
+    const total = e.chunks.reduce((a, [, b]) => a + b, 0);
+    if (total < AI_LIMIT) continue;
+    if (!procs) {
+      // the process list is reused for a few seconds; busy apps cross the small limit all the time
+      if (!uploads.ps || now - uploads.ps.at > 5000) {
+        const list = [];
+        for (const line of sh('ps', ['-axo', 'pid=,ppid=,uid=,etime=,command='], 5000).split('\n')) {
+          const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/);
+          if (m) list.push({ pid: m[1], ppid: m[2], uid: m[3], etime: m[4], cmd: m[5] });
+        }
+        uploads.ps = { at: now, list };
+      }
+      procs = uploads.ps.list;
+      st = uploadStore();
+    }
+    const byPid = new Map(procs.map(p => [p.pid, p]));
+    let p = byPid.get(e.pid);
+    if (!p && now - uploads.ps.at > 1000) { uploads.ps.at = 0; continue; } // refresh on the next sample
+    if (!p || Number(p.pid) === process.pid || p.ppid === String(process.pid)) continue;
+    const exe = exeOf(p.cmd);
+    if (SYSTEM_EXE_RE.test(exe) || /AI Access Auditor\.app/.test(p.cmd)) continue;
+    const key = appKey(p.cmd);
+    if (st.trusted.includes(key)) continue;
+    // started by an AI agent? (the agent itself talking to its model service is expected, so only its helpers count)
+    const agentOf = q => { const x = path.basename(q.cmd.split(/\s+/)[0]); const k = AGENT_NAMES[x] ? x : (q.cmd.match(AGENT_PROC_RE) || [])[1]; return k && AGENT_NAMES[k]; };
+    if (agentOf(p)) continue;
+    let by = null;
+    for (let n = 0, a = byPid.get(p.ppid); a && n < 30; n++, a = byPid.get(a.ppid)) if ((by = agentOf(a))) break;
+    if (!by && total < ANY_LIMIT) continue;
+    let ev = st.events.find(x => x.key === key && x.ip === e.ip && now - Date.parse(x.firstAt) < 24 * 3600e3);
+    if (!ev) {
+      // regular files only (lsof -Ftn: a "tREG" line, then the "n<path>" line)
+      const files = [];
+      let reg = false;
+      for (const l of sh('lsof', ['-p', p.pid, '-Ftn'], 3000).split('\n')) {
+        if (l[0] === 't') reg = l === 'tREG';
+        else if (l[0] === 'n' && reg) files.push(l.slice(1));
+      }
+      files.splice(0, files.length, ...files.filter(f => SENSITIVE_RE.test(f)
+        || (f.startsWith(HOME) && !/\/Library\//.test(f) && !/\.(dylib|so|node|pyc)$/.test(f))));
+      ev = { key, ip: e.ip, port: e.port, pid: Number(p.pid), cmd: p.cmd.slice(0, 300), name: (() => { const n = appName(p.cmd); const sc = appKey(p.cmd).slice(exeOf(p.cmd).length).trim(); return INTERP_RE.test(n) && sc ? `${n} (${path.basename(sc)})` : n; })(), by, bytes: 0, firstAt: new Date(now).toISOString(),
+        files: [...new Set(files)].sort((a, b) => SENSITIVE_RE.test(b) - SENSITIVE_RE.test(a)).slice(0, 6) };
+      st.events.push(ev);
+      log(`UPLOAD ${ev.name} (process ${ev.pid}${by ? `, started by ${by}` : ''}) sending to ${e.ip}:${e.port}`);
+      changed = true;
+    }
+    if (total > ev.bytes) { ev.bytes = total; ev.lastAt = new Date(now).toISOString(); st.dirty = true; }
+  }
+  if (st && (changed || st.dirty)) {
+    delete st.dirty;
+    st.events = st.events.filter(x => now - Date.parse(x.firstAt) < 24 * 3600e3).slice(-200);
+    saveUploads(st);
+  }
+  if (changed) { changedFlag = true; flushEvents(); }
+}
+function scanUploads() {
+  const out = [];
+  if (DEMO) return out;
+  const { events } = uploadStore();
+  for (const ev of events) {
+    if (Date.now() - Date.parse(ev.firstAt) > 24 * 3600e3) continue;
+    const sensitive = ev.files.filter(f => SENSITIVE_RE.test(f));
+    const port = ev.port === '443' ? '443, secure web' : ev.port === '80' ? '80, plain web' : ev.port === '22' ? '22, SSH' : ev.port;
+    out.push({
+      agent: ev.by || ev.name, category: 'Data upload', title: `${ev.name} is sending data to ${ev.ip}`,
+      detail: `${fmtBytes(ev.bytes)} sent to ${ev.ip} (port ${port}) since ${new Date(ev.firstAt).toLocaleTimeString()}`
+        + `${ev.by ? ` · Started by ${ev.by}` : ''}`
+        + `${ev.files.length ? ` · Files it has open: ${ev.files.map(f => f.replace(HOME, '~')).join(', ')}` : ''}`
+        + ` · Process ${ev.pid}: ${ev.cmd.replace(HOME, '~').slice(0, 160)}`,
+      risk: ev.by || sensitive.length ? 'high' : 'medium', source: `upload ${ev.key} -> ${ev.ip}`,
+      action: { kind: 'killProcess', pid: ev.pid, cmdStart: ev.cmd.slice(0, 200), tree: true },
+    });
+  }
+  return out;
+}
+function trustUploader(findingId) {
+  const f = scanAll().findings.find(x => x.id === findingId && x.category === 'Data upload');
+  if (!f) throw new Error('Upload not found. Rescan.');
+  const st = uploadStore();
+  const ev = st.events.find(x => `upload ${x.key} -> ${x.ip}` === f.source.replace('~', HOME) || `upload ${x.key} -> ${x.ip}`.replace(HOME, '~') === f.source);
+  if (!ev) throw new Error('Upload not found. Rescan.');
+  if (!st.trusted.includes(ev.key)) st.trusted.push(ev.key);
+  st.events = st.events.filter(x => x.key !== ev.key);
+  saveUploads(st);
+  log(`UPLOAD trusted from now on: ${ev.key.replace(HOME, '~')}`);
+  return { message: `${ev.name} can send data without asking from now on. Undo it under Decisions.` };
+}
+function untrustUploader(key) {
+  const st = uploadStore();
+  st.trusted = st.trusted.filter(k => k !== key);
+  saveUploads(st);
+  log(`UPLOAD no longer trusted: ${key.replace(HOME, '~')}`);
+  return { message: 'It will be watched again.' };
+}
+
 // Privileges every agent inherits from your account: admin rights, SSH keys, cloud and developer logins
 let sudoCache = { at: 0, ok: false };
 function demoInherited() {
@@ -871,7 +1066,7 @@ function scanAll() {
   const tcc = scanTcc();
   const findings = [...scanClaudeCode(), ...scanClaudeDesktop(), ...scanOtherMcp(), ...tcc.findings, ...scanEnvKeys(),
     ...scanKeychain(), ...scanBackgroundAgents(), ...scanEditorExtensions(), ...scanBrowserExtensions(), ...scanLocalServers(),
-    ...scanMoreAgents(), ...scanSkills(), ...scanProcesses(), ...scanInherited()];
+    ...scanMoreAgents(), ...scanSkills(), ...scanProcesses(), ...scanUploads(), ...scanInherited()];
   const reviews = readJson(REVIEW_FILE) || {};
   const expiries = readJson(EXPIRY_FILE) || {};
   const seen = new Set();
@@ -994,7 +1189,7 @@ function doRevoke(f, reason) {
     process.kill(a.pid, 'SIGTERM');
     for (const k of tree) try { process.kill(Number(k.pid), 'SIGTERM'); } catch {}
     log(`STOP process ${a.pid}${tree.length ? ` and ${tree.length} helpers` : ''} [${f.agent}] ${f.title}${why}`);
-    return { message: `Stopped ${f.agent} (process ${a.pid}).` };
+    return { message: `Stopped ${f.category === 'Data upload' ? f.title.split(' is sending')[0] : f.agent} (process ${a.pid}).` };
   }
   if (a.kind === 'removeFolder') {
     if (!exists(a.dir)) throw new Error('That folder is already gone. Rescan.');
@@ -1369,6 +1564,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/gate/status') return send(res, 200, gateStatus());
     if (req.method === 'GET' && url.pathname === '/api/changes') return send(res, 200, changes());
     if (req.method === 'GET' && url.pathname === '/api/backups') return send(res, 200, listBackups());
+    if (req.method === 'GET' && url.pathname === '/api/uploads/trusted') return send(res, 200, { trusted: uploadStore().trusted.map(k => ({ key: k, label: k.replace(HOME, '~') })) });
     if (req.method === 'GET' && url.pathname === '/api/log') return send(res, 200, { log: exists(LOG_FILE) ? fs.readFileSync(LOG_FILE, 'utf8').split('\n').filter(Boolean).reverse().slice(0, 200) : [] });
     const body = req.method === 'POST' ? await readBody(req) : {};
     if (url.pathname === '/api/revoke') return send(res, 200, revoke(body.id));
@@ -1390,6 +1586,8 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/open-app') return send(res, 200, openApp(body.id));
     if (url.pathname === '/api/ack') return send(res, 200, ack(body.ids));
     if (url.pathname === '/api/review') return send(res, 200, markReviewed(body.id, body.on));
+    if (url.pathname === '/api/uploads/trust') return send(res, 200, trustUploader(body.id));
+    if (url.pathname === '/api/uploads/untrust') return send(res, 200, untrustUploader(String(body.key || '')));
     if (url.pathname === '/api/restore') return send(res, 200, restore(body.name));
     send(res, 404, { error: 'unknown endpoint' });
   } catch (e) { send(res, 400, { error: e.message }); }
@@ -1410,6 +1608,7 @@ if (require.main === module) {
       ['SIGTERM', 'SIGINT', 'SIGHUP'].forEach(sig => process.on(sig, () => process.exit(0)));
     } catch (e) { console.error('gate setup failed:', e.message); }
     startWatching();
+    startUploadMonitor();
     if (process.env.PORT === '0') {
       console.log(`TOKEN ${TOKEN}`); // only for the Mac app that launched us
       // Exit when the Mac app goes away, even if it was force-quit
