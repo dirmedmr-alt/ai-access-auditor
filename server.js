@@ -388,7 +388,7 @@ function scanKeychain() {
     const when = /^\d{14}/.test(mdat) ? `${mdat.slice(0, 4)}-${mdat.slice(4, 6)}-${mdat.slice(6, 8)}` : '';
     const who = `${svc} ${label} ${server}`;
     const agent = /claude code/i.test(who) ? 'Claude Code' : /claude/i.test(who) ? 'Claude Desktop' : /chatgpt|openai/i.test(who) ? 'ChatGPT'
-      : /github|^gh:/i.test(who) ? 'GitHub CLI' : ((who.match(AI_NAME_RE) || ['Keychain'])[0].replace(/^./, c => c.toUpperCase()));
+      : /github|^gh:/i.test(who) ? 'GitHub CLI' : /gemini-cli/i.test(who) ? 'Gemini CLI' : ((who.match(AI_NAME_RE) || ['Keychain'])[0].replace(/^./, c => c.toUpperCase()));
     out.push({
       agent, category: 'Saved login', title: label || name,
       detail: /Safe Storage$/.test(name)
@@ -592,6 +592,17 @@ function scanMoreAgents() {
   const gHooks = Object.entries(g.hooks || {}).filter(([, list]) => (list || []).some(e => !isOurHook(e))).map(([k]) => k);
   if (gHooks.length) add('Gemini CLI', 'Hooks', `Hooks: ${gHooks.join(', ')}`, 'Shell commands Gemini runs automatically on its events', 'medium', gs,
     none('Review the "hooks" section in ~/.gemini/settings.json, or use /hooks inside Gemini.'));
+  // Gemini sign-ins: the Keychain item "gemini-cli-oauth" (found by scanKeychain), or these files
+  const gAcct = (readJson(h('.gemini', 'google_accounts.json')) || {}).active;
+  const who = gAcct ? ` (${mask(String(gAcct))})` : '';
+  for (const [file, title, detail, risk] of [
+    ['oauth_creds.json', 'Google sign-in token', `Gemini's Google login${who}, saved as plain text: any program you run can read it and use your Google AI access`, 'high'],
+    ['gemini-credentials.json', 'Google sign-in token (encrypted file)', `Gemini's Google login${who}. It is encrypted, but with a key built from your Mac's name and your username, so any program on this Mac could unlock it`, 'medium'],
+    ['mcp-oauth-tokens.json', 'MCP server logins', 'Logins Gemini saved for MCP servers it connects to', 'medium'],
+  ]) {
+    const f = h('.gemini', file);
+    if (exists(f)) add('Gemini CLI', 'Saved login', title, detail, risk, f, { kind: 'removeFile', file: f });
+  }
   const tf = h('.gemini', 'trustedFolders.json');
   for (const [dir, lvl] of Object.entries(readJson(tf) || {})) if (lvl !== 'DO_NOT_TRUST')
     add('Gemini CLI', 'Trusted folder', dir.replace(HOME, '~'), lvl === 'TRUST_PARENT' ? 'Trusted, together with its parent folder' : 'Trusted folder',
@@ -1200,6 +1211,14 @@ function doRevoke(f, reason) {
     log(`STOP process ${a.pid}${tree.length ? ` and ${tree.length} helpers` : ''} [${f.agent}] ${f.title}${why}`);
     return { message: `Stopped ${f.category === 'Data upload' ? f.title.split(' is sending')[0] : f.agent} (process ${a.pid}).` };
   }
+  if (a.kind === 'removeFile') {
+    const file = a.file;
+    if (!exists(file)) throw new Error('That file is already gone. Rescan.');
+    const bk = backup(file);
+    fs.unlinkSync(file);
+    log(`REMOVE [${f.agent}] ${f.category}: ${f.title}  file=${file}  backup=${bk}${why}`);
+    return { message: `Removed "${f.title}". ${f.agent} will ask you to sign in again. A backup is saved under History.`, backup: bk };
+  }
   if (a.kind === 'removeFolder') {
     if (!exists(a.dir)) throw new Error('That folder is already gone. Rescan.');
     const name = `${Date.now()}__${a.dir.replace(/[\/\\:]/g, '_')}`;
@@ -1239,7 +1258,7 @@ function doRevoke(f, reason) {
   return { message: `Revoked "${f.title}". Backup saved.${restartHint}`, backup: bk };
 }
 
-const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'uninstallExt', 'killProcess', 'removeFolder'];
+const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'uninstallExt', 'killProcess', 'removeFolder', 'removeFile'];
 
 // Revoke several grants in one go. One scan up front; each revoke re-reads its file, so they don't clash.
 function revokeMany(ids) {

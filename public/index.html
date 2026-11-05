@@ -339,7 +339,7 @@ const avatar = a => `<span class="av" style="background:${agentColor(a)}">${esc(
 // ---------- state ----------
 let data = null, view = 'overview', agentFilter = null, selected = null, gateOn = false, scope = 'ai', gemOn = false, gemHere = false;
 const picked = new Set(); // grants ticked for bulk actions
-const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'uninstallExt', 'killProcess', 'removeFolder'];
+const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'uninstallExt', 'killProcess', 'removeFolder', 'removeFile'];
 const canRevoke = f => REVOCABLE.includes(f.action.kind);
 const timeLeft = iso => { const ms = Date.parse(iso) - Date.now(); if (ms <= 0) return 'now'; const h = ms / 3600e3; return h < 1 ? Math.ceil(ms / 60e3) + 'm' : h < 48 ? Math.round(h) + 'h' : Math.round(h / 24) + 'd'; };
 const ui = { q: '', risk: '', hideReviewed: false };
@@ -578,7 +578,7 @@ function renderInspector() {
     <div class="expiry"><div class="seg">${EXP.map(([v, l]) => `<button data-exp="${v}" data-for="${f.id}" class="${!f.expiresAt && v === '' ? 'on' : ''}">${l}</button>`).join('')}</div>
       ${f.expiresAt ? `<span class="detail" style="width:100%">Will be revoked ${esc(new Date(f.expiresAt).toLocaleString())} (in ${timeLeft(f.expiresAt)})</span>` : ''}</div>` : ''}
     <div class="acts">
-      ${revocable ? `<button class="btn danger" data-revoke="${f.id}">${a.kind === 'killProcess' ? 'Stop it' : a.kind === 'removeFolder' ? 'Remove skill' : 'Revoke access'}</button>`
+      ${revocable ? `<button class="btn danger" data-revoke="${f.id}">${a.kind === 'killProcess' ? 'Stop it' : a.kind === 'removeFolder' ? 'Remove skill' : a.kind === 'removeFile' ? 'Sign out (remove)' : 'Revoke access'}</button>`
         : a.kind === 'openApp' ? `<button class="btn primary" data-openapp="${f.id}">${esc(a.label)}</button><div class="hint">${esc(a.hint)}</div>`
         : a.kind === 'link' ? `<a class="btn primary" href="${esc(a.url)}">${esc(a.hint || 'Open settings')}</a>`
         : `<div class="hint">${esc(a.hint || 'Change this one by hand.')}</div>`}
