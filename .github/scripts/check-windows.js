@@ -19,11 +19,17 @@ run('reg', ['add', 'HKCU\\Environment', '/v', 'ANTHROPIC_API_KEY', '/t', 'REG_SZ
 fs.mkdirSync(path.dirname(startup), { recursive: true });
 fs.writeFileSync(startup, '@echo off\r\n');
 
+process.env.AUDIT_TIMING = '1';
 process.env.AUDIT_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-'));
 const srv = require('../../server.js');
 const t0 = Date.now();
 const r = srv.scanAll();
 console.log(`scan took ${Date.now() - t0} ms, ${r.findings.length} findings`);
+const t1 = Date.now(); srv.scanAll(); console.log(`second scan took ${Date.now() - t1} ms`);
+for (const [name, args] of [['powershell (start only)', ['powershell.exe', ['-NoProfile', '-Command', '1']]], ['cmdkey', ['cmdkey', ['/list']]],
+  ['netstat', ['netstat', ['-ano', '-p', 'TCP']]], ['whoami', ['whoami', ['/groups']]], ['reg query', ['reg', ['query', RUN]]]]) {
+  const t = Date.now(); run(...args); console.log(`  ${name}: ${Date.now() - t} ms`);
+}
 for (const f of r.findings) console.log(`  [${f.risk}] ${f.agent} · ${f.category} · ${f.title} · ${f.detail.slice(0, 120)}`);
 const find = (cat, re) => r.findings.find(f => f.category === cat && re.test(f.title));
 check(find('Background agent', /^Claude Background$/), 'startup entry in the registry (Run key)');
