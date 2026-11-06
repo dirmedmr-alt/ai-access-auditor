@@ -19,6 +19,19 @@ const AUTOSTART = path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(
 const startHidden = process.argv.includes('--background');
 // the path that starts this app again later (an AppImage runs from a temporary folder that changes every time)
 const stableExe = () => process.env.APPIMAGE || process.execPath;
+// How the Allow / Deny hooks start Node.js. An AppImage has to mount itself every time it runs, so when
+// Node.js is installed anyway, use it; otherwise the app itself runs as Node.js.
+function hookNodeCmd() {
+  const q = s => `"${s.replace(/(["\\$`])/g, '\\$1')}"`;
+  if (process.env.APPIMAGE) {
+    const nvm = path.join(os.homedir(), '.nvm', 'versions', 'node');
+    let nvmBins = [];
+    try { nvmBins = fs.readdirSync(nvm).sort().reverse().map(v => path.join(nvm, v, 'bin', 'node')); } catch {}
+    const node = ['/usr/bin/node', '/usr/local/bin/node', ...nvmBins].find(f => { try { fs.accessSync(f, fs.constants.X_OK); return true; } catch { return false; } });
+    if (node) return q(node);
+  }
+  return `ELECTRON_RUN_AS_NODE=1 ${q(stableExe())}`;
+}
 
 // ---------- language: the same French and Arabic as the Mac app (desktop/strings.json comes from macos/i18n.swift) ----------
 const STRINGS = require('./strings.json');
@@ -137,7 +150,7 @@ function startServer() {
   const env = {
     ...process.env, ELECTRON_RUN_AS_NODE: '1', PORT: '0',
     // the hooks agents run must start Node.js the same way, so they work without Node.js installed
-    AUDIT_NODE_CMD: `ELECTRON_RUN_AS_NODE=1 "${stableExe().replace(/(["\\$`])/g, '\\$1')}"`,
+    AUDIT_NODE_CMD: hookNodeCmd(),
   };
   server = spawn(process.execPath, [path.join(CORE, 'server.js')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   const onData = d => {
