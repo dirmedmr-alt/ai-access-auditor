@@ -857,6 +857,13 @@ function scanLocalServers() {
   return out;
 }
 
+function openCodeConfig() {
+  for (const n of ['opencode.jsonc', 'opencode.json', 'config.json']) {
+    const file = h('.config', 'opencode', n), r = readJsonc(file);
+    if (r) return { file, ...r };
+  }
+  return null;
+}
 // Lenient reader for editors' JSON-with-comments settings files
 function readJsonc(file) {
   let t;
@@ -878,7 +885,6 @@ function scanMoreAgents() {
     ['Copilot CLI', h('.copilot', 'mcp-config.json'), ['mcpServers']],
     ['Amazon Q', h('.aws', 'amazonq', 'mcp.json'), ['mcpServers']],
     ['Kiro', h('.kiro', 'settings', 'mcp.json'), ['mcpServers']],
-    ['OpenCode', h('.config', 'opencode', 'opencode.json'), ['mcp']],
   ]) for (const [name, cfg] of Object.entries(getAt(readJson(f), p) || {})) out.push(mcpFinding(agent, name, cfg || {}, f, p, ''));
   const cont = h('.continue', 'config.json');
   ((readJson(cont) || {}).mcpServers || []).forEach(m => add('Continue', 'MCP server', m.name || m.command || 'server',
@@ -944,12 +950,43 @@ function scanMoreAgents() {
   (getAt(readJson(cp), ['trusted_folders']) || []).forEach(d => add('Copilot CLI', 'Trusted folder', String(d).replace(HOME, '~'), 'Trusted folder: Copilot can read and change files here',
     d === HOME || d === '/' ? 'high' : 'low', cp, { kind: 'removeArrayItem', file: cp, path: ['trusted_folders'], value: d }));
 
-  // OpenCode permissions
-  const oc = h('.config', 'opencode', 'opencode.json'), perm = getAt(readJson(oc), ['permission']) || {};
-  for (const [tool, v] of Object.entries(perm)) {
-    if (v === 'allow') add('OpenCode', 'Tool permission', `${tool}: allow`, `Uses ${tool} without asking`, tool === 'bash' ? 'high' : 'medium', oc, { kind: 'deleteKey', file: oc, path: ['permission'], key: tool, value: v });
-    else if (v && typeof v === 'object') for (const [cmd, vv] of Object.entries(v)) if (vv === 'allow')
-      add('OpenCode', 'Tool permission', `${tool}(${cmd})`, 'Runs without asking', ruleRisk(`Bash(${cmd})`), oc, { kind: 'deleteKey', file: oc, path: ['permission', tool], key: cmd, value: vv });
+  // OpenCode: settings in ~/.config/opencode/opencode.json or opencode.jsonc (JSON with comments, which are
+  // safer to change by hand), MCP servers in its own format, and permissions for all agents or for one agent
+  const occ = openCodeConfig();
+  if (occ) {
+    const { file: oc, j, strict } = occ;
+    const manual = none(`Edit ${oc.replace(HOME, '~')} (it has comments, so it's safer to change by hand).`);
+    const act = a => (strict ? a : manual);
+    for (const [name, cfg] of Object.entries(j.mcp || {})) {
+      if (!cfg || typeof cfg !== 'object' || cfg.enabled === false) continue;
+      const cmd = Array.isArray(cfg.command) ? cfg.command : [cfg.command].filter(Boolean);
+      const f = mcpFinding('OpenCode', name, { command: cmd[0], args: cmd.slice(1), env: cfg.environment, url: cfg.url, headers: cfg.headers }, oc, ['mcp'], '');
+      f.action = act({ ...f.action, value: cfg });
+      out.push(f);
+    }
+    const perms = (perm, at, who) => {
+      if (perm === 'allow') return add('OpenCode', 'Permission mode', `${who}permission: allow`, 'Uses every tool without asking, including running commands and changing files', 'high', oc,
+        act({ kind: 'deleteKey', file: oc, path: at.slice(0, -1), key: at[at.length - 1], value: perm }));
+      for (const [tool, v] of Object.entries(perm && typeof perm === 'object' ? perm : {})) {
+        if (v === 'allow') add('OpenCode', 'Tool permission', `${who}${tool}: allow`, `Uses ${tool} without asking`, /^(bash|\*)$/.test(tool) ? 'high' : 'medium', oc, act({ kind: 'deleteKey', file: oc, path: at, key: tool, value: v }));
+        else if (v && typeof v === 'object') for (const [c, vv] of Object.entries(v)) if (vv === 'allow')
+          add('OpenCode', 'Tool permission', `${who}${tool}(${c})`, 'Runs without asking', ruleRisk(`Bash(${c})`), oc, act({ kind: 'deleteKey', file: oc, path: [...at, tool], key: c, value: vv }));
+      }
+    };
+    perms(j.permission, ['permission'], '');
+    for (const [aname, a] of Object.entries(j.agent || {})) if (a && a.permission) perms(a.permission, ['agent', aname, 'permission'], `agent ${aname}: `);
+  }
+  // OpenCode keeps the API keys and logins for its AI providers in a plain-text file
+  const oa = h('.local', 'share', 'opencode', 'auth.json');
+  if (exists(oa)) add('OpenCode', 'Saved login', 'AI provider logins (auth.json)',
+    `OpenCode keeps ${Object.keys(readJson(oa) || {}).length || 'its'} provider login${Object.keys(readJson(oa) || {}).length === 1 ? '' : 's'} here as plain text: any program you run can read them and use your AI accounts`,
+    'high', oa, { kind: 'removeFile', file: oa });
+  // OpenCode plugins: code OpenCode loads and runs by itself whenever something happens in a session
+  for (const dir of [h('.config', 'opencode', 'plugin'), h('.config', 'opencode', 'plugins')]) {
+    let names = [];
+    try { names = fs.readdirSync(dir).filter(n => /\.(js|mjs|ts)$/.test(n)); } catch {}
+    for (const n of names) add('OpenCode', 'Hooks', `Plugin: ${n.replace(/\.(js|mjs|ts)$/, '')}`, 'Code OpenCode loads and runs by itself on its events (it can run commands and read files)',
+      'medium', path.join(dir, n), { kind: 'removeFile', file: path.join(dir, n) });
   }
 
   // VS Code / Cursor / Windsurf: Copilot agent auto-approve settings
@@ -1025,7 +1062,7 @@ function geminiRules(file) {
 
 // AI agents installed on this Mac: command-line agents in the usual bin folders, and AI apps
 const NVM_BINS = (() => { try { return fs.readdirSync(h('.nvm', 'versions', 'node')).sort().reverse().map(v => h('.nvm', 'versions', 'node', v, 'bin')); } catch { return []; } })();
-const BIN_DIRS = [...(MAC ? ['/opt/homebrew/bin'] : []), '/usr/local/bin', h('.local', 'bin'), h('.npm-global', 'bin'), h('.bun', 'bin'), h('.cargo', 'bin'), h('.volta', 'bin'),
+const BIN_DIRS = [...(MAC ? ['/opt/homebrew/bin'] : []), '/usr/local/bin', h('.local', 'bin'), h('.opencode', 'bin'), h('.npm-global', 'bin'), h('.bun', 'bin'), h('.cargo', 'bin'), h('.volta', 'bin'),
   ...(LINUX ? ['/usr/bin', '/snap/bin', '/home/linuxbrew/.linuxbrew/bin'] : []), ...NVM_BINS,
   ...(WIN ? [appData('npm'), path.join(LOCAL_APPDATA, 'Programs'), h('scoop', 'shims'), path.join(LOCAL_APPDATA, 'Microsoft', 'WinGet', 'Links'), 'C:\\Program Files\\nodejs'] : [])];
 // on Windows a command is a file with an extension (claude.cmd from npm, claude.exe from an installer)
@@ -1034,7 +1071,7 @@ const CLI_AGENTS = { claude: ['Claude Code', 'npm uninstall -g @anthropic-ai/cla
   gemini: ['Gemini CLI', 'npm uninstall -g @google/gemini-cli'], 'cursor-agent': ['Cursor CLI', 'rm "$(command -v cursor-agent)"'], aider: ['Aider', 'pipx uninstall aider-chat'],
   goose: ['Goose', MAC ? 'brew uninstall block-goose-cli' : ''], opencode: ['OpenCode', 'npm uninstall -g opencode-ai'], copilot: ['Copilot CLI', 'npm uninstall -g @github/copilot'],
   qwen: ['Qwen Code', 'npm uninstall -g @qwen-code/qwen-code'], amp: ['Amp', 'npm uninstall -g @sourcegraph/amp'], crush: ['Crush', MAC ? 'brew uninstall crush' : ''], 'kiro-cli': ['Kiro', ''] };
-const AI_APP_NAMES = 'Claude|ChatGPT|Codex|Cursor|Windsurf|Perplexity|Ollama|LM Studio|Kiro|Zed|Warp|Msty|Jan|Copilot|Gemini|Comet|Dia|Atlas|ChatGPT Atlas|Raycast|GPT4All|AnythingLLM|Void';
+const AI_APP_NAMES = 'Claude|ChatGPT|Codex|Cursor|Windsurf|OpenCode|Perplexity|Ollama|LM Studio|Kiro|Zed|Warp|Msty|Jan|Copilot|Gemini|Comet|Dia|Atlas|ChatGPT Atlas|Raycast|GPT4All|AnythingLLM|Void';
 const AI_APPS = new RegExp(`^(${AI_APP_NAMES})\\.app$`);
 // Linux: apps show up as desktop entries (menu items), wherever they came from
 const DESKTOP_DIRS = ['/usr/share/applications', '/usr/local/share/applications', h('.local', 'share', 'applications'), '/var/lib/flatpak/exports/share/applications',
@@ -1094,6 +1131,13 @@ function scanInstalledAgents() {
   for (const a of LINUX ? linuxApps() : []) out.push({ agent: a.name, category: 'AI agent installed', title: `${a.name} app`,
     detail: `${a.exec.replace(HOME, '~').slice(0, 120)} (${a.file.replace(HOME, '~')})`, risk: 'low', source: a.file,
     action: { kind: 'none', hint: a.how ? `To uninstall: ${a.how}` : 'Uninstall it with your package manager (for example apt remove or dnf remove).' } });
+  // Desktop apps that run from anywhere (for example straight from Downloads): found by their data folder
+  for (const [name, dir] of [['OpenCode', appData('ai.opencode.desktop')]]) {
+    if (!exists(dir) || out.some(f => f.agent === name && f.title === `${name} app`)) continue;
+    const appIn = MAC && ['/Applications', h('Applications')].some(d => exists(path.join(d, `${name}.app`)));
+    if (!appIn) out.push({ agent: name, category: 'AI agent installed', title: `${name} app`, detail: `Desktop app (its data folder: ${dir.replace(HOME, '~')})`,
+      risk: 'low', source: dir, action: { kind: 'none', hint: 'To uninstall, quit it and delete the app, then its data folder if you like.' } });
+  }
   for (const dir of MAC ? ['/Applications', h('Applications')] : []) {
     let names = [];
     try { names = fs.readdirSync(dir).filter(n => AI_APPS.test(n)); } catch {}
@@ -1156,8 +1200,8 @@ function scanSkills() {
 }
 
 // AI agents running right now with approvals switched off, or as administrator
-const AGENT_PROC_RE = /(?:^|\/)(claude|codex|gemini|aider|cursor-agent|goose|opencode|copilot|qwen|amp|crush|kiro-cli)(?=\s|$)|@anthropic-ai\/claude-code|@openai\/codex|@google\/gemini-cli|@github\/copilot|@sourcegraph\/amp|opencode-ai/;
-const AGENT_NAMES = { claude: 'Claude Code', codex: 'Codex CLI', gemini: 'Gemini CLI', aider: 'Aider', 'cursor-agent': 'Cursor CLI', goose: 'Goose', opencode: 'OpenCode', copilot: 'Copilot CLI', qwen: 'Qwen Code', amp: 'Amp', crush: 'Crush', 'kiro-cli': 'Kiro' };
+const AGENT_PROC_RE = /(?:^|\/)(claude|codex|gemini|aider|cursor-agent|goose|opencode|opencode-cli|copilot|qwen|amp|crush|kiro-cli)(?=\s|$)|@anthropic-ai\/claude-code|@openai\/codex|@google\/gemini-cli|@github\/copilot|@sourcegraph\/amp|opencode-ai/;
+const AGENT_NAMES = { claude: 'Claude Code', codex: 'Codex CLI', gemini: 'Gemini CLI', aider: 'Aider', 'cursor-agent': 'Cursor CLI', goose: 'Goose', opencode: 'OpenCode', 'opencode-cli': 'OpenCode', copilot: 'Copilot CLI', qwen: 'Qwen Code', amp: 'Amp', crush: 'Crush', 'kiro-cli': 'Kiro' };
 function dangerReason(agentKey, cmd) {
   const rules = [
     [/--dangerously-skip-permissions\b|--permission-mode[ =]bypassPermissions/, 'skips every permission prompt'],
@@ -1233,9 +1277,19 @@ function startWindowsHelper() {
 function cmdTokens(cmd) {
   const s = String(cmd || '').trim();
   const q = s.match(/^"([^"]*)"\s*(.*)$/s) || (WIN && s.match(/^([A-Za-z]:\\.*?\.(?:exe|cmd|bat|com))(?=\s|$)\s*(.*)$/is));
-  const [first, rest] = q ? [q[1], q[2]] : (i => i < 0 ? [s, ''] : [s.slice(0, i), s.slice(i).trim()])(s.search(/\s/));
+  let [first, rest] = q ? [q[1], q[2]] : (i => i < 0 ? [s, ''] : [s.slice(0, i), s.slice(i).trim()])(s.search(/\s/));
+  // macOS and Linux list commands without quotes, so a program in a folder with a space ("Application Support")
+  // looks like two words: take more words until the path is a real file
+  if (!q && first.startsWith('/') && rest && !isFile(first)) {
+    const words = rest.split(/(\s+)/);
+    for (let k = 0, cand = first; k < words.length && k < 20; k += 2) {
+      cand += (words[k - 1] || ' ') + words[k];
+      if (isFile(cand)) { first = cand; rest = words.slice(k + 2).join('').trim(); break; }
+    }
+  }
   return [first, ...(rest ? rest.split(/\s+/).map(t => t.replace(/^"(.*)"$/, '$1')) : [])];
 }
+function isFile(f) { try { return fs.statSync(f).isFile(); } catch { return false; } }
 // the program's short name: "node", "claude" (no folder, no .exe)
 const exeBase = cmd => path.basename(cmdTokens(cmd)[0] || '').replace(/\.(exe|cmd|bat|com)$/i, '');
 // for matching patterns written for macOS and Linux: forward slashes, no .exe, no quotes
@@ -1612,7 +1666,7 @@ function untrustUploader(key) {
   return { message: 'It will be watched again.' };
 }
 
-// Privileges every agent inherits from your account: admin rights, SSH keys, cloud and developer logins
+// Privileges every agent inherits from your account: admin rights, SSH keys, and hosting and developer logins
 let sudoCache = { at: 0, ok: false }, winAdminCache = { at: 0, groups: '', uac: '' };
 function demoInherited() {
   return [{ agent: 'Your account', category: 'Inherited credential', title: 'SSH key: ~/.ssh/id_ed25519', detail: 'Loaded in ssh-agent: any agent can use it to log in to servers or push code', risk: 'medium', source: 'ssh-agent', action: { kind: 'none', hint: 'ssh-add -D' } }];
@@ -1661,7 +1715,7 @@ function scanInherited() {
   ])];
   if (awsProfiles.length) add('AWS CLI', 'Inherited credential', `AWS profiles: ${awsProfiles.join(', ')}`, 'Any agent can use these to act on your AWS account', 'high', '~/.aws', 'Remove unused profiles from ~/.aws/credentials, prefer short-lived SSO logins, and log out with "aws sso logout".');
   const gcfg = h('.config', 'gcloud', 'configurations', 'config_default');
-  if (exists(gcfg)) { const a = (fs.readFileSync(gcfg, 'utf8').match(/^account\s*=\s*(\S+)/m) || [])[1]; if (a) add('Google Cloud CLI', 'Inherited credential', `Logged in as ${a}`, 'Any agent can use gcloud to act on your Google Cloud projects', 'high', gcfg, 'Run "gcloud auth revoke" when you don\'t need it.'); }
+  if (exists(gcfg)) { const a = (fs.readFileSync(gcfg, 'utf8').match(/^account\s*=\s*(\S+)/m) || [])[1]; if (a) add('gcloud CLI', 'Inherited credential', `Logged in as ${a}`, 'Any agent can use gcloud to act on your Google projects', 'high', gcfg, 'Run "gcloud auth revoke" when you don\'t need it.'); }
   const kube = h('.kube', 'config');
   if (exists(kube)) { const t = fs.readFileSync(kube, 'utf8'); const n = (t.match(/^- context:/gm) || []).length; const cur = (t.match(/^current-context:\s*(\S+)/m) || [])[1];
     if (n) add('Kubernetes', 'Inherited credential', `${n} cluster context${n > 1 ? 's' : ''}${cur ? `, current: ${cur}` : ''}`, 'Any agent can run kubectl against these clusters', 'high', kube, 'Remove contexts you don\'t use (kubectl config delete-context <name>).'); }
@@ -2042,7 +2096,7 @@ function startWatching() {
   const targets = [
     [HOME, /^\.claude\.json$|^\.mcp\.json$|^\.(zshrc|zprofile|bashrc|bash_profile|profile|npmrc|aider\.conf\.yml)$/],
     [h('.gemini'), /\.json$/], [h('.copilot'), /\.json$/], [h('.aws'), /^(credentials|config)$/], [h('.aws', 'amazonq'), /\.json$/],
-    [h('.kiro', 'settings'), /\.json$/], [h('.config', 'opencode'), /\.json$/], [h('.continue'), /\.json$/], [h('.config', 'goose'), /\.yaml$/],
+    [h('.kiro', 'settings'), /\.json$/], [h('.config', 'opencode'), /\.jsonc?$/], [h('.local', 'share', 'opencode'), /^auth\.json$/], [h('.config', 'opencode', 'plugin'), /./], [h('.config', 'opencode', 'plugins'), /./], [appData('ai.opencode.desktop'), /^(cli|opencode\.settings)$/], [h('.continue'), /\.json$/], [h('.config', 'goose'), /\.yaml$/],
     [h('.config', 'gh'), /hosts\.yml$/], [h('.kube'), /^config$/], [h('.docker'), /config\.json$/], [h('.azure'), /\.json$/],
     [appData('Cursor', 'User'), /^settings\.json$/], [appData('Windsurf', 'User'), /^settings\.json$/],
     [appData('Claude', 'Claude Extensions'), /./],
