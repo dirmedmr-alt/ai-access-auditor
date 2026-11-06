@@ -50,17 +50,17 @@ html.native .side{padding-top:46px}
 .brand b{font-size:14px;display:block}.brand span{font-size:11px;color:var(--mut)}
 .navh{font-size:11px;font-weight:600;color:var(--faint);padding:12px 10px 4px;letter-spacing:.02em}
 .nav{display:flex;align-items:center;gap:9px;width:100%;padding:6px 10px;border-radius:7px;border:0;background:none;
-  color:inherit;font:inherit;text-align:left;cursor:default}
+  color:inherit;font:inherit;text-align:start;cursor:default}
 .nav:hover{background:var(--hover)}
 .nav.on{background:var(--sel);font-weight:600}
 .nav svg{width:16px;height:16px;flex:none;color:var(--acc)}
-.nav .n{margin-left:auto;font-size:11px;color:var(--mut);font-variant-numeric:tabular-nums}
+.nav .n{margin-inline-start:auto;font-size:11px;color:var(--mut);font-variant-numeric:tabular-nums}
 .nav .n.alert{color:#fff;background:var(--high);border-radius:99px;padding:0 6px;font-weight:600}
 .av{width:16px;height:16px;border-radius:5px;display:grid;place-items:center;font-size:9px;font-weight:700;color:#fff;flex:none}
 .sidefoot{margin-top:auto;padding:12px 8px 0;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--mut)}
 
 /* ---------- main pane ---------- */
-.main{background:var(--pane);border-left:1px solid var(--line);display:flex;min-width:0;height:100vh}
+.main{background:var(--pane);border-inline-start:1px solid var(--line);display:flex;min-width:0;height:100vh}
 .content{flex:1;min-width:0;overflow:auto;user-select:text;-webkit-user-select:text}
 .head{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--pane) 88%,transparent);backdrop-filter:blur(20px);
   -webkit-backdrop-filter:blur(20px);padding:18px 28px 12px;border-bottom:1px solid transparent}
@@ -102,14 +102,14 @@ html.native .head{padding-top:30px}
 .bar{display:grid;grid-template-columns:120px 1fr 28px;gap:10px;align-items:center;padding:5px 0;font-size:12px}
 .bar .t{height:7px;border-radius:99px;background:var(--pane2);overflow:hidden;display:flex}
 .bar .t i{display:block;height:100%}
-.bar .c{text-align:right;color:var(--mut);font-variant-numeric:tabular-nums}
+.bar .c{text-align:end;color:var(--mut);font-variant-numeric:tabular-nums}
 
 a.btn{text-decoration:none}
 .hero{grid-template-columns:auto 1fr auto;gap:26px;padding:22px 24px}
 .hero-btns{display:flex;gap:8px;flex-wrap:wrap}
-.hero-stats{display:flex;gap:0;align-self:stretch;align-items:center;border-left:1px solid var(--line);padding-left:6px}
-.hero-stats div{padding:0 18px;text-align:left;min-width:86px}
-.hero-stats div+div{border-left:1px solid var(--line)}
+.hero-stats{display:flex;gap:0;align-self:stretch;align-items:center;border-inline-start:1px solid var(--line);padding-inline-start:6px}
+.hero-stats div{padding:0 18px;text-align:start;min-width:86px}
+.hero-stats div+div{border-inline-start:1px solid var(--line)}
 .hero-stats b{display:block;font-size:26px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.1}
 .hero-stats b.alert{color:var(--high)}
 .hero-stats span{font-size:11.5px;color:var(--mut)}
@@ -120,7 +120,7 @@ a.btn{text-decoration:none}
 .pt .pi svg{width:16px;height:16px}
 .pt .pm{flex:1;min-width:0}.pt .pm b{display:block;font-size:13px}.pt .pm span{font-size:12px;color:var(--mut)}
 .legend{display:flex;gap:14px;margin-top:8px;padding-top:8px;border-top:1px solid var(--line);font-size:11px;color:var(--mut)}
-.legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;vertical-align:0}
+.legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-inline-end:5px;vertical-align:0}
 
 /* toolbar */
 .tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
@@ -132,8 +132,8 @@ a.btn{text-decoration:none}
 .seg button.on{background:var(--pane);color:var(--fg);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.12)}
 .switch{display:inline-flex;align-items:center;gap:7px;color:var(--mut);cursor:default}
 .switch input{appearance:none;width:28px;height:16px;border-radius:99px;background:var(--faint);position:relative;margin:0;transition:.15s}
-.switch input::after{content:"";position:absolute;width:12px;height:12px;border-radius:50%;background:#fff;top:2px;left:2px;transition:.15s}
-.switch input:checked{background:var(--acc)}.switch input:checked::after{left:14px}
+.switch input::after{content:"";position:absolute;width:12px;height:12px;border-radius:50%;background:#fff;top:2px;inset-inline-start:2px;transition:.15s}
+.switch input:checked{background:var(--acc)}.switch input:checked::after{inset-inline-start:14px}
 
 /* list */
 .group h4{font-size:11px;font-weight:600;color:var(--faint);margin:18px 0 6px;letter-spacing:.02em;text-transform:uppercase}
@@ -158,11 +158,11 @@ a.btn{text-decoration:none}
 .chev{color:var(--faint);width:14px;height:14px}
 
 /* inspector */
-.insp{width:0;overflow:hidden;border-left:1px solid var(--line);background:var(--pane2);transition:width .2s ease;flex:none}
+.insp{width:0;overflow:hidden;border-inline-start:1px solid var(--line);background:var(--pane2);transition:width .2s ease;flex:none}
 .insp.open{width:360px}
 .insp-in{width:360px;height:100%;overflow:auto;padding:22px 22px 28px;user-select:text;-webkit-user-select:text}
 html.native .insp-in{padding-top:34px}
-.insp .x{float:right;border:0;background:var(--hover);width:24px;height:24px;border-radius:50%;color:var(--mut);cursor:default;font-size:14px;line-height:1}
+.insp .x{float:inline-end;border:0;background:var(--hover);width:24px;height:24px;border-radius:50%;color:var(--mut);cursor:default;font-size:14px;line-height:1}
 .insp h2{font-size:16px;margin:14px 0 6px;overflow-wrap:anywhere}
 .insp .lead{color:var(--mut);margin:0 0 16px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .kv{border:1px solid var(--line);background:var(--pane);border-radius:10px;padding:2px 12px;margin-bottom:16px}
@@ -184,7 +184,7 @@ html.native .insp-in{padding-top:34px}
 .ck.part{background:var(--acc);border-color:var(--acc)}.ck.part::after{content:"";width:8px;height:2px;background:#fff;border-radius:2px}
 .nock .ck{display:none}.nock .item{grid-template-columns:32px 1fr auto}
 .bulk{position:sticky;bottom:16px;margin:18px auto 0;width:max-content;max-width:100%;display:flex;align-items:center;gap:10px;
-  background:var(--fg);color:var(--pane);padding:8px 8px 8px 16px;border-radius:12px;box-shadow:var(--shadow);z-index:6}
+  background:var(--fg);color:var(--pane);padding:8px;padding-inline-start:16px;border-radius:12px;box-shadow:var(--shadow);z-index:6}
 .bulk .btn{border-color:transparent}
 .bulk .btn.plain{background:transparent;color:var(--pane)}
 .badge.exp{background:var(--acc-soft);color:var(--acc)}
@@ -222,18 +222,28 @@ html.native .insp-in{padding-top:34px}
 .srow .ic{flex:none}
 .srow b{display:block;margin-bottom:2px}
 .srow p{margin:0;color:var(--mut);font-size:12.5px}
-.srow .switch{margin-left:auto;align-self:center;flex:none}
+.srow .switch{margin-inline-start:auto;align-self:center;flex:none}
 .ok-pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:99px}
 .ok-pill.yes{background:var(--low-soft);color:var(--low)}.ok-pill.no{background:var(--med-soft);color:var(--med)}
-.steps{margin:6px 0 16px;padding-left:20px;color:var(--mut)}.steps li{margin:4px 0}
+.steps{margin:6px 0 16px;padding-inline-start:20px;color:var(--mut)}.steps li{margin:4px 0}
 .sfoot{display:flex;align-items:center;gap:8px;margin-top:20px}
-.dots{display:flex;gap:6px;margin-right:auto}
+.dots{display:flex;gap:6px;margin-inline-end:auto}
 .dots i{width:7px;height:7px;border-radius:50%;background:var(--line)}.dots i.on{background:var(--acc)}
 .sbtns{display:flex;gap:8px;flex-wrap:wrap}
 
+/* right-to-left (Arabic): the sidebar stays where the Mac window draws it; everything inside is mirrored */
+[dir="rtl"] .app{direction:ltr}
+[dir="rtl"] .side,[dir="rtl"] .main,[dir="rtl"] .toast,[dir="rtl"] .setup{direction:rtl}
+[dir="rtl"] .chev{transform:scaleX(-1)}
+[dir="rtl"] .log,[dir="rtl"] .kv dd{direction:ltr;text-align:end;unicode-bidi:plaintext}
+:lang(ar) body{font-family:-apple-system,BlinkMacSystemFont,"SF Arabic","Geeza Pro","Segoe UI",Tahoma,sans-serif}
+:lang(ar) *{letter-spacing:0!important}
+.sub,.ttl,.insp h2{unicode-bidi:plaintext}
+[dir="rtl"] .sub,[dir="rtl"] .ttl,[dir="rtl"] .insp h2{text-align:right}
+
 ::-webkit-scrollbar{width:10px}::-webkit-scrollbar-thumb{background:var(--line);border-radius:10px;border:3px solid transparent;background-clip:content-box}
 
-@media (max-width:1000px){.hero{grid-template-columns:auto 1fr}.hero-stats{grid-column:1/-1;border-left:0;padding-left:0;border-top:1px solid var(--line);padding-top:14px}.hero-stats div:first-child{padding-left:0}}
+@media (max-width:1000px){.hero{grid-template-columns:auto 1fr}.hero-stats{grid-column:1/-1;border-inline-start:0;padding-inline-start:0;border-top:1px solid var(--line);padding-top:14px}.hero-stats div:first-child{padding-inline-start:0}}
 @media (max-width:900px){.prot{grid-template-columns:1fr}.split{grid-template-columns:1fr}.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.insp.open{width:300px}.insp-in{width:300px}}
 @media (max-width:640px){.app{grid-template-columns:1fr}.side{display:none}.hero{grid-template-columns:1fr}.head,.body{padding-left:16px;padding-right:16px}}
 </style>
@@ -246,7 +256,7 @@ html.native .insp-in{padding-top:34px}
       <div><b>Access Auditor</b><span>AI agent permissions</span></div>
     </div>
     <nav id="nav"></nav>
-    <div class="sidefoot"><button class="btn ghost" data-setup style="padding:3px 4px;font-size:11px">Setup</button><span id="when">Scanning…</span><button class="btn ghost" id="themeBtn" style="margin-left:auto;padding:3px 6px"></button><button class="btn ghost" id="rescan" title="Rescan (⌘R)" style="padding:3px 6px"></button></div>
+    <div class="sidefoot"><button class="btn ghost" data-setup style="padding:3px 4px;font-size:11px">Setup</button><span id="when">Scanning…</span><button class="btn ghost" id="themeBtn" style="margin-inline-start:auto;padding:3px 6px"></button><button class="btn ghost" id="rescan" title="Rescan (⌘R)" style="padding:3px 6px"></button></div>
   </aside>
   <section class="main">
     <div class="content" id="content">
@@ -259,6 +269,7 @@ html.native .insp-in{padding-top:34px}
 <div class="toast" id="toast"></div>
 <div class="setup" id="setup"><div class="sbox" id="sbox"></div></div>
 
+<script src="/i18n.js"></script>
 <script>
 const TOKEN = '__TOKEN__';
 if (new URLSearchParams(location.search).has('native')) document.documentElement.classList.add('native');
@@ -355,6 +366,7 @@ async function scan() {
   catch (e) { $('#when').textContent = e.message; return; }
   finally { $('#rescan').innerHTML = icon('refresh'); }
   if (settings.theme && !themeLoaded) { themeLoaded = true; applyTheme(settings.theme, false); }
+  if (settings.lang && settings.lang !== langPref) { langPref = settings.lang; setLang(langPref); nativeCmd('setLang', { lang: langPref }); }
   if (!settings.onboarded && !setupShownOnce) { setupShownOnce = true; openSetup(); }
   if ($('#setup').classList.contains('open')) renderSetup();
   $('#when').textContent = 'Scanned ' + new Date(data.scannedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -702,7 +714,7 @@ $('#themeBtn').addEventListener('click', () => {
 });
 
 // ---------- welcome / setup ----------
-let themeLoaded = false;
+let themeLoaded = false, langPref = 'auto';
 let setupStep = 0, setupShownOnce = false, nativeInfo = { native: false, login: false, inApplications: false };
 const isNative = () => !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.native);
 const nativeCmd = (cmd, extra = {}) => { if (isNative()) window.webkit.messageHandlers.native.postMessage({ cmd, ...extra }); };
@@ -745,7 +757,9 @@ function renderSetup() {
       ${isNative() ? `<div class="srow"><span class="ic ${nativeInfo.login ? 'low' : 'medium'}">${icon('history')}</span><div><b>Open at Login</b><p>${nativeInfo.inApplications ? 'Starts quietly in the menu bar when you log in.' : 'Move the app to Applications first, so it can always be found at login.'}</p></div>
         <label class="switch"><input type="checkbox" data-setsw="login" ${nativeInfo.login ? 'checked' : ''}></label></div>` : ''}
       <div class="srow"><span class="ic low">${icon('auto')}</span><div><b>Appearance</b><p>Match the Mac, or always light or dark.</p></div>
-        <div class="seg" style="margin-left:auto;align-self:center">${['system', 'light', 'dark'].map(t => `<button data-theme-pick="${t}" class="${theme === t ? 'on' : ''}">${t === 'system' ? 'Auto' : t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div></div>
+        <div class="seg" style="margin-inline-start:auto;align-self:center">${['system', 'light', 'dark'].map(t => `<button data-theme-pick="${t}" class="${theme === t ? 'on' : ''}">${t === 'system' ? 'Auto' : t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div></div>
+      <div class="srow"><span class="ic low">${icon('Browser extension')}</span><div><b>Language</b><p>Auto follows your Mac's language.</p></div>
+        <div class="seg" style="margin-inline-start:auto;align-self:center">${[['auto', 'Auto'], ['en', 'English'], ['fr', 'Français'], ['ar', 'العربية']].map(([v, l]) => `<button data-lang-pick="${v}" class="${langPref === v ? 'on' : ''}" lang="${v === 'auto' ? '' : v}">${l}</button>`).join('')}</div></div>
       <div class="srow"><span class="ic low">${icon('macOS privacy')}</span><div><b>Watch all apps, not just AI</b><p>Also cover camera, screen, files and background jobs for every other app.</p></div>
         <label class="switch"><input type="checkbox" data-setsw="scope" ${scope === 'all' ? 'checked' : ''}></label></div>`,
     () => `${big('Trusted folder')}<div class="stepno">All set</div>
@@ -766,8 +780,9 @@ function renderSetup() {
 }
 
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-theme-pick],[data-setup-step],[data-setup],[data-snav],[data-sclose],[data-native],[data-recheck]');
+  const t = e.target.closest('[data-lang-pick],[data-theme-pick],[data-setup-step],[data-setup],[data-snav],[data-sclose],[data-native],[data-recheck]');
   if (!t) return;
+  if (t.dataset.langPick) { langPref = t.dataset.langPick; setLang(langPref); nativeCmd('setLang', { lang: langPref }); api('settings', { lang: langPref }).catch(() => {}); render(); return renderSetup(); }
   if (t.dataset.themePick) { applyTheme(t.dataset.themePick, true); return renderSetup(); }
   if (t.dataset.setupStep) return openSetup(Number(t.dataset.setupStep));
   if (t.dataset.setup !== undefined) return openSetup(0);

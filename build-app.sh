@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 APP="dist/AI Access Auditor.app"
 rm -rf "$APP" && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-swiftc -O -o "$APP/Contents/MacOS/AIAccessAuditor" macos/main.swift macos/prompt.swift -framework Cocoa -framework WebKit
+swiftc -O -o "$APP/Contents/MacOS/AIAccessAuditor" macos/main.swift macos/prompt.swift macos/i18n.swift -framework Cocoa -framework WebKit
 cp server.js gate.js "$APP/Contents/Resources/" && cp -R public "$APP/Contents/Resources/"
 # Icon
 T=$(mktemp -d); swift macos/icon.swift "$T/icon.png" 2>/dev/null

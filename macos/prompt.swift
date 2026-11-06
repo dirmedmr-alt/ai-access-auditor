@@ -10,8 +10,8 @@ final class PromptPanel: NSPanel {
         var detail: String          // shown in a monospaced box
         var footnote: String = ""
         var options: [String] = []  // scope choices, e.g. "Just this once" / "Always"
-        var allowTitle = "Allow"
-        var denyTitle = "Deny"
+        var allowTitle = L("Allow")
+        var denyTitle = L("Deny")
     }
 
     /// Called once with (allowed, chosen option index). nil allowed = closed without deciding.
@@ -68,7 +68,7 @@ final class PromptPanel: NSPanel {
         let subtitle = NSTextField(wrappingLabelWithString: c.subtitle)
         subtitle.font = .systemFont(ofSize: 12)
         subtitle.textColor = .secondaryLabelColor
-        let pill = NSTextField(labelWithString: c.risk == "high" ? " HIGH RISK " : c.risk == "medium" ? " MEDIUM RISK " : " LOW RISK ")
+        let pill = NSTextField(labelWithString: L(c.risk == "high" ? " HIGH RISK " : c.risk == "medium" ? " MEDIUM RISK " : " LOW RISK "))
         pill.font = .systemFont(ofSize: 10, weight: .bold)
         pill.textColor = color
         pill.wantsLayer = true
@@ -84,6 +84,7 @@ final class PromptPanel: NSPanel {
 
         // detail box
         let detail = NSTextField(wrappingLabelWithString: c.detail.isEmpty ? "—" : c.detail)
+        detail.baseWritingDirection = .leftToRight; detail.alignment = .left // commands and paths read left to right in every language
         detail.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         detail.isSelectable = true
         detail.maximumNumberOfLines = 8
@@ -102,23 +103,24 @@ final class PromptPanel: NSPanel {
         ])
 
         var rows: [NSView] = [header, box]
+        var fullWidth: [NSView] = [header, box]
         if !c.footnote.isEmpty {
             let foot = NSTextField(wrappingLabelWithString: c.footnote)
             foot.font = .systemFont(ofSize: 11)
             foot.textColor = .secondaryLabelColor
-            rows.append(foot)
+            rows.append(foot); fullWidth.append(foot)
         }
 
         // buttons
         let deny = NSButton(title: c.denyTitle, target: self, action: #selector(denyClicked))
         deny.bezelStyle = .rounded
         deny.controlSize = .large
-        deny.hasDestructiveAction = c.denyTitle != "Deny" && c.denyTitle != "Review" // Remove / Stop it
+        deny.hasDestructiveAction = c.denyTitle != L("Deny") && c.denyTitle != L("Review") // Remove / Stop it
         let allow = NSButton(title: c.allowTitle, target: self, action: #selector(allowClicked))
         allow.bezelStyle = .rounded
         allow.controlSize = .large
         // Return picks the safe choice for high-risk requests, so a reflexive Enter can't approve them
-        let primary = c.risk == "high" && c.denyTitle == "Deny" ? deny : allow
+        let primary = c.risk == "high" && c.denyTitle == L("Deny") ? deny : allow
         let other = primary === deny ? allow : deny
         primary.keyEquivalent = "\r"
         primary.bezelColor = primary === deny ? .systemRed : .controlAccentColor
@@ -142,15 +144,20 @@ final class PromptPanel: NSPanel {
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 14
-        stack.edgeInsets = NSEdgeInsets(top: 30, left: 20, bottom: 18, right: 20)
+        stack.edgeInsets = NSEdgeInsets(top: 30, left: 0, bottom: 18, right: 0)
         stack.translatesAutoresizingMaskIntoConstraints = false
         bg.addSubview(stack)
-        for v in [box, buttons] { v.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -40).isActive = true }
+        for v in fullWidth + [buttons] { v.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true }
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: bg.leadingAnchor), stack.trailingAnchor.constraint(equalTo: bg.trailingAnchor),
+            stack.leadingAnchor.constraint(equalTo: bg.leadingAnchor, constant: 20), stack.trailingAnchor.constraint(equalTo: bg.trailingAnchor, constant: -20),
             stack.topAnchor.constraint(equalTo: bg.topAnchor), stack.bottomAnchor.constraint(equalTo: bg.bottomAnchor),
             bg.widthAnchor.constraint(equalToConstant: 460),
         ])
+        if I18n.rtl { // Arabic: mirror the whole popup (the command box keeps reading left to right)
+            func mirror(_ v: NSView) { v.userInterfaceLayoutDirection = .rightToLeft; v.subviews.forEach(mirror) }
+            mirror(bg)
+            for t in [title, subtitle] + rows.compactMap({ $0 as? NSTextField }) { t.baseWritingDirection = .rightToLeft; t.alignment = .right }
+        }
         contentView = bg
     }
 
