@@ -73,10 +73,18 @@ sed -i '' -E \
   -e "s|· [0-9]+ MB</span>|· $SIZE_MB MB</span>|" \
   -e "s/Version [0-9]+\.[0-9]+\.[0-9]+ beta/Version ${VERSION/-/ }/g" \
   site/index.html
+# The Linux files (built by ./build-linux.sh) are linked from the Install section
+sed -i '' -E \
+  -e "s#releases/download/v[^/\"]+/AI-Access-Auditor-[0-9]+\.[0-9]+\.[0-9]+(-[a-z]+)?-(amd64\.deb|arm64\.deb|x86_64\.AppImage)#releases/download/v$VERSION/AI-Access-Auditor-$VERSION-\2#g" \
+  -e "s#releases/download/v[^/\"]+/SHA256SUMS-linux\.txt#releases/download/v$VERSION/SHA256SUMS-linux.txt#g" \
+  site/index.html
 node i18n/build-site.js   # French and Arabic pages get the same link, size and checksum
 if [ "${PUBLISH:-}" = "1" ] && [ -n "${REPO:-}" ]; then
   gh release create "v$VERSION" "$DMG" "$DMG.sha256" --repo "$REPO" --prerelease \
     --title "AI Access Auditor $VERSION" \
-    --notes "Unsigned beta for macOS 13 or later (Apple Silicon and Intel). SHA-256: $SHA. First launch: see the Install steps on the website."
+    --notes "Unsigned beta for macOS 13 or later (Apple Silicon and Intel), and for Linux (AppImage for x64, .deb for x64 and arm64). Mac SHA-256: $SHA. Linux checksums: SHA256SUMS-linux.txt. Install steps: https://dirmedmr-alt.github.io/ai-access-auditor/#install"
+  LINUX=(desktop/dist/AI-Access-Auditor-$VERSION-x86_64.AppImage desktop/dist/AI-Access-Auditor-$VERSION-amd64.deb desktop/dist/AI-Access-Auditor-$VERSION-arm64.deb desktop/dist/SHA256SUMS-linux.txt)
+  if ls "${LINUX[@]}" >/dev/null 2>&1; then gh release upload "v$VERSION" "${LINUX[@]}" --repo "$REPO" --clobber
+  else echo "Linux files for $VERSION not found: run VERSION=$VERSION ./build-linux.sh, then upload desktop/dist/* to the release."; fi
 fi
 echo "Website ready: site/ (download: $URL, $SIZE_MB MB)"

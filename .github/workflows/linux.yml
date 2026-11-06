@@ -1,0 +1,91 @@
+# Builds the Linux app (AppImage and .deb, for x64 and arm64), starts it on real Ubuntu machines to check it
+# works, and adds it to the GitHub release when a version tag (v1.2.3-beta) is created by ./release.sh.
+name: Linux app
+on:
+  push:
+    tags: ['v*']
+    branches: ['linux'] # test builds while the Linux version is being made
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: The scanner runs on Linux
+        run: node server.js --scan | tail -n 4
+      - name: Popup translations match the Mac app
+        run: node desktop/gen-strings.js --check
+      - name: Version from the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: desktop
+        run: npm version --no-git-tag-version --allow-same-version "${GITHUB_REF_NAME#v}"
+      - name: Build
+        working-directory: desktop
+        env: { ELECTRON_SKIP_BINARY_DOWNLOAD: '1' }
+        run: |
+          npm ci --no-audit --no-fund
+          npx electron-builder --linux --publish never # AppImage for x64, .deb for x64 and arm64 (see package.json)
+          cd dist && sha256sum *.AppImage *.deb | tee SHA256SUMS-linux.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            desktop/dist/*.AppImage
+            desktop/dist/*.deb
+            desktop/dist/SHA256SUMS-linux.txt
+
+  test:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, name: x64, pat: 'x64|amd64|x86_64' }
+          - { runner: ubuntu-24.04-arm, name: arm64, pat: 'arm64|aarch64' }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: linux-packages, path: pkgs }
+      - name: Install the .deb
+        env: { DEBIAN_FRONTEND: noninteractive }
+        run: |
+          DEB=$(ls pkgs/*.deb | grep -E '${{ matrix.pat }}')
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb "./$DEB"
+      - name: The Allow / Deny hook can run (the app works as Node.js)
+        run: ELECTRON_RUN_AS_NODE=1 "/opt/AI Access Auditor/ai-access-auditor" -e "console.log('Node.js', process.versions.node)"
+      - name: Start the installed app
+        run: |
+          export AUDIT_SMOKE=$PWD/shots/deb AUDIT_DATA_DIR=$PWD/data1
+          timeout 150 xvfb-run -a -s "-screen 0 1400x900x24" ai-access-auditor || true
+          cat shots/deb/done.txt
+          head -n 30 shots/deb/page.txt
+          test -s shots/deb/window.png && test -s shots/deb/popup-ar.png
+      - name: Start the AppImage
+        if: matrix.name == 'x64' # the arm64 AppImage launcher needs a library most systems don't have, so arm64 gets the .deb only
+        run: |
+          sudo apt-get install -y -qq libfuse2t64
+          IMG=$(ls pkgs/*.AppImage | grep -E '${{ matrix.pat }}')
+          chmod +x "$IMG"
+          export AUDIT_SMOKE=$PWD/shots/appimage AUDIT_DATA_DIR=$PWD/data2
+          timeout 150 xvfb-run -a -s "-screen 0 1400x900x24" "./$IMG" || true
+          cat shots/appimage/done.txt
+          test -s shots/appimage/window.png
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: 'screenshots-${{ matrix.name }}', path: shots }
+
+  release:
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: linux-packages, path: pkgs }
+      - name: Add to the GitHub release
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: gh release upload "$GITHUB_REF_NAME" pkgs/* --clobber --repo "$GITHUB_REPOSITORY"
