@@ -410,6 +410,12 @@ const MANUAL_CHECKS = [
   { name: 'Notion: connections', url: 'https://www.notion.so/profile/integrations' },
   { name: 'Anthropic API keys', url: 'https://console.anthropic.com/settings/keys' },
   { name: 'OpenAI API keys', url: 'https://platform.openai.com/api-keys' },
+  // whether your conversations are used to train AI models: only changeable on each service's website
+  { name: 'Claude: use of your chats for training', url: 'https://claude.ai/settings/data-privacy-controls' },
+  { name: 'ChatGPT: improve the model for everyone', url: 'https://chatgpt.com/#settings/DataControls' },
+  { name: 'GitHub Copilot: data use for training', url: 'https://github.com/settings/copilot' },
+  { name: 'Cursor: Privacy Mode', url: 'https://cursor.com/dashboard?tab=settings' },
+  { name: 'Google Gemini: Gemini Apps Activity', url: 'https://myactivity.google.com/product/gemini' },
 ];
 
 function scanEnvKeys() {
@@ -437,6 +443,167 @@ function scanEnvKeys() {
         action: { kind: 'none', hint: 'Move it to a secrets manager or scope it to a single command.' },
       });
     });
+  }
+  return out;
+}
+
+// ---------- secrets in agents' session history ----------
+// Agents keep a full log of every session on disk. Keys and passwords that were pasted, printed or read during a
+// session stay there in plain text. Only masked previews are ever stored or shown; the secrets themselves stay put.
+const SECRET_PATTERNS = [
+  ['Anthropic API key', /sk-ant-[A-Za-z0-9_-]{20,}/g],
+  ['OpenAI API key', /\bsk-(?!ant-)(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{32,}/g],
+  ['GitHub token', /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36}\b|\bgithub_pat_[A-Za-z0-9_]{60,}/g],
+  ['AWS access key', /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g],
+  ['Google API key', /\bAIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])/g],
+  ['Slack token', /\bxox[abprs]-[A-Za-z0-9-]{20,}/g],
+  ['Stripe secret key', /\b(?:sk|rk)_live_[A-Za-z0-9]{20,}/g],
+  ['npm token', /\bnpm_[A-Za-z0-9]{36}\b/g],
+  ['Hugging Face token', /\bhf_[A-Za-z0-9]{34,}\b/g],
+  ['Private key', /-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----[\s\S]{20,8000}?-----END (?:[A-Z]+ )?PRIVATE KEY-----/g],
+];
+const REDACTED = '[removed by AI Access Auditor]';
+// documentation examples and placeholders aren't secrets ("AKIAIOSFODNN7EXAMPLE", "ghp_xxxxxxxx…")
+const realSecret = m => !/EXAMPLE|example|xxxxxxxx|XXXXXXXX|your[_-]?(api[_-]?)?key|1234567890abcdef/i.test(m) && new Set(m.replace(/^[a-z]+[_-]/i, '')).size >= 10;
+const HISTORY_ROOTS = [
+  ['Claude Code', h('.claude', 'projects'), /\.jsonl$/, true],
+  ['Codex CLI', h('.codex', 'sessions'), /\.jsonl$/, true],
+  ['Codex CLI', h('.codex', 'archived_sessions'), /\.jsonl$/, true],
+  ['Gemini CLI', h('.gemini', 'tmp'), /\.json$/, true],
+  // OpenCode keeps its sessions in a database: reported, but removed by deleting the session in OpenCode
+  ['OpenCode', h('.local', 'share', 'opencode'), /^opencode\.db(-wal)?$/, false],
+];
+const HISTORY_FILE = path.join(DATA_DIR, 'history-scan.json');
+let historyCache = null;
+function historyFiles() {
+  const out = [];
+  const walk = (dir, re, depth, agent, fixable) => {
+    let ents = [];
+    try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) {
+      const f = path.join(dir, e.name);
+      if (e.isDirectory() && depth > 0) walk(f, re, depth - 1, agent, fixable);
+      else if (e.isFile() && re.test(e.name)) out.push({ file: f, agent, fixable });
+    }
+  };
+  for (const [agent, root, re, fixable] of HISTORY_ROOTS) walk(root, re, re.source.includes('opencode') ? 0 : 4, agent, fixable);
+  return out;
+}
+function scanTextForSecrets(text) {
+  const hits = [];
+  for (const [kind, re] of SECRET_PATTERNS) for (const m of text.matchAll(re)) if (realSecret(m[0]) && hits.length < 50) hits.push({ kind, preview: mask(m[0]) });
+  return hits;
+}
+function secretsInRange(file, start, end) {
+  const buf = Buffer.alloc(Math.min(end - start, 64 << 20));
+  let fd;
+  try { fd = fs.openSync(file, 'r'); const n = fs.readSync(fd, buf, 0, buf.length, start); return scanTextForSecrets(buf.toString('latin1', 0, n)); }
+  catch { return []; } finally { if (fd !== undefined) fs.closeSync(fd); }
+}
+function secretsInFile(file, size) {
+  // big logs are read in pieces, overlapping so a key cut in two is still found
+  if (size <= 64 << 20) { try { return scanTextForSecrets(fs.readFileSync(file, 'latin1')); } catch { return []; } }
+  const hits = [], CH = 16 << 20, buf = Buffer.alloc(CH + 9000);
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    for (let pos = 0; pos < size && hits.length < 50; pos += CH) {
+      const n = fs.readSync(fd, buf, 0, buf.length, pos);
+      hits.push(...scanTextForSecrets(buf.toString('latin1', 0, n)));
+    }
+  } catch {} finally { if (fd !== undefined) fs.closeSync(fd); }
+  const seen = new Set();
+  return hits.filter(x => !seen.has(x.preview) && seen.add(x.preview));
+}
+// Checks new and changed logs, for at most budgetMs, and remembers the result, so a scan stays fast even with
+// gigabytes of history: the first full pass finishes over the next few scans.
+function refreshHistory(budgetMs) {
+  if (!historyCache) historyCache = readJson(HISTORY_FILE) || {};
+  const t0 = Date.now(), files = historyFiles(), present = new Set(files.map(x => x.file));
+  let changed = false;
+  for (const k of Object.keys(historyCache)) if (!present.has(k)) { delete historyCache[k]; changed = true; }
+  for (const { file } of files) {
+    if (Date.now() - t0 > budgetMs) break;
+    let st;
+    try { st = fs.statSync(file); } catch { continue; }
+    const c = historyCache[file];
+    if (c && c.mtime === st.mtimeMs && c.size === st.size) continue;
+    if (st.size > 2 * 1024 ** 3) continue; // over 2 GB: skipped
+    // a session that is still running only grows: read just what was added since last time
+    let hits;
+    if (c && st.size > c.size && !file.endsWith('.db') && !file.endsWith('.json')) {
+      const added = secretsInRange(file, Math.max(0, c.size - 9000), st.size);
+      const seen = new Set(c.hits.map(x => x.preview));
+      hits = c.hits.concat(added.filter(x => !seen.has(x.preview) && seen.add(x.preview))).slice(0, 50);
+    } else hits = secretsInFile(file, st.size);
+    historyCache[file] = { mtime: st.mtimeMs, size: st.size, hits };
+    changed = true;
+  }
+  if (changed) try { fs.writeFileSync(HISTORY_FILE, JSON.stringify(historyCache)); } catch {}
+  return files;
+}
+function scanHistory() {
+  const out = [];
+  if (DEMO) return out;
+  const files = refreshHistory(process.argv.includes('--scan') ? 1e9 : 400);
+  for (const { file, agent, fixable } of files) {
+    const c = historyCache[file];
+    if (!c || !c.hits.length) continue;
+    const kinds = [...new Set(c.hits.map(x => x.kind))];
+    const n = c.hits.length;
+    out.push({
+      agent, category: 'Secret in history',
+      title: `${n}${n >= 50 ? '+' : ''} secret${n === 1 ? '' : 's'} in ${fixable ? `a ${agent} session` : `${agent}'s session history`}`,
+      detail: `${kinds.join(', ')}: ${c.hits.slice(0, 3).map(x => x.preview).join(', ')}${n > 3 ? ', …' : ''} · last used ${new Date(c.mtime).toLocaleDateString()} · ${file.replace(HOME, '~')}`,
+      risk: 'high', source: file,
+      action: fixable ? { kind: 'redactSecrets', file }
+        : { kind: 'none', hint: `Delete the sessions that contain these in ${agent}, and replace the keys with the services they belong to.` },
+    });
+  }
+  return out;
+}
+
+// ---------- data sharing: usage data agents send to the company that makes them, and sessions they share ----------
+function scanDataSharing() {
+  const out = [];
+  if (DEMO) return out;
+  const add = (agent, title, detail, risk, source, action) => out.push({ agent, category: 'Data sharing', title, detail, risk, source, action });
+  const turnOff = (file, at, values, strict = true) => strict ? { kind: 'setValues', file, path: at, values }
+    : { kind: 'none', hint: `Edit ${file.replace(HOME, '~')} (it has comments, so it's safer to change by hand): set ${Object.entries(values).map(([k, v]) => `${k} to ${JSON.stringify(v)}`).join(', ')}.` };
+  const isOn = v => v === undefined || v === null || v === '' || v === '0' || v === 0 || v === false || v === 'false';
+  // Claude Code: usage statistics and error reports are on unless a setting (or the environment) switches them off
+  const cs = h('.claude', 'settings.json');
+  if (exists(h('.claude'))) {
+    const j = exists(cs) ? readJson(cs) : {}, env = (j && j.env) || {};
+    const offBy = k => !isOn(env[k]) || !isOn(process.env[k]);
+    if (!offBy('DISABLE_TELEMETRY') && !offBy('CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC'))
+      add('Claude Code', 'Usage statistics and error reports sent to Anthropic', 'Claude Code reports how you use it and its errors (not your code or conversations). On unless switched off.', 'low', cs,
+        j ? turnOff(cs, ['env'], { DISABLE_TELEMETRY: '1', DISABLE_ERROR_REPORTING: '1' }) : { kind: 'none', hint: 'Fix ~/.claude/settings.json (it is not valid JSON), then add "env": {"DISABLE_TELEMETRY": "1"}.' });
+  }
+  // Gemini CLI: usage statistics (on unless switched off), and OpenTelemetry export if someone turned it on
+  const gs = h('.gemini', 'settings.json');
+  if (exists(h('.gemini'))) {
+    const j = exists(gs) ? readJson(gs) : {};
+    if (j && getAt(j, ['privacy', 'usageStatisticsEnabled']) !== false && j.usageStatisticsEnabled !== false)
+      add('Gemini CLI', 'Usage statistics sent to Google', 'Gemini CLI reports how you use it to Google. On unless switched off.', 'low', gs, turnOff(gs, ['privacy'], { usageStatisticsEnabled: false }));
+    const tel = j && j.telemetry;
+    if (tel && tel.enabled === true)
+      add('Gemini CLI', 'Telemetry export is on', `Gemini CLI sends detailed telemetry${tel.otlpEndpoint ? ` to ${tel.otlpEndpoint}` : tel.target ? ` (${tel.target})` : ''}${tel.logPrompts !== false ? ', including your prompts' : ''}`,
+        tel.logPrompts !== false ? 'high' : 'medium', gs, turnOff(gs, ['telemetry'], { enabled: false }));
+  }
+  // OpenCode: "share": "auto" puts every session on a public link
+  const occ = openCodeConfig();
+  if (occ && occ.j.share === 'auto')
+    add('OpenCode', 'Every session is shared publicly', 'OpenCode makes a public link for each new session, so anyone with the link can read the conversation and the code in it', 'high', occ.file,
+      turnOff(occ.file, [], { share: 'manual' }, occ.strict));
+  // Code editors with AI built in: usage data ("telemetry.telemetryLevel" is "all" unless changed)
+  for (const [editor, f, to] of [['VS Code', appData('Code', 'User', 'settings.json'), 'Microsoft'], ['Cursor', appData('Cursor', 'User', 'settings.json'), 'Cursor'], ['Windsurf', appData('Windsurf', 'User', 'settings.json'), 'Windsurf']]) {
+    if (!exists(path.dirname(f))) continue;
+    const r = exists(f) ? readJsonc(f) : { j: {}, strict: true };
+    if (!r) continue;
+    const level = r.j['telemetry.telemetryLevel'];
+    if (level !== 'off') add(editor, `Usage data sent to ${to}`, `telemetry.telemetryLevel is "${level || 'all'}"${level ? '' : ' (the default)'}: ${editor} reports usage and errors`, 'low', f,
+      turnOff(f, [], { 'telemetry.telemetryLevel': 'off' }, r.strict));
   }
   return out;
 }
@@ -1732,7 +1899,8 @@ function scanAll() {
   const tcc = scanTcc();
   const timing = process.env.AUDIT_TIMING ? {} : null; // how long each check takes (tests)
   const findings = [scanClaudeCode, scanClaudeDesktop, scanOtherMcp, () => tcc.findings, scanEnvKeys, scanKeychain, scanBackgroundAgents,
-    scanEditorExtensions, scanBrowserExtensions, scanLocalServers, scanMoreAgents, scanInstalledAgents, scanSkills, scanProcesses, scanUploads, scanInherited]
+    scanEditorExtensions, scanBrowserExtensions, scanLocalServers, scanMoreAgents, scanInstalledAgents, scanSkills, scanProcesses, scanUploads, scanInherited,
+    scanHistory, scanDataSharing]
     .flatMap(fn => { const t0 = Date.now(), r = fn(); if (timing) timing[fn.name || 'tcc'] = Date.now() - t0; return r; });
   if (timing) console.log('timing (ms):', JSON.stringify(timing));
   const reviews = readJson(REVIEW_FILE) || {};
@@ -1877,6 +2045,31 @@ function doRevoke(f, reason) {
     log(`DISABLE systemd unit ${f.title}  files=${a.files.join(',')}  backup=${bks.join(',')}${why}`);
     return { message: `Stopped and removed "${f.title}". Backup saved.`, backup: bks[0] };
   }
+  if (a.kind === 'setValues') {
+    if (!exists(a.file)) { fs.mkdirSync(path.dirname(a.file), { recursive: true }); fs.writeFileSync(a.file, '{}\n'); }
+    const j = readJson(a.file);
+    if (!j) throw new Error(`Could not read ${a.file.replace(HOME, '~')} (it may contain comments). Change it by hand.`);
+    const bk = backup(a.file);
+    let o = j;
+    for (const k of a.path) { if (!o[k] || typeof o[k] !== 'object') o[k] = {}; o = o[k]; }
+    Object.assign(o, a.values);
+    writeJsonAtomic(a.file, j);
+    log(`SET ${Object.keys(a.values).join(', ')} [${f.agent}] ${f.title}  file=${a.file}  backup=${bk}${why}`);
+    return { message: `Turned off: ${f.title}. Restart running ${f.agent} sessions to pick it up. Backup saved.`, backup: bk };
+  }
+  if (a.kind === 'redactSecrets') {
+    // no backup on purpose: a copy would keep the very secrets being removed
+    const st = fs.statSync(a.file);
+    if (Date.now() - st.mtimeMs < 120e3) throw new Error('This session is still being written to. Try again a couple of minutes after it ends.');
+    let text = fs.readFileSync(a.file, 'utf8'), n = 0;
+    for (const [, re] of SECRET_PATTERNS) text = text.replace(re, m => (realSecret(m) ? (n++, REDACTED) : m));
+    const tmp = a.file + '.ai-audit-tmp';
+    fs.writeFileSync(tmp, text, { mode: st.mode });
+    fs.renameSync(tmp, a.file);
+    if (historyCache) delete historyCache[a.file];
+    log(`REDACT ${n} secret${n === 1 ? '' : 's'} [${f.agent}] in ${a.file}${why}`);
+    return { message: `Removed ${n} secret${n === 1 ? '' : 's'} from the session log. The rest of the conversation is unchanged. Replace ${n === 1 ? 'that key' : 'those keys'} with the service too, since the agent may have sent ${n === 1 ? 'it' : 'them'} to its AI provider.` };
+  }
   if (a.kind === 'removeRunValue') {
     const bk = backupCommand(`${a.key}\\${a.name}`, 'reg', ['add', a.key, '/v', a.name, '/t', a.type, '/d', a.value, '/f']);
     execFileSync('reg', ['delete', a.key, '/v', a.name, '/f'], { stdio: 'pipe', windowsHide: true });
@@ -1966,7 +2159,7 @@ function doRevoke(f, reason) {
   return { message: `Revoked "${f.title}". Backup saved.${restartHint}`, backup: bk };
 }
 
-const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'disableSystemdUnit', 'removeAutostart', 'removeRunValue', 'disableTask', 'uninstallExt', 'killProcess', 'removeFolder', 'removeFile', 'removeTomlBlock'];
+const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'disableSystemdUnit', 'removeAutostart', 'removeRunValue', 'disableTask', 'redactSecrets', 'setValues', 'uninstallExt', 'killProcess', 'removeFolder', 'removeFile', 'removeTomlBlock'];
 
 // Revoke several grants in one go. One scan up front; each revoke re-reads its file, so they don't clash.
 function revokeMany(ids) {
@@ -2432,6 +2625,7 @@ if (require.main === module) {
     startWatching();
     startUploadMonitor();
     startWindowsHelper();
+    if (!DEMO) setInterval(() => refreshHistory(3000), 45e3).unref(); // keeps checking new session logs in the background
     if (process.env.PORT === '0') {
       console.log(`TOKEN ${TOKEN}`); // only for the Mac app that launched us
       // Exit when the Mac app goes away, even if it was force-quit
@@ -2442,4 +2636,4 @@ if (require.main === module) {
     console.log(`AI Access Auditor running at http://localhost:${server.address().port}`);
   });
 }
-module.exports = { scanAll, _test: { startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason } };
+module.exports = { scanAll, _test: { historyFiles, refreshHistory, scanHistory, startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason } };

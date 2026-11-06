@@ -327,6 +327,14 @@
   "Secret exposé",
   "مفتاح سري مكشوف"
  ],
+ "Secret in history": [
+  "Secret dans l’historique",
+  "مفتاح سري في السجل"
+ ],
+ "Data sharing": [
+  "Partage de données",
+  "مشاركة البيانات"
+ ],
  "%d new AI access grants": [
   "%d nouveaux accès IA",
   "%d صلاحيات ذكاء اصطناعي جديدة"

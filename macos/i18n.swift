@@ -137,6 +137,8 @@ enum I18n {
         "Browser extension": ["Extension de navigateur", "إضافة متصفح"],
         "Network exposure": ["Exposition réseau", "مكشوف على الشبكة"],
         "Exposed secret": ["Secret exposé", "مفتاح سري مكشوف"],
+        "Secret in history": ["Secret dans l’historique", "مفتاح سري في السجل"],
+        "Data sharing": ["Partage de données", "مشاركة البيانات"],
 
         // menu bar
         "%d new AI access grants": ["%d nouveaux accès IA", "%d صلاحيات ذكاء اصطناعي جديدة"],

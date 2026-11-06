@@ -317,6 +317,8 @@ const P = {
   'Browser extension': '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
   'Network exposure': '<path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0M2 9a15 15 0 0 1 20 0"/><circle cx="12" cy="19.5" r="1"/>',
   'Exposed secret': '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/>',
+  'Secret in history': '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>',
+  'Data sharing': '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/>',
 };
 const icon = (k, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${P[k] || P.info}</svg>`;
 
@@ -342,6 +344,8 @@ const EXPLAIN = {
   'Editor extension': ['AI inside your code editor', 'This extension can read the code you have open. Agent-style extensions can also edit files and run terminal commands.'],
   'Browser extension': ['AI inside your browser', 'This extension can see the pages it runs on. With access to all sites, it can read and change anything you open, including email and banking.'],
   'Network exposure': ['Open to other devices', 'A local AI server is reachable from your network, so anyone on the same Wi-Fi could use it.'],
+  'Secret in history': ['A key saved in an agent\'s session log', 'Agents keep a full log of every session on your computer. This one contains a key, token or password in plain text, which any program you run can read. Remove it from the log, and replace the key with the service too, because the agent may also have sent it to its AI provider.'],
+  'Data sharing': ['Data sent to the company that makes it', 'This tool sends usage data to the company that makes it, or shares your sessions. Turn it off to keep that on your computer.'],
   'Exposed secret': ['A key every agent can read', 'This key is loaded into every terminal, so any agent you run there can read and use it.'],
 };
 const AGENT_COLORS = ['#d97757', '#2f6bf0', '#8e5bd6', '#1f9d74', '#d6476b', '#c28a16', '#4a6378'];
@@ -351,7 +355,7 @@ const avatar = a => `<span class="av" style="background:${agentColor(a)}">${esc(
 // ---------- state ----------
 let data = null, view = 'overview', agentFilter = null, selected = null, gateOn = false, scope = 'ai', gemOn = false, gemHere = false, cdxOn = false, cdxHere = false;
 const picked = new Set(); // grants ticked for bulk actions
-const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'disableSystemdUnit', 'removeAutostart', 'removeRunValue', 'disableTask', 'uninstallExt', 'killProcess', 'removeFolder', 'removeFile', 'removeTomlBlock'];
+const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'disableSystemdUnit', 'removeAutostart', 'removeRunValue', 'disableTask', 'redactSecrets', 'setValues', 'uninstallExt', 'killProcess', 'removeFolder', 'removeFile', 'removeTomlBlock'];
 const canRevoke = f => REVOCABLE.includes(f.action.kind);
 const timeLeft = iso => { const ms = Date.parse(iso) - Date.now(); if (ms <= 0) return 'now'; const h = ms / 3600e3; return h < 1 ? Math.ceil(ms / 60e3) + 'm' : h < 48 ? Math.round(h) + 'h' : Math.round(h / 24) + 'd'; };
 const ui = { q: '', risk: '', hideReviewed: false };
@@ -592,7 +596,7 @@ function renderInspector() {
     <div class="expiry"><div class="seg">${EXP.map(([v, l]) => `<button data-exp="${v}" data-for="${f.id}" class="${!f.expiresAt && v === '' ? 'on' : ''}">${l}</button>`).join('')}</div>
       ${f.expiresAt ? `<span class="detail" style="width:100%">Will be revoked ${esc(new Date(f.expiresAt).toLocaleString())} (in ${timeLeft(f.expiresAt)})</span>` : ''}</div>` : ''}
     <div class="acts">
-      ${revocable ? `<button class="btn danger" data-revoke="${f.id}">${a.kind === 'killProcess' ? 'Stop it' : a.kind === 'removeFolder' ? 'Remove skill' : a.kind === 'removeFile' ? 'Sign out (remove)' : 'Revoke access'}</button>`
+      ${revocable ? `<button class="btn danger" data-revoke="${f.id}">${a.kind === 'killProcess' ? 'Stop it' : a.kind === 'removeFolder' ? 'Remove skill' : a.kind === 'removeFile' ? 'Sign out (remove)' : a.kind === 'redactSecrets' ? 'Remove the secrets' : a.kind === 'setValues' ? 'Turn it off' : 'Revoke access'}</button>`
         : a.kind === 'openApp' ? `<button class="btn primary" data-openapp="${f.id}">${esc(a.label)}</button><div class="hint">${esc(a.hint)}</div>`
         : a.kind === 'link' ? `<a class="btn primary" href="${esc(a.url)}">${esc(a.hint || 'Open settings')}</a>`
         : `<div class="hint">${esc(a.hint || 'Change this one by hand.')}</div>`}
@@ -652,7 +656,8 @@ document.addEventListener('click', async e => {
   if (t.dataset.id) { selected = selected === t.dataset.id ? null : t.dataset.id; document.querySelectorAll('.item').forEach(i => i.classList.toggle('sel', i.dataset.id === selected)); return renderInspector(); }
   if (t.dataset.revoke) {
     const f = data.findings.find(x => x.id === t.dataset.revoke);
-    if (!confirm(`Revoke "${f.title}" from ${f.agent}?\n\n${f.detail}\n\nA backup is saved first, so you can undo this from History.`)) return;
+    if (f.action.kind === 'redactSecrets' ? !confirm('Remove these secrets from the session log?\n\nEach one is replaced with "[removed]". The rest of the conversation stays. This can\'t be undone, because a backup would keep the secrets.')
+      : !confirm(`Revoke "${f.title}" from ${f.agent}?\n\n${f.detail}\n\nA backup is saved first, so you can undo this from History.`)) return;
     t.disabled = true;
     try { toast((await api('revoke', { id: f.id })).message, 6000); selected = null; await scan(); }
     catch (err) { toast('Couldn\'t revoke: ' + err.message); t.disabled = false; }
