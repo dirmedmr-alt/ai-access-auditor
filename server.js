@@ -1642,9 +1642,11 @@ function scanInherited() {
 
 function scanAll() {
   const tcc = scanTcc();
-  const findings = [...scanClaudeCode(), ...scanClaudeDesktop(), ...scanOtherMcp(), ...tcc.findings, ...scanEnvKeys(),
-    ...scanKeychain(), ...scanBackgroundAgents(), ...scanEditorExtensions(), ...scanBrowserExtensions(), ...scanLocalServers(),
-    ...scanMoreAgents(), ...scanInstalledAgents(), ...scanSkills(), ...scanProcesses(), ...scanUploads(), ...scanInherited()];
+  const timing = process.env.AUDIT_TIMING ? {} : null; // how long each check takes (tests)
+  const findings = [scanClaudeCode, scanClaudeDesktop, scanOtherMcp, () => tcc.findings, scanEnvKeys, scanKeychain, scanBackgroundAgents,
+    scanEditorExtensions, scanBrowserExtensions, scanLocalServers, scanMoreAgents, scanInstalledAgents, scanSkills, scanProcesses, scanUploads, scanInherited]
+    .flatMap(fn => { const t0 = Date.now(), r = fn(); if (timing) timing[fn.name || 'tcc'] = Date.now() - t0; return r; });
+  if (timing) console.log('timing (ms):', JSON.stringify(timing));
   const reviews = readJson(REVIEW_FILE) || {};
   const expiries = readJson(EXPIRY_FILE) || {};
   const seen = new Set();
