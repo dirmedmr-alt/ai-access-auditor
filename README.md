@@ -1,7 +1,7 @@
 # AI Access Auditor
 
 An app for macOS, Windows and Linux that finds every access and privilege you've given to AI agents, asks before
-they act, and lets you take any of it back. Everything stays on your computer: no account, no cloud, no tracking.
+they act, and lets you take any of it back. Everything stays on your computer: no account, nothing sent online, no tracking.
 
 **Download:** [website](https://dirmedmr-alt.github.io/ai-access-auditor/) ·
 [latest release](https://github.com/dirmedmr-alt/ai-access-auditor/releases/latest)
@@ -44,7 +44,7 @@ prompt. The Linux and Windows app is in `desktop/` (Electron); see `build-linux.
   - Aider and Goose: auto modes
   - MCP servers in Copilot CLI, Amazon Q, Kiro, OpenCode, Continue and Claude Desktop extensions
 - **Agents running right now** with approvals off (`--dangerously-skip-permissions`, `--yolo`, `--full-auto`, `-y`, and so on) or as root. These can be stopped from the popup
-- **Privileges every agent inherits from you:** passwordless sudo, loaded SSH keys, and GitHub, AWS, Google Cloud, Azure, Kubernetes, Docker and npm logins
+- **Privileges every agent inherits from you:** passwordless sudo, loaded SSH keys, and GitHub, AWS, gcloud, Azure, Kubernetes, Docker and npm logins
 - **API keys** exported in your shell startup files
 - **Optional "watch all apps":** macOS privacy permissions and background jobs for every app, not just AI apps
 

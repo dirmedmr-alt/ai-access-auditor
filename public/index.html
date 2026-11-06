@@ -285,7 +285,7 @@ const RISK_LABEL = { high: 'High risk', medium: 'Medium', low: 'Low' };
 const P = {
   overview: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
   list: '<path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/>',
-  cloud: '<path d="M17.5 19a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.6 1.5A4 4 0 0 0 6.5 19z"/>',
+  accounts: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
   hand: '<path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 0 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.9-6-2.4l-3.6-3.6a2 2 0 0 1 2.8-2.8L7 15"/>',
   history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
@@ -398,7 +398,7 @@ function renderNav() {
     Object.entries(agents).sort((a, b) => b[1] - a[1]).map(([a, n]) => item('agent', a, avatar(a), n, a)).join('') +
     `<div class="navh">More</div>` +
     item('decisions', 'Decisions', icon('hand'), '') +
-    item('cloud', 'Online accounts', icon('cloud'), '') +
+    item('accounts', 'Online accounts', icon('accounts'), '') +
     item('history', 'History & undo', icon('history'), '');
 }
 
@@ -408,7 +408,7 @@ function setHead(title, sub, toolbar = '') {
 
 function renderMain() {
   if (view === 'overview') return renderOverview();
-  if (view === 'cloud') return renderCloud();
+  if (view === 'accounts') return renderAccounts();
   if (view === 'history') return renderHistory();
   if (view === 'decisions') return renderDecisions();
   renderList();
@@ -516,10 +516,10 @@ function renderBulk() {
     <button class="btn plain" data-bulk="clear">Clear</button></div>`);
 }
 
-function renderCloud() {
+function renderAccounts() {
   setHead('Online accounts', 'These grants live in your online accounts, so they can\'t be scanned from your Mac. Check each one.');
   $('#body').innerHTML = `<div class="card" style="margin-top:8px">${data.manual.map(m => `
-    <a class="link" href="${esc(m.url)}" target="_blank" rel="noopener"><span class="ic">${icon('cloud')}</span>
+    <a class="link" href="${esc(m.url)}" target="_blank" rel="noopener"><span class="ic">${icon('accounts')}</span>
       <div><div class="ttl">${esc(m.name)}</div><div class="sub">${esc(new URL(m.url).host)}</div></div>${icon('ext', 'chev')}</a>`).join('')}</div>`;
 }
 

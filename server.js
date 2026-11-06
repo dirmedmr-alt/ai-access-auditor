@@ -1666,7 +1666,7 @@ function untrustUploader(key) {
   return { message: 'It will be watched again.' };
 }
 
-// Privileges every agent inherits from your account: admin rights, SSH keys, cloud and developer logins
+// Privileges every agent inherits from your account: admin rights, SSH keys, and hosting and developer logins
 let sudoCache = { at: 0, ok: false }, winAdminCache = { at: 0, groups: '', uac: '' };
 function demoInherited() {
   return [{ agent: 'Your account', category: 'Inherited credential', title: 'SSH key: ~/.ssh/id_ed25519', detail: 'Loaded in ssh-agent: any agent can use it to log in to servers or push code', risk: 'medium', source: 'ssh-agent', action: { kind: 'none', hint: 'ssh-add -D' } }];
@@ -1715,7 +1715,7 @@ function scanInherited() {
   ])];
   if (awsProfiles.length) add('AWS CLI', 'Inherited credential', `AWS profiles: ${awsProfiles.join(', ')}`, 'Any agent can use these to act on your AWS account', 'high', '~/.aws', 'Remove unused profiles from ~/.aws/credentials, prefer short-lived SSO logins, and log out with "aws sso logout".');
   const gcfg = h('.config', 'gcloud', 'configurations', 'config_default');
-  if (exists(gcfg)) { const a = (fs.readFileSync(gcfg, 'utf8').match(/^account\s*=\s*(\S+)/m) || [])[1]; if (a) add('Google Cloud CLI', 'Inherited credential', `Logged in as ${a}`, 'Any agent can use gcloud to act on your Google Cloud projects', 'high', gcfg, 'Run "gcloud auth revoke" when you don\'t need it.'); }
+  if (exists(gcfg)) { const a = (fs.readFileSync(gcfg, 'utf8').match(/^account\s*=\s*(\S+)/m) || [])[1]; if (a) add('gcloud CLI', 'Inherited credential', `Logged in as ${a}`, 'Any agent can use gcloud to act on your Google projects', 'high', gcfg, 'Run "gcloud auth revoke" when you don\'t need it.'); }
   const kube = h('.kube', 'config');
   if (exists(kube)) { const t = fs.readFileSync(kube, 'utf8'); const n = (t.match(/^- context:/gm) || []).length; const cur = (t.match(/^current-context:\s*(\S+)/m) || [])[1];
     if (n) add('Kubernetes', 'Inherited credential', `${n} cluster context${n > 1 ? 's' : ''}${cur ? `, current: ${cur}` : ''}`, 'Any agent can run kubectl against these clusters', 'high', kube, 'Remove contexts you don\'t use (kubectl config delete-context <name>).'); }
