@@ -10,7 +10,7 @@ module.exports = [
   // ---------- page head ----------
   ['<title>AI Access Auditor — see and control what your AI agents can do</title>',
    '<title>AI Access Auditor — voyez et contrôlez tout ce que vos agents IA peuvent faire</title>',
-   '<title>AI Access Auditor — اعرف كل ما يستطيع وكلاء الذكاء الاصطناعي فعله وتحكّم فيه</title>'],
+   '<title>AI Access Auditor — اعرف كل ما يستطيع وكلاء الذكاء الاصطناعي فعله والتحكم فيه</title>'],
   ['A free Mac app that finds every permission, folder, login and privilege your AI agents have, pops up the moment that changes, and lets you take any of it back.',
    'Une app Mac gratuite qui trouve chaque permission, dossier, identifiant et privilège de vos agents IA, vous alerte dès que cela change et vous permet de tout retirer.',
    'تطبيق مجاني لأجهزة Mac يكشف كل إذن ومجلد وتسجيل دخول وصلاحية لدى وكلاء الذكاء الاصطناعي، وينبّهك فور حدوث أي تغيير، ويتيح لك سحب أيٍّ منها.'],
@@ -31,7 +31,7 @@ module.exports = [
   ['>Free beta for macOS</span>', '>Bêta gratuite pour macOS</span>', '>نسخة تجريبية مجانية لنظام macOS</span>'],
   ['<h1>See and control <em>everything</em> your AI agents can do.</h1>',
    '<h1>Voyez et contrôlez <em>tout</em> ce que vos agents IA peuvent faire.</h1>',
-   '<h1>اعرف <em>كل</em> ما يستطيع وكلاء الذكاء الاصطناعي فعله، وتحكّم فيه.</h1>'],
+   '<h1>اعرف <em>كل</em> ما يستطيع وكلاء الذكاء الاصطناعي فعله، والتحكم فيه.</h1>'],
   ['AI Access Auditor finds every permission, folder, login and privilege your AI agents have, pops up the moment that changes, and lets you take any of it back with one click.',
    'AI Access Auditor trouve chaque permission, dossier, identifiant et privilège de vos agents IA, vous alerte dès que cela change et vous permet de tout retirer en un clic.',
    'يكشف AI Access Auditor كل إذن ومجلد وتسجيل دخول وصلاحية لدى وكلاء الذكاء الاصطناعي، وينبّهك فور حدوث أي تغيير، ويتيح لك سحب أيٍّ منها بنقرة واحدة.'],
