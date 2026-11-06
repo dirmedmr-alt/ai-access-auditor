@@ -211,7 +211,7 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
 </div></nav>
 
 <header class="hero"><div class="wrap">
-  <span class="badge">Bêta gratuite pour macOS et Linux</span>
+  <span class="badge">Bêta gratuite pour macOS, Windows et Linux</span>
   <h1>Voyez et contrôlez <em>tout</em> ce que vos agents IA peuvent faire.</h1>
   <p class="lead">AI Access Auditor trouve chaque permission, dossier, identifiant et privilège de vos agents IA, vous alerte dès que cela change et vous permet de tout retirer en un clic.</p>
   <div class="cta">
@@ -219,9 +219,10 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
       <span>Télécharger pour Mac<span class="sub">Version 1.0.4 beta · 71 MB</span></span>
     </a>
+    <a class="btn" href="#windows">Télécharger pour Windows</a>
     <a class="btn" href="#linux">Télécharger pour Linux</a>
   </div>
-  <p class="req">macOS 13 Ventura ou plus récent, Apple Silicon et Intel · Linux : Ubuntu 22.04, Debian 12 ou plus récent, et similaires · Rien d’autre à installer</p>
+  <p class="req">macOS 13 Ventura ou plus récent · Windows 10 et 11 · Linux : Ubuntu 22.04, Debian 12 ou plus récent, et similaires · Rien d’autre à installer</p>
   <div class="shot">
     <div class="chrome"><i></i><i></i><i></i></div>
     <img class="only-light" src="../assets/overview-light.png" alt="Vue d’ensemble d’AI Access Auditor : un score de sécurité, les accès à haut risque, les nouveaux accès et l’état de la protection" width="2360" height="1560">
@@ -335,6 +336,13 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
   <div class="note"><b>Vous préférez le Terminal ?</b> Au lieu des étapes 2 et 3, vous pouvez retirer le marqueur de téléchargement avec :
     <span class="code">xattr -dr com.apple.quarantine "/Applications/AI Access Auditor.app"</span></div>
 
+  <h3 class="sub-h" id="windows">Sous Windows</h3>
+  <div class="steps">
+    <div class="card step"><h3>Téléchargez et lancez le programme d’installation</h3><p>Pour la plupart des PC : <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.4-beta/AI-Access-Auditor-1.0.4-beta-windows-x64.exe" download>Windows (x64)</a>. Pour les PC ARM, comme les portables Snapdragon : <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.4-beta/AI-Access-Auditor-1.0.4-beta-windows-arm64.exe" download>Windows sur ARM</a> (pas encore testé). Il s’installe pour votre compte uniquement, sans droits d’administrateur.</p></div>
+    <div class="card step"><h3>Si Windows vous avertit</h3><p>Cette bêta n’est pas encore signée, Windows peut donc afficher <b>Windows a protégé votre ordinateur</b>. Cliquez sur <b>Informations complémentaires</b>, puis sur <b>Exécuter quand même</b>. Suivez ensuite l’écran d’accueil.</p></div>
+  </div>
+  <div class="note"><b>Sous Windows,</b> l’app vérifie aussi les programmes au démarrage, les tâches planifiées et les identifiants enregistrés dans le Gestionnaire d’identification. Elle ne surveille pas encore les envois de données, car Windows ne montre la quantité envoyée par chaque programme qu’aux administrateurs. Sommes de contrôle : <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.4-beta/SHA256SUMS-windows.txt">SHA256SUMS-windows.txt</a></div>
+
   <h3 class="sub-h" id="linux">Sous Linux</h3>
   <div class="steps">
     <div class="card step"><h3>Ubuntu, Debian, Mint, Pop!_OS</h3><p>Téléchargez le .deb pour votre ordinateur : <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.4-beta/AI-Access-Auditor-1.0.4-beta-amd64.deb" download>Intel ou AMD (x64)</a> ou <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.4-beta/AI-Access-Auditor-1.0.4-beta-arm64.deb" download>ARM (arm64)</a>. Puis installez-le depuis le Terminal :
@@ -350,7 +358,7 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
   <h2>Questions</h2>
   <details><summary>Est-ce gratuit ?</summary><p>Oui. La bêta est gratuite à télécharger et à utiliser.</p></details>
   <details><summary>Pourquoi macOS m’avertit-il à l’ouverture ?</summary><p>Les apps hors App Store ont besoin d’une signature Apple Developer et d’une notarisation pour s’ouvrir sans avertissement. Cette bêta ne les a pas encore. Les étapes de la section Installation expliquent comment l’ouvrir en toute sécurité.</p></details>
-  <details><summary>Sur quels ordinateurs fonctionne-t-il ?</summary><p>Les Mac sous macOS 13 Ventura ou plus récent, Apple Silicon et Intel. Sous Linux : Ubuntu 22.04, Debian 12 ou plus récent et les distributions similaires, en x64 et ARM. Tout le nécessaire est inclus, il n’y a rien d’autre à installer. Une version Windows est prévue.</p></details>
+  <details><summary>Sur quels ordinateurs fonctionne-t-il ?</summary><p>Les Mac sous macOS 13 Ventura ou plus récent, Apple Silicon et Intel. Windows 10 et 11. Sous Linux : Ubuntu 22.04, Debian 12 ou plus récent et les distributions similaires, en x64 et ARM. Tout le nécessaire est inclus, il n’y a rien d’autre à installer.</p></details>
   <details><summary>Peut-il arrêter un agent avant qu’il agisse ?</summary><p>Pour Claude Code, Codex CLI et Gemini CLI, oui. Activez « Demander avant d’agir » pour chacun dans la Vue d’ensemble, et vous approuvez les actions avant qu’elles s’exécutent. Avec Claude Code et Codex, la fenêtre remplace la demande de l’agent. Avec Gemini, elle intervient quand Gemini agirait sans demander (mode YOLO ou modification automatique). Codex vous demande une fois de faire confiance au nouveau hook : tapez <code>/hooks</code> dans Codex. Les autres agents ne peuvent pas être mis en pause de l’extérieur ; pour eux, vous êtes alerté en quelques secondes de tout nouvel accès et pouvez le retirer aussitôt.</p></details>
   <details><summary>En quoi diffère-t-il des scanners MCP ?</summary><p>Les scanners MCP comme Snyk Agent Scan examinent en profondeur les serveurs MCP, par exemple en cherchant des instructions cachées dans la description de leurs outils. AI Access Auditor ne fait pas cette analyse approfondie. Il couvre plutôt l’ensemble : tous les types d’accès de vos agents, une fenêtre avant que Claude Code, Codex ou Gemini agisse, et le retrait en un clic. Les deux se complètent bien.</p></details>
   <details><summary>Peut-il empêcher des données de quitter mon Mac ?</summary><p>Il peut arrêter le programme qui les envoie, après vous avoir demandé. Il ne peut pas bloquer une seule connexion en laissant le programme tourner : il faut pour cela un filtre réseau, comme le pare-feu gratuit LuLu, et les deux se complètent bien. Il vérifie toutes les 2 secondes, donc un envoi très bref peut lui échapper, et il affiche l’adresse IP plutôt qu’un nom de site, car chercher les noms obligerait à contacter Internet.</p></details>
@@ -361,17 +369,19 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
       <li>Quittez-la depuis le bouclier dans la barre des menus, puis placez-la de Applications dans la Corbeille.</li>
       <li>Si vous le souhaitez, supprimez son dossier de données : <code>~/.ai-access-audit</code></li>
     </ol>
-    <p>Sous Linux, désactivez les mêmes interrupteurs, quittez-la depuis l’icône de la zone de notification, puis supprimez-la avec <code>sudo apt remove ai-access-auditor</code> (ou supprimez l’AppImage).</p></details>
+    <p>Sous Linux, désactivez les mêmes interrupteurs, quittez-la depuis l’icône de la zone de notification, puis supprimez-la avec <code>sudo apt remove ai-access-auditor</code> (ou supprimez l’AppImage).</p>
+    <p>Sous Windows, désactivez les mêmes interrupteurs, quittez-la depuis l’icône de la zone de notification, puis désinstallez-la dans Paramètres → Applications → Applications installées.</p></details>
 </div></section>
 
 <div class="wrap" id="download">
   <div class="band">
     <h2>Sachez ce que vos agents peuvent faire.</h2>
-    <p>Bêta gratuite pour macOS 13 ou plus récent et Linux.</p>
+    <p>Bêta gratuite pour macOS 13 ou plus récent, Windows et Linux.</p>
     <a class="btn" href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.4-beta/AI-Access-Auditor-1.0.4-beta.dmg" download>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
       Télécharger AI Access Auditor
     </a>
+    <a class="btn ghost-light" href="#windows">Windows</a>
     <a class="btn ghost-light" href="#linux">Linux</a>
     <div class="sum">SHA-256: <span id="sha">c0acd270ace970b25daa107fe426c6ed393476f426e1a913ed16496e0125ae17</span></div>
   </div>

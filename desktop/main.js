@@ -1,4 +1,4 @@
-// AI Access Auditor for Linux (Electron). It does what the Mac app (macos/main.swift) does:
+// AI Access Auditor for Linux and Windows (Electron). It does what the Mac app (macos/main.swift) does:
 // - Main window: the auditor UI, served by the bundled scanner (server.js) privately on 127.0.0.1.
 // - Tray icon: the app keeps running after the window closes and watches agents' config files live.
 // - Popups: Allow / Deny before Claude Code, Gemini CLI or Codex CLI act (see gate.js), and Keep / Remove
@@ -11,6 +11,8 @@ const os = require('os');
 const path = require('path');
 const http = require('http');
 
+const WIN = process.platform === 'win32';
+const OS_NAME = WIN ? 'windows' : 'linux';
 const CHECK_INTERVAL = 60e3; // fallback; most changes arrive instantly through the event stream
 const DATA_DIR = process.env.AUDIT_DATA_DIR || path.join(os.homedir(), '.ai-access-audit');
 const CORE = app.isPackaged ? path.join(process.resourcesPath, 'core') : path.join(__dirname, '..'); // server.js, gate.js, public/
@@ -22,6 +24,7 @@ const stableExe = () => process.env.APPIMAGE || process.execPath;
 // How the Allow / Deny hooks start Node.js. An AppImage has to mount itself every time it runs, so when
 // Node.js is installed anyway, use it; otherwise the app itself runs as Node.js.
 function hookNodeCmd() {
+  if (WIN) return windowsHookCmd();
   const q = s => `"${s.replace(/(["\\$`])/g, '\\$1')}"`;
   if (process.env.APPIMAGE) {
     const nvm = path.join(os.homedir(), '.nvm', 'versions', 'node');
@@ -31,6 +34,20 @@ function hookNodeCmd() {
     if (node) return q(node);
   }
   return `ELECTRON_RUN_AS_NODE=1 ${q(stableExe())}`;
+}
+
+// Windows: agents run hooks through cmd.exe (Gemini, Codex) or Git Bash (Claude Code). A quoted path with
+// forward slashes works in both. Node.js if it is installed, otherwise node.cmd, which runs this app as Node.js.
+function windowsHookCmd() {
+  const pf = process.env.ProgramFiles || 'C:\\Program Files';
+  const node = [path.join(pf, 'nodejs', 'node.exe'), path.join(process.env.LOCALAPPDATA || '', 'Volta', 'tools', 'image', 'node', 'node.exe')]
+    .find(f => { try { return fs.statSync(f).isFile(); } catch { return false; } });
+  const cmd = path.join(DATA_DIR, 'node.cmd'); // written every time, so it's there if Node.js is uninstalled later
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(cmd, `@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\n"${process.execPath}" %*\r\n`);
+  } catch {}
+  return `"${(node || cmd).replace(/\\/g, '/')}"`;
 }
 
 // ---------- language: the same French and Arabic as the Mac app (desktop/strings.json comes from macos/i18n.swift) ----------
@@ -81,6 +98,7 @@ else {
   app.whenReady().then(launch);
 }
 app.setName('AI Access Auditor');
+if (WIN) app.setAppUserModelId('local.ai-access-auditor'); // Windows shows notifications only for an app with this ID (the installer's appId)
 
 function launch() {
   const s = settings();
@@ -160,7 +178,7 @@ function startServer() {
       const m = buffer.match(/LISTENING (\d+)/);
       if (m) {
         port = Number(m[1]);
-        win.loadURL(`http://127.0.0.1:${port}/?syslang=${encodeURIComponent((app.getLocale() || 'en').slice(0, 2))}&os=linux`);
+        win.loadURL(`http://127.0.0.1:${port}/?syslang=${encodeURIComponent((app.getLocale() || 'en').slice(0, 2))}&os=${OS_NAME}`);
         checkForChanges();
         setInterval(checkForChanges, CHECK_INTERVAL).unref();
         eventLoop();
@@ -411,9 +429,10 @@ function buildTrayMenu() {
   tray.setContextMenu(Menu.buildFromTemplate(items));
 }
 
-// ---------- open at login: an XDG autostart entry that starts the app in the background ----------
-function loginEnabled() { return fs.existsSync(AUTOSTART); }
+// ---------- open at login: an XDG autostart entry on Linux, Windows' own login items on Windows ----------
+function loginEnabled() { return WIN ? app.getLoginItemSettings({ args: ['--background'] }).openAtLogin : fs.existsSync(AUTOSTART); }
 function setLogin(on) {
+  if (WIN) { app.setLoginItemSettings({ openAtLogin: !!on, args: ['--background'] }); return; }
   try {
     if (!on) { if (loginEnabled()) fs.unlinkSync(AUTOSTART); return; }
     fs.mkdirSync(path.dirname(AUTOSTART), { recursive: true });

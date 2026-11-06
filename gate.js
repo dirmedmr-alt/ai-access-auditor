@@ -72,17 +72,32 @@ const reply = obj => { process.stdout.write(JSON.stringify(obj)); process.exit(0
 function geminiMode() {
   let mode = null;
   try {
+    // parent process and command line of a process: ps on macOS and Linux; on Windows one PowerShell call lists them all
+    let table = null;
+    const parentOf = pid => {
+      if (process.platform !== 'win32') {
+        const [ppid, ...cmd] = execFileSync('ps', ['-o', 'ppid=,command=', '-p', String(pid)], { encoding: 'utf8', timeout: 2000 }).trim().split(/\s+/);
+        return [Number(ppid), cmd.join(' ')];
+      }
+      if (!table) {
+        table = new Map();
+        const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+          '[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId)`t$($_.ParentProcessId)`t$($_.CommandLine)" }'],
+          { encoding: 'utf8', timeout: 8000, windowsHide: true });
+        for (const l of out.split(/\r?\n/)) { const [p, pp, ...c] = l.split('\t'); if (/^\d+$/.test(p)) table.set(Number(p), [Number(pp), c.join('\t').replace(/\\/g, '/')]); }
+      }
+      return table.get(pid) || [0, ''];
+    };
     let pid = process.ppid;
     for (let n = 0; n < 8 && pid > 1; n++) {
-      const [ppid, ...cmd] = execFileSync('ps', ['-o', 'ppid=,command=', '-p', String(pid)], { encoding: 'utf8', timeout: 2000 }).trim().split(/\s+/);
-      const c = cmd.join(' ');
-      if (/(^|\/)gemini(\.js)?(\s|$)|@google\/gemini-cli/.test(c)) {
+      const [ppid, c] = parentOf(pid);
+      if (/(^|\/)gemini(\.js|\.cmd|\.exe)?(["\s]|$)|@google\/gemini-cli/i.test(c)) {
         if (/(^|\s)(--yolo|-y)(\s|$)|--approval-mode[ =]yolo\b/.test(c)) mode = 'yolo';
         else if (/--approval-mode[ =]auto_edit\b/.test(c)) mode = 'auto_edit';
         else if (/--approval-mode[ =](default|plan)\b/.test(c)) mode = 'default';
         break;
       }
-      pid = Number(ppid);
+      pid = ppid;
     }
   } catch {}
   if (mode) return mode;
