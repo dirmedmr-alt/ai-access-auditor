@@ -13,6 +13,8 @@ HERE="$(dirname "$(readlink -f "$0")")"
 BIN="$HERE/ai-access-auditor.bin"
 # run as Node.js (the Allow / Deny hooks agents call): no browser, no sandbox question
 if [ -n "$ELECTRON_RUN_AS_NODE" ]; then exec "$BIN" "$@"; fi
+# Chromium refuses to run its sandbox as root (some Kali setups log in as root)
+if [ "$(id -u)" = 0 ]; then exec "$BIN" --no-sandbox "$@"; fi
 if unshare -Ur true 2>/dev/null; then exec "$BIN" "$@"; fi
 exec "$BIN" --no-sandbox "$@"
 `;

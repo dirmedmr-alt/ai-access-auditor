@@ -1,6 +1,6 @@
 # AI Access Auditor
 
-An app for macOS and Linux that finds every access and privilege you've given to AI agents, asks before
+An app for macOS, Windows and Linux that finds every access and privilege you've given to AI agents, asks before
 they act, and lets you take any of it back. Everything stays on your computer: no account, no cloud, no tracking.
 
 **Download:** [website](https://dirmedmr-alt.github.io/ai-access-auditor/) ·
@@ -8,12 +8,16 @@ they act, and lets you take any of it back. Everything stays on your computer: n
 (free beta).
 - **Mac:** macOS 13 or later, Apple Silicon and Intel. Unsigned, so approve it once under
   System Settings → Privacy & Security → Open Anyway.
+- **Windows:** Windows 10 and 11, installers for x64 and ARM (ARM not tested yet). Unsigned, so SmartScreen may
+  warn once: More info → Run anyway. Uploads aren't watched on Windows.
 - **Linux:** a `.deb` for Ubuntu, Debian and similar (x64 and arm64: `sudo apt install ./AI-Access-Auditor-*.deb`),
   or an AppImage for other x64 distributions (needs `libfuse2t64` on Ubuntu 22.04 or later; on 22.04 the package is `libfuse2`).
 
 On Linux the app lives in the tray instead of the menu bar. It finds the same agent access, and in place of
 the Mac-only parts it checks systemd and autostart jobs, logins saved in GNOME Keyring or KWallet (by name only),
-and membership of the `docker` group. The Linux app is in `desktop/` (Electron); see `build-linux.sh`.
+and membership of the `docker` group. On Windows it checks startup entries (registry and Startup folder),
+scheduled tasks, logins in Credential Manager, API keys in the user environment, and admin rights without a UAC
+prompt. The Linux and Windows app is in `desktop/` (Electron); see `build-linux.sh` and `appveyor.yml`.
 
 **Build it yourself:** `./build-app.sh`, then open `dist/AI Access Auditor.app`. You can drag it into
 /Applications. It needs Node.js (`brew install node`) and doesn't use a browser.
@@ -75,10 +79,10 @@ The server listens only on 127.0.0.1, checks a per-session token, and masks secr
 
 ## Releasing a download and the website
 
-    VERSION=1.0.4-beta ./build-linux.sh                                      # Linux files, built in Docker
+    VERSION=1.0.5-beta ./build-linux.sh                                      # Linux files, built in Docker
 
-    VERSION=1.0.4-beta ./release.sh                                          # local preview in site/downloads
-    VERSION=1.0.4-beta REPO=dirmedmr-alt/ai-access-auditor PUBLISH=1 ./release.sh   # upload to a GitHub Release
+    VERSION=1.0.5-beta ./release.sh                                          # local preview in site/downloads
+    VERSION=1.0.5-beta REPO=dirmedmr-alt/ai-access-auditor PUBLISH=1 ./release.sh   # upload to a GitHub Release
 
 This builds `dist/AI-Access-Auditor-<version>.dmg`:
 - It runs on Apple Silicon and Intel, on macOS 13 or later.
@@ -86,9 +90,11 @@ This builds `dist/AI-Access-Auditor-<version>.dmg`:
 
 It also updates the download links, version, size and SHA-256 shown in `site/index.html`. With `REPO`
 set, the links point at the GitHub Release, and `PUBLISH=1` uploads the DMG there, together with the Linux files
-from `build-linux.sh` (AppImage for x64, `.deb` for x64 and arm64, and `SHA256SUMS-linux.txt`). The GitHub
-workflow in `.github/workflows/linux.yml` can build and test the Linux files on Ubuntu instead, when Actions
-are available on the account. The website itself
+from `build-linux.sh` (AppImage for x64, `.deb` for x64 and arm64, and `SHA256SUMS-linux.txt`). The Windows
+installers are built and tested by AppVeyor (`appveyor.yml`) on every push to `main`; `release.sh` downloads
+the ones built for the released commit (`fetch-windows.sh`), so push first and wait for that build to pass.
+The GitHub workflows in `.github/workflows/` can build and test Linux and Windows too, when Actions are
+available on the account. The website itself
 is published from `site/` to GitHub Pages with `./publish-site.sh` (it pushes `site/` to the
 `gh-pages` branch, which Pages serves).
 
