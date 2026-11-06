@@ -615,18 +615,21 @@ function scanLinuxJobs() {
 // Windows: Run entries in the registry, the Startup folders, and Task Scheduler (tasks outside \Microsoft\)
 const RUN_KEYS = [['HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', true], ['HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', false]];
 let tasksCache = { at: 0, list: [] };
-function windowsTasks() {
-  if (Date.now() - tasksCache.at < 60e3) return tasksCache.list;
+const PS_TASKS = "Get-ScheduledTask | Where-Object { $_.TaskPath -notlike '\\Microsoft\\*' -and $_.State -ne 'Disabled' } | ForEach-Object { "
+  + "$a = ($_.Actions | ForEach-Object { \"$($_.Execute) $($_.Arguments)\" }) -join ' ; '; $t = ($_.Triggers | ForEach-Object { $_.CimClass.CimClassName }) -join ','; "
+  + "\"{0}`t{1}`t{2}`t{3}`t{4}\" -f $_.TaskPath, $_.TaskName, $_.Principal.UserId, $t, ($a -replace \"[`r`n`t]\", ' ') }";
+function parseWinTasks(out) {
   const list = [];
-  const out = psh("Get-ScheduledTask | Where-Object { $_.TaskPath -notlike '\\Microsoft\\*' -and $_.State -ne 'Disabled' } | ForEach-Object { "
-    + "$a = ($_.Actions | ForEach-Object { \"$($_.Execute) $($_.Arguments)\" }) -join ' ; '; $t = ($_.Triggers | ForEach-Object { $_.CimClass.CimClassName }) -join ','; "
-    + "\"{0}`t{1}`t{2}`t{3}`t{4}\" -f $_.TaskPath, $_.TaskName, $_.Principal.UserId, $t, ($a -replace \"[`r`n`t]\", ' ') }", 30000);
   for (const line of out.split(/\r?\n/)) {
     const [tpath, name, user, triggers, action] = line.split('\t');
     if (name) list.push({ tpath, name, user: user || '', triggers: triggers || '', action: (action || '').trim() });
   }
-  tasksCache = { at: Date.now(), list };
   return list;
+}
+function windowsTasks() {
+  if (Date.now() - tasksCache.at < (winHelper ? 120e3 : 60e3)) return tasksCache.list;
+  tasksCache = { at: Date.now(), list: parseWinTasks(psh(PS_TASKS, 30000)) };
+  return tasksCache.list;
 }
 function scanWindowsJobs() {
   const out = [];
@@ -1174,19 +1177,26 @@ function dangerReason(agentKey, cmd) {
 // PowerShell on Windows, where it is slow enough that a list less than a few seconds old is reused)
 const PS_ALL = MAC ? ['-axo', 'pid=,ppid=,uid=,etime=,command='] : ['-eo', 'pid=,ppid=,uid=,etime=,args='];
 let procCache = { at: 0, list: [] };
-function processList(maxAge = 0) {
-  if (maxAge && Date.now() - procCache.at < maxAge) return procCache.list;
+// Windows: only the four properties needed, which is much faster than asking for whole process objects
+const PS_PROCS = '$n = Get-Date; Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,CreationDate,CommandLine | ForEach-Object { '
+  + '$s = if ($_.CreationDate) { [int]($n - $_.CreationDate).TotalSeconds } else { 0 }; '
+  + '"{0}`t{1}`t{2}`t{3}" -f $_.ProcessId, $_.ParentProcessId, $s, ($_.CommandLine -replace "[`r`n`t]", " ") }';
+function parseWinProcs(out) {
   const list = [];
-  if (WIN) {
-    const out = psh('$n = Get-Date; Get-CimInstance Win32_Process | ForEach-Object { $s = if ($_.CreationDate) { [int]($n - $_.CreationDate).TotalSeconds } else { 0 }; '
-      + '"{0}`t{1}`t{2}`t{3}" -f $_.ProcessId, $_.ParentProcessId, $s, ($_.CommandLine -replace "[`r`n`t]", " ") }');
-    for (const line of out.split(/\r?\n/)) {
-      const [pid, ppid, secs, ...cmd] = line.split('\t');
-      if (!/^\d+$/.test(pid || '')) continue;
-      const t = Number(secs) || 0, d = Math.floor(t / 86400), hh = String(Math.floor(t % 86400 / 3600)).padStart(2, '0'), mm = String(Math.floor(t % 3600 / 60)).padStart(2, '0'), ss = String(t % 60).padStart(2, '0');
-      list.push({ pid, ppid, uid: '', etime: `${d ? d + '-' : ''}${hh}:${mm}:${ss}`, cmd: cmd.join(' ').trim() });
-    }
-  } else {
+  for (const line of out.split(/\r?\n/)) {
+    const [pid, ppid, secs, ...cmd] = line.split('\t');
+    if (!/^\d+$/.test(pid || '')) continue;
+    const t = Number(secs) || 0, d = Math.floor(t / 86400), hh = String(Math.floor(t % 86400 / 3600)).padStart(2, '0'), mm = String(Math.floor(t % 3600 / 60)).padStart(2, '0'), ss = String(t % 60).padStart(2, '0');
+    list.push({ pid, ppid, uid: '', etime: `${d ? d + '-' : ''}${hh}:${mm}:${ss}`, cmd: cmd.join(' ').trim() });
+  }
+  return list;
+}
+function processList(maxAge = 0) {
+  // on Windows the helper below keeps the list fresh (every few seconds), so scans never wait for PowerShell
+  if (maxAge && Date.now() - procCache.at < (WIN && winHelper ? 30000 : maxAge)) return procCache.list;
+  let list = [];
+  if (WIN) list = parseWinProcs(psh(PS_PROCS));
+  else {
     for (const line of sh('ps', PS_ALL, 5000).split('\n')) {
       const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/);
       if (m) list.push({ pid: m[1], ppid: m[2], uid: m[3], etime: m[4], cmd: m[5] });
@@ -1194,6 +1204,30 @@ function processList(maxAge = 0) {
   }
   procCache = { at: Date.now(), list };
   return list;
+}
+// Windows: one PowerShell stays open and reports the process list every few seconds and the scheduled tasks
+// every minute. Starting PowerShell each time would cost close to a second; it quits when this program does.
+let winHelper = null;
+function startWindowsHelper() {
+  if (!WIN || DEMO || winHelper) return;
+  const script = `[Console]::OutputEncoding=[Text.Encoding]::UTF8; $i = 0; while ($true) { `
+    + `if (-not (Get-Process -Id ${process.pid} -ErrorAction SilentlyContinue)) { exit }; `
+    + `${PS_PROCS}; '@@PROCS'; if ($i % 8 -eq 0) { ${PS_TASKS}; '@@TASKS' }; $i++; Start-Sleep -Seconds 6 }`;
+  winHelper = require('child_process').spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
+    { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+  let buf = '';
+  winHelper.stdout.setEncoding('utf8');
+  winHelper.stdout.on('data', d => {
+    buf += d;
+    for (let m; (m = buf.match(/^@@(PROCS|TASKS)\r?$/m));) {
+      const chunk = buf.slice(0, m.index);
+      buf = buf.slice(m.index + m[0].length).replace(/^\n/, '');
+      if (m[1] === 'PROCS') procCache = { at: Date.now(), list: parseWinProcs(chunk) };
+      else tasksCache = { at: Date.now(), list: parseWinTasks(chunk) };
+    }
+  });
+  winHelper.on('exit', () => { winHelper = null; });
+  process.on('exit', () => { try { if (winHelper) winHelper.kill(); } catch {} });
 }
 // A command line as [program, ...arguments]. Windows programs can be quoted or have spaces in their path.
 function cmdTokens(cmd) {
@@ -1579,7 +1613,7 @@ function untrustUploader(key) {
 }
 
 // Privileges every agent inherits from your account: admin rights, SSH keys, cloud and developer logins
-let sudoCache = { at: 0, ok: false };
+let sudoCache = { at: 0, ok: false }, winAdminCache = { at: 0, groups: '', uac: '' };
 function demoInherited() {
   return [{ agent: 'Your account', category: 'Inherited credential', title: 'SSH key: ~/.ssh/id_ed25519', detail: 'Loaded in ssh-agent: any agent can use it to log in to servers or push code', risk: 'medium', source: 'ssh-agent', action: { kind: 'none', hint: 'ssh-add -D' } }];
 }
@@ -1594,8 +1628,8 @@ function scanInherited() {
   }
   // Windows: an administrator account that gets admin rights without being asked (UAC off, or set to never prompt)
   if (WIN) {
-    const isAdmin = /S-1-5-32-544/.test(sh('whoami', ['/groups'], 5000));
-    const uac = sh('reg', ['query', 'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System'], 5000);
+    if (Date.now() - winAdminCache.at > 10 * 60e3) winAdminCache = { at: Date.now(), groups: sh('whoami', ['/groups'], 5000), uac: sh('reg', ['query', 'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System'], 5000) };
+    const isAdmin = /S-1-5-32-544/.test(winAdminCache.groups), uac = winAdminCache.uac;
     const val = k => { const m = uac.match(new RegExp(`\\s${k}\\s+REG_DWORD\\s+0x([0-9a-f]+)`, 'i')); return m ? parseInt(m[1], 16) : null; };
     if (isAdmin && (val('EnableLUA') === 0 || val('ConsentPromptBehaviorAdmin') === 0)) add('Your account', 'Admin rights',
       val('EnableLUA') === 0 ? 'User Account Control is off' : 'Admin rights without asking',
@@ -1799,7 +1833,7 @@ function doRevoke(f, reason) {
     try { execFileSync('schtasks', ['/change', '/tn', a.task, '/disable'], { stdio: 'pipe', windowsHide: true }); }
     catch (e) { throw new Error(`Windows didn't allow it (${String(e.stderr || e.message).trim().slice(0, 160)}). Disable it in Task Scheduler as an administrator.`); }
     const bk = backupCommand(`task ${a.task}`, 'schtasks', ['/change', '/tn', a.task, '/enable']);
-    tasksCache.at = 0;
+    tasksCache = { at: 0, list: [] };
     log(`DISABLE scheduled task ${a.task}  backup=${bk}${why}`);
     return { message: `Turned off the scheduled task "${f.title}". You can turn it back on under History.`, backup: bk };
   }
@@ -1941,7 +1975,7 @@ function restore(name) {
   if (meta.restore) {
     if (!RESTORE_CMDS.includes(meta.restore.cmd) || !Array.isArray(meta.restore.args)) throw new Error('This backup can\'t be restored automatically.');
     execFileSync(meta.restore.cmd, meta.restore.args.map(String), { stdio: 'pipe', windowsHide: true });
-    tasksCache.at = 0;
+    tasksCache = { at: 0, list: [] };
     log(`RESTORE ${meta.original} from ${name}`);
     return { message: `Restored ${meta.original}` };
   }
@@ -2343,6 +2377,7 @@ if (require.main === module) {
     } catch (e) { console.error('gate setup failed:', e.message); }
     startWatching();
     startUploadMonitor();
+    startWindowsHelper();
     if (process.env.PORT === '0') {
       console.log(`TOKEN ${TOKEN}`); // only for the Mac app that launched us
       // Exit when the Mac app goes away, even if it was force-quit
@@ -2353,4 +2388,4 @@ if (require.main === module) {
     console.log(`AI Access Auditor running at http://localhost:${server.address().port}`);
   });
 }
-module.exports = { scanAll, _test: { revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason } };
+module.exports = { scanAll, _test: { startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason } };

@@ -26,6 +26,7 @@ const t0 = Date.now();
 const r = srv.scanAll();
 console.log(`scan took ${Date.now() - t0} ms, ${r.findings.length} findings`);
 const t1 = Date.now(); srv.scanAll(); console.log(`second scan took ${Date.now() - t1} ms`);
+
 for (const [name, args] of [['powershell (start only)', ['powershell.exe', ['-NoProfile', '-Command', '1']]], ['cmdkey', ['cmdkey', ['/list']]],
   ['netstat', ['netstat', ['-ano', '-p', 'TCP']]], ['whoami', ['whoami', ['/groups']]], ['reg query', ['reg', ['query', RUN]]]]) {
   const t = Date.now(); run(...args); console.log(`  ${name}: ${Date.now() - t} ms`);
@@ -62,6 +63,11 @@ run('cmdkey', ['/delete:gh:github.com']);
 run('schtasks', ['/delete', '/tn', 'Claude nightly', '/f']);
 run('reg', ['delete', 'HKCU\\Environment', '/v', 'ANTHROPIC_API_KEY', '/f']);
 try { fs.unlinkSync(startup); } catch {}
-if (failed) { console.log(`${failed} check(s) failed`); process.exit(1); }
-console.log('All Windows checks passed');
-process.exit(0);
+// what the app does: the PowerShell helper keeps the lists fresh, so a scan only reads them
+srv._test.startWindowsHelper();
+setTimeout(() => {
+  for (const n of [1, 2]) { const t2 = Date.now(); srv.scanAll(); console.log(`scan with the helper running (${n}): ${Date.now() - t2} ms`); }
+  if (failed) { console.log(`${failed} check(s) failed`); process.exit(1); }
+  console.log('All Windows checks passed');
+  process.exit(0);
+}, 25000);
