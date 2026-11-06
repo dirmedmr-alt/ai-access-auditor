@@ -271,6 +271,7 @@ html.native .insp-in{padding-top:34px}
 <script>
 const TOKEN = '__TOKEN__';
 if (new URLSearchParams(location.search).has('native')) document.documentElement.classList.add('native');
+const MACOS = (document.documentElement.dataset.os || new URLSearchParams(location.search).get('os') || 'mac') === 'mac'; // the Linux app hides the macOS-only parts
 try { const t = localStorage.getItem('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch {}
 
 const api = (p, body) => fetch('/api/' + p, { method: body ? 'POST' : 'GET', headers: { 'x-token': TOKEN, 'content-type': 'application/json' }, body: body && JSON.stringify(body) })
@@ -350,7 +351,7 @@ const avatar = a => `<span class="av" style="background:${agentColor(a)}">${esc(
 // ---------- state ----------
 let data = null, view = 'overview', agentFilter = null, selected = null, gateOn = false, scope = 'ai', gemOn = false, gemHere = false, cdxOn = false, cdxHere = false;
 const picked = new Set(); // grants ticked for bulk actions
-const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'uninstallExt', 'killProcess', 'removeFolder', 'removeFile', 'removeTomlBlock'];
+const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'disableSystemdUnit', 'removeAutostart', 'uninstallExt', 'killProcess', 'removeFolder', 'removeFile', 'removeTomlBlock'];
 const canRevoke = f => REVOCABLE.includes(f.action.kind);
 const timeLeft = iso => { const ms = Date.parse(iso) - Date.now(); if (ms <= 0) return 'now'; const h = ms / 3600e3; return h < 1 ? Math.ceil(ms / 60e3) + 'm' : h < 48 ? Math.round(h) + 'h' : Math.round(h / 24) + 'd'; };
 const ui = { q: '', risk: '', hideReviewed: false };
@@ -451,7 +452,7 @@ function renderOverview() {
       ${prot('hand', 'Ask before Claude Code acts', gateOn ? 'You approve each new action' : 'Claude Code asks in its own window', `<label class="switch"><input type="checkbox" id="gateSw" ${gateOn ? 'checked' : ''}></label>`, gateOn)}
       ${gemHere || gemOn ? prot('hand', 'Ask before Gemini CLI acts', gemOn ? 'When Gemini would act without asking' : 'Gemini asks in its own window', `<label class="switch"><input type="checkbox" id="gemSw" ${gemOn ? 'checked' : ''}></label>`, gemOn) : ''}
       ${cdxHere || cdxOn ? prot('hand', 'Ask before Codex CLI acts', cdxOn ? 'You approve each action here' : 'Codex asks in its own window', `<label class="switch"><input type="checkbox" id="cdxSw" ${cdxOn ? 'checked' : ''}></label>`, cdxOn) : ''}
-      ${prot('macOS privacy', 'macOS permissions', fda ? 'Screen, files, camera and more' : 'Needs Full Disk Access', fda ? '<span class="ok-pill yes">On</span>' : '<button class="btn" data-setup-step="1">Fix</button>', fda)}
+      ${!MACOS ? '' : prot('macOS privacy', 'macOS permissions', fda ? 'Screen, files, camera and more' : 'Needs Full Disk Access', fda ? '<span class="ok-pill yes">On</span>' : '<button class="btn" data-setup-step="1">Fix</button>', fda)}
       ${prot('Folder access', 'Watch all apps', scope === 'all' ? 'Every app, not just AI' : 'AI apps only', `<label class="switch"><input type="checkbox" id="scopeSw" ${scope === 'all' ? 'checked' : ''}></label>`, scope === 'all')}
     </div>
     <div class="split">
@@ -671,7 +672,7 @@ document.addEventListener('input', e => {
   if (e.target.id === 'q') { ui.q = e.target.value; renderMain(); }
   if (e.target.id === 'hideRev') { ui.hideReviewed = e.target.checked; renderMain(); }
   if (e.target.id === 'scopeSw') {
-    api('settings', { scope: e.target.checked ? 'all' : 'ai' }).then(r => { toast(r.scope === 'all' ? 'Now watching every app for macOS permissions and background jobs' : 'Watching AI apps only', 4000); scan(); });
+    api('settings', { scope: e.target.checked ? 'all' : 'ai' }).then(r => { toast(r.scope === 'all' ? (MACOS ? 'Now watching every app for macOS permissions and background jobs' : 'Now watching every app for background jobs') : 'Watching AI apps only', 4000); scan(); });
   }
   if (e.target.id === 'cdxSw') {
     const on = e.target.checked;
@@ -725,13 +726,14 @@ function renderSetup() {
   const fda = data.tcc.readable.length > 0;
   const pill = (ok, yes, no) => `<span class="ok-pill ${ok ? 'yes' : 'no'}">${ok ? '✓ ' + yes : no}</span>`;
   const big = k => `<div class="sbig">${icon(k)}</div>`;
+  const stepNo = () => `Step ${setupStep} of ${STEPS.length - 2}`;
   const STEPS = [
     () => `${big('Permission mode')}<div class="stepno">Welcome</div>
       <h2>Know what your AI agents can do</h2>
       <p class="lead">AI Access Auditor finds every permission, folder, login and privilege your AI agents have, and lets you take any of it back. Let's switch on the protection. It takes about a minute.</p>
       <div class="srow"><span class="ic medium">${icon('info')}</span><div><b>Pops up the moment something changes</b><p>When any agent gains access or starts with its safety off, a window asks you to keep it or remove it.</p></div></div>
       <div class="srow"><span class="ic low">${icon('history')}</span><div><b>Everything can be undone</b><p>Each change is backed up first. Restore it from History at any time.</p></div></div>`,
-    () => `${big('macOS privacy')}<div class="stepno">Step 1 of 3</div>
+    () => `${big('macOS privacy')}<div class="stepno">${stepNo()}</div>
       <h2>Let it see macOS permissions</h2>
       <p class="lead">To check which apps can record your screen, control your Mac or read all your files, the app needs <b>Full Disk Access</b>. It only reads the permission list and never changes it without asking you.</p>
       <div class="srow"><div style="flex:1"><b>Full Disk Access</b><p>${fda ? 'Granted. macOS permissions are included in every scan.' : 'Not granted yet.'}</p></div>${pill(fda, 'Granted', 'Not yet')}</div>
@@ -743,13 +745,13 @@ function renderSetup() {
         <a class="btn primary" href="x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles">Open System Settings</a>
         ${isNative() ? `<button class="btn" data-native="revealApp">Show app in Finder</button><button class="btn" data-native="relaunch">Restart app</button>` : '<button class="btn" data-recheck>Check again</button>'}
       </div>`}`,
-    () => `${big('hand')}<div class="stepno">Step 2 of 3</div>
+    () => `${big('hand')}<div class="stepno">${stepNo()}</div>
       <h2>Ask me before Claude Code acts</h2>
       <p class="lead">Instead of Claude Code's own prompt, a window pops up here so you can <b>Allow</b> or <b>Deny</b>, and change your mind later under Decisions. If this app isn't running, Claude Code asks the usual way.</p>
       <div class="srow"><span class="ic ${gateOn ? 'low' : 'medium'}">${icon('Tool permission')}</span><div><b>Ask before Claude Code acts</b><p>Adds a small hook to ~/.claude/settings.json (a backup is saved).</p></div>
         <label class="switch"><input type="checkbox" data-setsw="gate" ${gateOn ? 'checked' : ''}></label></div>
       <p class="detail">Other agents don't offer a way to pause them, so for them you're told within seconds of any change instead.</p>`,
-    () => `${big('history')}<div class="stepno">Step 3 of 3</div>
+    () => `${big('history')}<div class="stepno">${stepNo()}</div>
       <h2>Keep watching in the background</h2>
       <p class="lead">The app lives in the menu bar. It keeps working after you close this window.</p>
       ${isNative() ? `<div class="srow"><span class="ic ${nativeInfo.login ? 'low' : 'medium'}">${icon('history')}</span><div><b>Open at Login</b><p>${nativeInfo.inApplications ? 'Starts quietly in the menu bar when you log in.' : 'Move the app to Applications first, so it can always be found at login.'}</p></div>
@@ -758,16 +760,17 @@ function renderSetup() {
         <div class="seg" style="margin-inline-start:auto;align-self:center">${['system', 'light', 'dark'].map(t => `<button data-theme-pick="${t}" class="${theme === t ? 'on' : ''}">${t === 'system' ? 'Auto' : t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div></div>
       <div class="srow"><span class="ic low">${icon('Browser extension')}</span><div><b>Language</b><p>Auto follows your Mac's language.</p></div>
         <div class="seg" style="margin-inline-start:auto;align-self:center">${[['auto', 'Auto'], ['en', 'English'], ['fr', 'Français'], ['ar', 'العربية']].map(([v, l]) => `<button data-lang-pick="${v}" class="${langPref === v ? 'on' : ''}" lang="${v === 'auto' ? '' : v}">${l}</button>`).join('')}</div></div>
-      <div class="srow"><span class="ic low">${icon('macOS privacy')}</span><div><b>Watch all apps, not just AI</b><p>Also cover camera, screen, files and background jobs for every other app.</p></div>
+      <div class="srow"><span class="ic low">${icon('macOS privacy')}</span><div><b>Watch all apps, not just AI</b><p>${MACOS ? 'Also cover camera, screen, files and background jobs for every other app.' : 'Also cover background jobs for every other app.'}</p></div>
         <label class="switch"><input type="checkbox" data-setsw="scope" ${scope === 'all' ? 'checked' : ''}></label></div>`,
     () => `${big('Trusted folder')}<div class="stepno">All set</div>
       <h2>You're protected</h2>
       <p class="lead">Here's what's switched on. You can change any of it later from <b>Setup</b> at the bottom of the sidebar.</p>
       <div class="srow"><div style="flex:1"><b>Live popups for new access</b><p>Watching ${data.findings.length} grants across ${new Set(data.findings.map(f => f.agent)).size} agents.</p></div>${pill(true, 'On', '')}</div>
-      <div class="srow"><div style="flex:1"><b>macOS permissions</b></div>${pill(fda, 'Included', 'Needs Full Disk Access')}</div>
+      ${MACOS ? `<div class="srow"><div style="flex:1"><b>macOS permissions</b></div>${pill(fda, 'Included', 'Needs Full Disk Access')}</div>` : ''}
       <div class="srow"><div style="flex:1"><b>Ask before Claude Code acts</b></div>${pill(gateOn, 'On', 'Off')}</div>
       ${isNative() ? `<div class="srow"><div style="flex:1"><b>Open at Login</b></div>${pill(nativeInfo.login, 'On', 'Off')}</div>` : ''}`,
   ];
+  if (!MACOS) STEPS.splice(1, 1); // Full Disk Access is a Mac thing
   const last = STEPS.length - 1;
   $('#sbox').innerHTML = STEPS[setupStep]() + `
     <div class="sfoot"><div class="dots">${STEPS.map((_, i) => `<i class="${i === setupStep ? 'on' : ''}"></i>`).join('')}</div>

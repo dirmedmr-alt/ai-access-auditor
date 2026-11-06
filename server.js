@@ -10,6 +10,10 @@ const crypto = require('crypto');
 const { execFileSync, execFile } = require('child_process');
 
 const HOME = os.homedir();
+const MAC = process.platform === 'darwin', LINUX = process.platform === 'linux';
+const OS_NAME = MAC ? 'mac' : LINUX ? 'linux' : process.platform;
+// where desktop apps keep their settings: ~/Library/Application Support on a Mac, ~/.config on Linux
+const appData = (...p) => MAC ? path.join(HOME, 'Library', 'Application Support', ...p) : path.join(process.env.XDG_CONFIG_HOME || path.join(HOME, '.config'), ...p);
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4517;
 const DEMO = !!process.env.AUDIT_DEMO; // screenshots: only scan the (fake) home folder, nothing system-wide
 const DATA_DIR = process.env.AUDIT_DATA_DIR || path.join(HOME, '.ai-access-audit'); // override for tests
@@ -198,7 +202,7 @@ function scanClaudeCode() {
   const out = [];
   out.push(...claudeSettingsFindings(h('.claude', 'settings.json'), 'user'));
   out.push(...claudeSettingsFindings(h('.claude', 'settings.local.json'), 'user local'));
-  for (const f of ['/Library/Application Support/ClaudeCode/managed-settings.json'])
+  for (const f of [MAC ? '/Library/Application Support/ClaudeCode/managed-settings.json' : '/etc/claude-code/managed-settings.json'])
     claudeSettingsFindings(f, 'managed').forEach(x => { x.action = { kind: 'none', hint: 'Managed by your organization.' }; out.push(x); });
 
   const cj = h('.claude.json');
@@ -234,7 +238,7 @@ function scanClaudeCode() {
 
 function scanClaudeDesktop() {
   const out = [];
-  const f = h('Library', 'Application Support', 'Claude', 'claude_desktop_config.json');
+  const f = appData('Claude', 'claude_desktop_config.json');
   const j = readJson(f);
   if (!j) return out;
   const A = 'Claude Desktop';
@@ -271,13 +275,13 @@ function scanOtherMcp() {
   const targets = [
     ['Cursor', h('.cursor', 'mcp.json'), ['mcpServers']],
     ['Windsurf', h('.codeium', 'windsurf', 'mcp_config.json'), ['mcpServers']],
-    ['VS Code', h('Library', 'Application Support', 'Code', 'User', 'mcp.json'), ['servers']],
-    ['VS Code', h('Library', 'Application Support', 'Code', 'User', 'settings.json'), ['mcp', 'servers']],
+    ['VS Code', appData('Code', 'User', 'mcp.json'), ['servers']],
+    ['VS Code', appData('Code', 'User', 'settings.json'), ['mcp', 'servers']],
     ['Gemini CLI', h('.gemini', 'settings.json'), ['mcpServers']],
     ['Zed', h('.config', 'zed', 'settings.json'), ['context_servers']],
-    ['Cline', h('Library', 'Application Support', 'Code', 'User', 'globalStorage', 'saoudrizwan.claude-dev', 'settings', 'cline_mcp_settings.json'), ['mcpServers']],
-    ['Roo Code', h('Library', 'Application Support', 'Code', 'User', 'globalStorage', 'rooveterinaryinc.roo-cline', 'settings', 'mcp_settings.json'), ['mcpServers']],
-    ['Cursor', h('Library', 'Application Support', 'Cursor', 'User', 'globalStorage', 'saoudrizwan.claude-dev', 'settings', 'cline_mcp_settings.json'), ['mcpServers']],
+    ['Cline', appData('Code', 'User', 'globalStorage', 'saoudrizwan.claude-dev', 'settings', 'cline_mcp_settings.json'), ['mcpServers']],
+    ['Roo Code', appData('Code', 'User', 'globalStorage', 'rooveterinaryinc.roo-cline', 'settings', 'mcp_settings.json'), ['mcpServers']],
+    ['Cursor', appData('Cursor', 'User', 'globalStorage', 'saoudrizwan.claude-dev', 'settings', 'cline_mcp_settings.json'), ['mcpServers']],
   ];
   for (const [agent, f, p] of targets) {
     const servers = getAt(readJson(f), p) || {};
@@ -321,9 +325,14 @@ function scanOtherMcp() {
     const j = readJson(ca) || {};
     const how = j.OPENAI_API_KEY ? 'an OpenAI API key' : j.tokens ? 'your ChatGPT login' : 'your OpenAI login';
     out.push({ agent: 'Codex CLI', category: 'Saved login', title: 'OpenAI sign-in (auth.json)',
-      detail: `Codex keeps ${how} here as plain text: any program you run can read it and use your OpenAI access. Setting cli_auth_credentials_store = "keyring" in config.toml moves it to the Keychain.`,
+      detail: `Codex keeps ${how} here as plain text: any program you run can read it and use your OpenAI access. Setting cli_auth_credentials_store = "keyring" in config.toml moves it to ${MAC ? 'the Keychain' : 'the system keyring'}.`,
       risk: 'high', source: ca, action: { kind: 'removeFile', file: ca } });
   }
+  // Claude Code on Linux keeps its login in this file (on a Mac it uses the Keychain)
+  const cc = h('.claude', '.credentials.json');
+  if (exists(cc)) out.push({ agent: 'Claude Code', category: 'Saved login', title: 'Claude sign-in (.credentials.json)',
+    detail: 'Claude Code keeps your Claude login here as plain text: any program you run can read it and use your Claude account',
+    risk: 'high', source: cc, action: { kind: 'removeFile', file: cc } });
   const cm = h('.codex', '.credentials.json');
   if (exists(cm)) out.push({ agent: 'Codex CLI', category: 'Saved login', title: 'MCP server logins', detail: 'Logins Codex saved for MCP servers, as plain text',
     risk: 'medium', source: cm, action: { kind: 'removeFile', file: cm } });
@@ -355,8 +364,8 @@ const AI_CLIENT_RE = /claude|anthropic|openai|chatgpt|cursor|codeium|windsurf|co
 
 function scanTcc() {
   const out = [];
-  const status = { readable: [], unreadable: [] };
-  for (const db of DEMO ? [] : [h('Library', 'Application Support', 'com.apple.TCC', 'TCC.db'), '/Library/Application Support/com.apple.TCC/TCC.db']) {
+  const status = { readable: [], unreadable: [], supported: MAC };
+  for (const db of DEMO || !MAC ? [] : [appData('com.apple.TCC', 'TCC.db'), '/Library/Application Support/com.apple.TCC/TCC.db']) {
     if (!exists(db)) { status.unreadable.push(db); continue; }
     let rows;
     try {
@@ -414,9 +423,58 @@ function scanEnvKeys() {
 }
 
 // Logins and tokens AI tools keep in the login Keychain (names only; secrets are never read)
+function keyringAgent(who) {
+  return /claude code/i.test(who) ? 'Claude Code' : /claude/i.test(who) ? 'Claude Desktop' : /chatgpt|openai/i.test(who) ? 'ChatGPT'
+    : /github|^gh:/i.test(who) ? 'GitHub CLI' : /gemini-cli/i.test(who) ? 'Gemini CLI' : /codex/i.test(who) ? 'Codex CLI' : ((who.match(AI_NAME_RE) || ['Keychain'])[0].replace(/^./, c => c.toUpperCase()));
+}
+// Linux: the desktop keyring (GNOME Keyring, KWallet) through the Secret Service D-Bus API.
+// Only names and attributes are read, never the secrets, so nothing gets unlocked and no password is asked for.
+let keyringCache = { sig: '', at: 0, items: [] };
+function busJson(args, timeout = 3000) { try { return JSON.parse(sh('busctl', ['--user', '--json=short', ...args], timeout) || 'null'); } catch { return null; } }
+function keyringItems() {
+  const dir = h('.local', 'share', 'keyrings');
+  let sig = '';
+  try { sig = fs.readdirSync(dir).map(n => { try { return n + fs.statSync(path.join(dir, n)).mtimeMs; } catch { return n; } }).join('|'); } catch {}
+  if (keyringCache.at && keyringCache.sig === sig && Date.now() - keyringCache.at < 120e3) return keyringCache.items; // the files change when an item is added or removed
+  const items = [];
+  const owner = busJson(['call', 'org.freedesktop.DBus', '/org/freedesktop/DBus', 'org.freedesktop.DBus', 'NameHasOwner', 's', 'org.freedesktop.secrets']);
+  if (owner && owner.data && owner.data[0]) {
+    const found = busJson(['call', 'org.freedesktop.secrets', '/org/freedesktop/secrets', 'org.freedesktop.Secret.Service', 'SearchItems', 'a{ss}', '0']);
+    const paths = found && found.data ? [...(found.data[0] || []), ...(found.data[1] || [])] : [];
+    for (const p of paths.slice(0, 400)) {
+      const r = busJson(['call', 'org.freedesktop.secrets', p, 'org.freedesktop.DBus.Properties', 'GetAll', 's', 'org.freedesktop.Secret.Item'], 2000);
+      const d = r && r.data && r.data[0];
+      if (!d) continue;
+      items.push({ label: (d.Label || {}).data || '', attrs: (d.Attributes || {}).data || {}, modified: Number((d.Modified || {}).data || 0) });
+    }
+  }
+  keyringCache = { sig, at: Date.now(), items };
+  return items;
+}
+function scanSecretService() {
+  const out = [];
+  for (const { label, attrs, modified } of keyringItems()) {
+    const svc = attrs.service || attrs.application || attrs.xdg_schema || '', acct = attrs.account || attrs.username || attrs.user || '';
+    const name = svc || label;
+    const who = `${svc} ${label} ${attrs.server || ''}`;
+    if (!name || !(AI_NAME_RE.test(who) || /^gh:github\.com|^github\.com$/.test(name))) continue;
+    const when = modified ? new Date(modified * 1000).toISOString().slice(0, 10) : '';
+    const safe = /Safe Storage$/i.test(label);
+    out.push({
+      agent: keyringAgent(who), category: 'Saved login', title: label || name,
+      detail: safe ? `Key the app uses to encrypt its own local data${when ? ` · updated ${when}` : ''}`
+        : `Password/token for ${name}${acct ? ` (account ${mask(acct)})` : ''}${when ? ` · updated ${when}` : ''}`,
+      risk: safe ? 'low' : /github/i.test(name) ? 'high' : 'medium', source: 'keyring (Secret Service)',
+      action: { kind: 'none', hint: `Open "Passwords and Keys" (Seahorse) or KWalletManager, search for "${label || name}" and delete it to sign the tool out.` },
+    });
+  }
+  return out;
+}
 function scanKeychain() {
   const out = [];
   if (DEMO) return out;
+  if (LINUX) return scanSecretService();
+  if (!MAC) return out;
   const dump = sh('security', ['dump-keychain'], 20000);
   for (const block of dump.split(/^keychain: /m).slice(1)) {
     const attr = k => { const m = block.match(new RegExp(`"${k}"<(?:blob|timedate)>=(?:0x[0-9A-F]+\\s+)?"([^"]*)`)); return m ? m[1].replace(/\\000$/, '') : ''; };
@@ -427,8 +485,7 @@ function scanKeychain() {
     const mdat = attr('mdat');
     const when = /^\d{14}/.test(mdat) ? `${mdat.slice(0, 4)}-${mdat.slice(4, 6)}-${mdat.slice(6, 8)}` : '';
     const who = `${svc} ${label} ${server}`;
-    const agent = /claude code/i.test(who) ? 'Claude Code' : /claude/i.test(who) ? 'Claude Desktop' : /chatgpt|openai/i.test(who) ? 'ChatGPT'
-      : /github|^gh:/i.test(who) ? 'GitHub CLI' : /gemini-cli/i.test(who) ? 'Gemini CLI' : /codex/i.test(who) ? 'Codex CLI' : ((who.match(AI_NAME_RE) || ['Keychain'])[0].replace(/^./, c => c.toUpperCase()));
+    const agent = keyringAgent(who);
     out.push({
       agent, category: 'Saved login', title: label || name,
       detail: /Safe Storage$/.test(name)
@@ -452,9 +509,72 @@ function vendorName(label, prog) {
 }
 
 // Background jobs that start AI tools without you: LaunchAgents/Daemons and crontab
-function scanBackgroundAgents() {
+// Linux: systemd services and timers, and programs the desktop starts at login (XDG autostart)
+const OWN_AUTOSTART = 'ai-access-auditor.desktop';
+function iniFields(file) {
+  const out = {};
+  let text = '';
+  try { text = fs.readFileSync(file, 'utf8'); } catch { return null; }
+  let section = '';
+  for (const line of text.split('\n')) {
+    const sm = line.match(/^\s*\[([^\]]+)\]\s*$/);
+    if (sm) { section = sm[1]; continue; }
+    const m = line.match(/^\s*([A-Za-z][\w-]*)\s*=\s*(.*?)\s*$/);
+    if (m && !(`${section}.${m[1]}` in out)) out[`${section}.${m[1]}`] = m[2];
+  }
+  return out;
+}
+function scanLinuxJobs() {
   const out = [];
-  const dirs = [[h('Library', 'LaunchAgents'), true], ...(DEMO ? [] : [['/Library/LaunchAgents', false], ['/Library/LaunchDaemons', false]])];
+  const add = (owner, title, when, prog, userOwned, file, action, systemWide) => {
+    const aiMatch = (`${title} ${prog}`.match(AI_NAME_RE) || [])[0];
+    if (getScope() === 'ai' && !aiMatch) return;
+    out.push({
+      agent: aiMatch ? (AGENT_NAMES[aiMatch.toLowerCase()] || aiMatch.replace(/^./, c => c.toUpperCase())) : owner,
+      category: 'Background agent', title,
+      detail: `Runs ${when}: ${prog.replace(HOME, '~').slice(0, 160)}${systemWide ? ' (system-wide)' : ''}`,
+      risk: aiMatch ? (systemWide || when === 'always running' ? 'high' : 'medium') : 'low', source: file,
+      action: userOwned ? action : { kind: 'none', hint: systemWide === 'unit' ? `Needs an admin: sudo systemctl disable --now ${path.basename(file)}` : `Needs an admin: remove ${file}` },
+    });
+  };
+  const unitDirs = [[h('.config', 'systemd', 'user'), true], ...(DEMO ? [] : [['/etc/systemd/user', false], ['/etc/systemd/system', false]])];
+  for (const [dir, userOwned] of unitDirs) {
+    let names = [];
+    try { names = fs.readdirSync(dir).filter(n => /\.(service|timer)$/.test(n)); } catch { continue; }
+    for (const n of names) {
+      const file = path.join(dir, n), u = iniFields(file);
+      if (!u) continue;
+      const isTimer = n.endsWith('.timer');
+      const svc = isTimer ? iniFields(path.join(dir, u['Timer.Unit'] || n.replace(/\.timer$/, '.service'))) || {} : u;
+      if (isTimer && names.includes(u['Timer.Unit'] || n.replace(/\.timer$/, '.service'))) {
+        // the service is listed on its own; mark it as scheduled there instead of listing it twice
+        continue;
+      }
+      const prog = svc['Service.ExecStart'] || '';
+      const scheduled = !isTimer && names.includes(n.replace(/\.service$/, '.timer'));
+      const when = isTimer || scheduled ? 'on a schedule' : /always|on-failure/.test(svc['Service.Restart'] || '') ? 'always running'
+        : /default\.target|graphical-session\.target|multi-user\.target/.test(svc['Install.WantedBy'] || '') ? (userOwned ? 'at login' : 'at startup') : 'on demand';
+      add('systemd', svc['Unit.Description'] ? `${n} (${svc['Unit.Description']})` : n, when, prog, userOwned, file,
+        { kind: 'disableSystemdUnit', files: [file, ...(scheduled ? [path.join(dir, n.replace(/\.service$/, '.timer'))] : [])] }, !userOwned && 'unit');
+    }
+  }
+  const autoDirs = [[path.join(process.env.XDG_CONFIG_HOME || h('.config'), 'autostart'), true], ...(DEMO ? [] : [['/etc/xdg/autostart', false]])];
+  for (const [dir, userOwned] of autoDirs) {
+    let names = [];
+    try { names = fs.readdirSync(dir).filter(n => n.endsWith('.desktop') && n !== OWN_AUTOSTART); } catch { continue; }
+    for (const n of names) {
+      const file = path.join(dir, n), d = iniFields(file);
+      if (!d || d['Desktop Entry.Hidden'] === 'true' || d['Desktop Entry.X-GNOME-Autostart-enabled'] === 'false') continue;
+      add(d['Desktop Entry.Name'] || n.replace(/\.desktop$/, ''), d['Desktop Entry.Name'] || n, 'at login', (d['Desktop Entry.Exec'] || '').replace(/\s+%[a-zA-Z]/g, ''), userOwned, file,
+        { kind: 'removeAutostart', file }, !userOwned && 'file');
+    }
+  }
+  return out;
+}
+
+function scanBackgroundAgents() {
+  const out = LINUX ? scanLinuxJobs() : [];
+  const dirs = !MAC ? [] : [[h('Library', 'LaunchAgents'), true], ...(DEMO ? [] : [['/Library/LaunchAgents', false], ['/Library/LaunchDaemons', false]])];
   for (const [dir, userOwned] of dirs) {
     let files = [];
     try { files = fs.readdirSync(dir).filter(f => f.endsWith('.plist')); } catch { continue; }
@@ -489,17 +609,28 @@ function scanBackgroundAgents() {
 }
 
 // AI extensions inside code editors (they can read your code and often run commands)
-const EDITORS = [
+// a command in the usual program folders (the app's own PATH can be short when it starts at login)
+function findCommand(cmd, extra = []) {
+  const dirs = [...extra, ...(process.env.PATH || '').split(':').filter(Boolean), '/usr/local/bin', '/usr/bin', '/bin', '/snap/bin', h('.local', 'bin')];
+  for (const d of dirs) { const f = path.join(d, cmd); try { fs.accessSync(f, fs.constants.X_OK); return f; } catch {} }
+  return '';
+}
+const EDITORS = MAC ? [
   ['VS Code', h('.vscode', 'extensions'), '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code'],
   ['Cursor', h('.cursor', 'extensions'), '/Applications/Cursor.app/Contents/Resources/app/bin/cursor'],
   ['Windsurf', h('.windsurf', 'extensions'), '/Applications/Windsurf.app/Contents/Resources/app/bin/windsurf'],
+] : [
+  ['VS Code', h('.vscode', 'extensions'), () => findCommand('code', ['/usr/share/code/bin'])],
+  ['Cursor', h('.cursor', 'extensions'), () => findCommand('cursor', ['/opt/Cursor/resources/app/bin', '/usr/share/cursor/bin'])],
+  ['Windsurf', h('.windsurf', 'extensions'), () => findCommand('windsurf', ['/usr/share/windsurf/bin'])],
 ];
 const AI_EXT_RE = /copilot|claude|anthropic|openai|chatgpt|codeium|continue\.continue|saoudrizwan|rooveterinaryinc|cline|kilocode|tabnine|amazon-?q|codegpt|gemini|sourcegraph\.cody|supermaven|codewhisperer|blackbox/i;
 function scanEditorExtensions() {
   const out = [];
-  for (const [editor, dir, cli] of EDITORS) {
+  for (const [editor, dir, cliPath] of EDITORS) {
     let names = [];
     try { names = fs.readdirSync(dir); } catch { continue; }
+    const cli = typeof cliPath === 'function' ? cliPath() : cliPath;
     const latest = {};
     for (const n of names) {
       const m = n.match(/^(.+?)-(\d+\.\d+\.\d+.*)$/);
@@ -512,22 +643,32 @@ function scanEditorExtensions() {
         agent: editor, category: 'Editor extension', title: pkg.displayName && !pkg.displayName.startsWith('%') ? pkg.displayName : extId,
         detail: `${extId} v${v}: can read your open code${agentic ? ', edit files and run terminal commands' : ' and send it to an AI service'}`,
         risk: agentic ? 'high' : 'medium', source: extDir,
-        action: exists(cli) ? { kind: 'uninstallExt', cli, extId, editor } : { kind: 'none', hint: `Uninstall it from the Extensions panel in ${editor}.` },
+        action: cli && exists(cli) ? { kind: 'uninstallExt', cli, extId, editor } : { kind: 'none', hint: `Uninstall it from the Extensions panel in ${editor}.` },
       });
     }
   }
   return out;
 }
 
-// AI extensions in Chromium browsers (Chrome, Brave, Edge, Arc)
+// AI extensions in Chromium browsers (Chrome, Brave, Edge, Arc; on Linux also Chromium, including the Snap and Flatpak versions)
+const BROWSERS = MAC ? [
+  ['Chrome', appData('Google', 'Chrome')],
+  ['Brave', appData('BraveSoftware', 'Brave-Browser')],
+  ['Edge', appData('Microsoft Edge')],
+  ['Arc', appData('Arc', 'User Data')],
+] : [
+  ['Chrome', appData('google-chrome')],
+  ['Chromium', appData('chromium')],
+  ['Chromium', h('snap', 'chromium', 'common', 'chromium')],
+  ['Brave', appData('BraveSoftware', 'Brave-Browser')],
+  ['Brave', h('.var', 'app', 'com.brave.Browser', 'config', 'BraveSoftware', 'Brave-Browser')],
+  ['Chrome', h('.var', 'app', 'com.google.Chrome', 'config', 'google-chrome')],
+  ['Edge', appData('microsoft-edge')],
+  ['Vivaldi', appData('vivaldi')],
+];
 function scanBrowserExtensions() {
   const out = [];
-  const browsers = [
-    ['Chrome', h('Library', 'Application Support', 'Google', 'Chrome')],
-    ['Brave', h('Library', 'Application Support', 'BraveSoftware', 'Brave-Browser')],
-    ['Edge', h('Library', 'Application Support', 'Microsoft Edge')],
-    ['Arc', h('Library', 'Application Support', 'Arc', 'User Data')],
-  ];
+  const browsers = BROWSERS;
   const msg = (extDir, manifest, s) => {
     const m = String(s || '').match(/^__MSG_(.+)__$/);
     if (!m) return s;
@@ -568,22 +709,31 @@ function scanBrowserExtensions() {
   return out;
 }
 
+// Sockets waiting for connections: [{ proc, pid, addr }]. On Linux, ss only names your own processes
+// (system services show no name), which is why the known ports below matter.
+function listeningSockets() {
+  if (LINUX) return sh('ss', ['-tlnpH'], 5000).split('\n').map(l => {
+    const c = l.trim().split(/\s+/), u = l.match(/users:\(\("([^"]+)",pid=(\d+)/) || [];
+    return c.length >= 4 ? { proc: u[1] || '', pid: u[2] || '', addr: c[3] } : null;
+  }).filter(Boolean);
+  return sh('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN'], 5000).split('\n').slice(1).map(l => {
+    const c = l.trim().split(/\s+/);
+    return c.length >= 9 ? { proc: c[0], pid: c[1], addr: c[8] } : null;
+  }).filter(Boolean);
+}
 // Local AI model servers listening on the network (others on your Wi-Fi could use them)
 function scanLocalServers() {
   const out = [];
   if (DEMO) return out;
   const known = { 11434: 'Ollama', 1234: 'LM Studio', 8080: null, 5000: null };
-  for (const line of sh('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN'], 5000).split('\n').slice(1)) {
-    const cols = line.trim().split(/\s+/);
-    if (cols.length < 9) continue;
-    const proc = cols[0], addr = cols[8];
+  for (const { proc, pid, addr } of listeningSockets()) {
     const port = Number(addr.split(':').pop());
     const name = known[port] || (AI_NAME_RE.test(proc) ? proc : null);
-    if (!name || /^(127\.0\.0\.1|\[::1\]|localhost):/.test(addr)) continue;
+    if (!name || /^(127\.[\d.]+(%\w+)?|\[::1\]|localhost|\[::ffff:127\.[\d.]+\]):/.test(addr)) continue;
     out.push({
       agent: name, category: 'Network exposure', title: `${name} open on port ${port}`,
-      detail: `${proc} listens on ${addr}, so other devices on your network can use it without a password`,
-      risk: 'high', source: `process ${proc} (pid ${cols[1]})`,
+      detail: `${proc || name} listens on ${addr}, so other devices on your network can use it without a password`,
+      risk: 'high', source: `process ${proc || name} (pid ${pid || '?'})`,
       action: { kind: 'none', hint: name === 'Ollama' ? 'Set OLLAMA_HOST=127.0.0.1 and restart Ollama.' : 'Change the server setting to listen on 127.0.0.1 (localhost) only.' },
     });
   }
@@ -687,9 +837,9 @@ function scanMoreAgents() {
 
   // VS Code / Cursor / Windsurf: Copilot agent auto-approve settings
   for (const [editor, f] of [
-    ['VS Code', h('Library', 'Application Support', 'Code', 'User', 'settings.json')],
-    ['Cursor', h('Library', 'Application Support', 'Cursor', 'User', 'settings.json')],
-    ['Windsurf', h('Library', 'Application Support', 'Windsurf', 'User', 'settings.json')],
+    ['VS Code', appData('Code', 'User', 'settings.json')],
+    ['Cursor', appData('Cursor', 'User', 'settings.json')],
+    ['Windsurf', appData('Windsurf', 'User', 'settings.json')],
   ]) {
     const r = readJsonc(f);
     if (!r) continue;
@@ -710,7 +860,7 @@ function scanMoreAgents() {
     add('Goose', 'Permission mode', 'GOOSE_MODE: auto', 'Acts without asking for approval', 'high', goose, none('Change GOOSE_MODE in ~/.config/goose/config.yaml.'));
 
   // Claude Desktop extensions (each one is an MCP server with its own access)
-  const extDir = h('Library', 'Application Support', 'Claude', 'Claude Extensions');
+  const extDir = appData('Claude', 'Claude Extensions');
   let exts = [];
   try { exts = fs.readdirSync(extDir); } catch {}
   for (const e of exts) {
@@ -757,12 +907,36 @@ function geminiRules(file) {
 }
 
 // AI agents installed on this Mac: command-line agents in the usual bin folders, and AI apps
-const BIN_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', h('.local', 'bin'), h('.npm-global', 'bin'), h('.bun', 'bin'), h('.cargo', 'bin'), h('.volta', 'bin')];
+const NVM_BINS = (() => { try { return fs.readdirSync(h('.nvm', 'versions', 'node')).sort().reverse().map(v => h('.nvm', 'versions', 'node', v, 'bin')); } catch { return []; } })();
+const BIN_DIRS = [...(MAC ? ['/opt/homebrew/bin'] : []), '/usr/local/bin', h('.local', 'bin'), h('.npm-global', 'bin'), h('.bun', 'bin'), h('.cargo', 'bin'), h('.volta', 'bin'),
+  ...(LINUX ? ['/usr/bin', '/snap/bin', '/home/linuxbrew/.linuxbrew/bin'] : []), ...NVM_BINS];
 const CLI_AGENTS = { claude: ['Claude Code', 'npm uninstall -g @anthropic-ai/claude-code'], codex: ['Codex CLI', 'npm uninstall -g @openai/codex'],
   gemini: ['Gemini CLI', 'npm uninstall -g @google/gemini-cli'], 'cursor-agent': ['Cursor CLI', 'rm "$(command -v cursor-agent)"'], aider: ['Aider', 'pipx uninstall aider-chat'],
-  goose: ['Goose', 'brew uninstall block-goose-cli'], opencode: ['OpenCode', 'npm uninstall -g opencode-ai'], copilot: ['Copilot CLI', 'npm uninstall -g @github/copilot'],
-  qwen: ['Qwen Code', 'npm uninstall -g @qwen-code/qwen-code'], amp: ['Amp', 'npm uninstall -g @sourcegraph/amp'], crush: ['Crush', 'brew uninstall crush'], 'kiro-cli': ['Kiro', ''] };
-const AI_APPS = /^(Claude|ChatGPT|Codex|Cursor|Windsurf|Perplexity|Ollama|LM Studio|Kiro|Zed|Warp|Msty|Jan|Copilot|Gemini|Comet|Dia|Atlas|ChatGPT Atlas|Raycast)\.app$/;
+  goose: ['Goose', MAC ? 'brew uninstall block-goose-cli' : ''], opencode: ['OpenCode', 'npm uninstall -g opencode-ai'], copilot: ['Copilot CLI', 'npm uninstall -g @github/copilot'],
+  qwen: ['Qwen Code', 'npm uninstall -g @qwen-code/qwen-code'], amp: ['Amp', 'npm uninstall -g @sourcegraph/amp'], crush: ['Crush', MAC ? 'brew uninstall crush' : ''], 'kiro-cli': ['Kiro', ''] };
+const AI_APP_NAMES = 'Claude|ChatGPT|Codex|Cursor|Windsurf|Perplexity|Ollama|LM Studio|Kiro|Zed|Warp|Msty|Jan|Copilot|Gemini|Comet|Dia|Atlas|ChatGPT Atlas|Raycast|GPT4All|AnythingLLM|Void';
+const AI_APPS = new RegExp(`^(${AI_APP_NAMES})\\.app$`);
+// Linux: apps show up as desktop entries (menu items), wherever they came from
+const DESKTOP_DIRS = ['/usr/share/applications', '/usr/local/share/applications', h('.local', 'share', 'applications'), '/var/lib/flatpak/exports/share/applications',
+  h('.local', 'share', 'flatpak', 'exports', 'share', 'applications'), '/var/lib/snapd/desktop/applications'];
+function linuxApps() {
+  const out = [], seen = new Set(), re = new RegExp(`^(${AI_APP_NAMES})( (Desktop|Editor|AI))?$`, 'i');
+  for (const dir of DESKTOP_DIRS) {
+    let names = [];
+    try { names = fs.readdirSync(dir).filter(n => n.endsWith('.desktop') && !/ai-access-auditor/.test(n)); } catch { continue; }
+    for (const n of names) {
+      const d = iniFields(path.join(dir, n));
+      const name = d && d['Desktop Entry.Name'];
+      if (!name || !re.test(name) || d['Desktop Entry.NoDisplay'] === 'true' || seen.has(name.toLowerCase())) continue;
+      seen.add(name.toLowerCase());
+      const file = path.join(dir, n), exec = (d['Desktop Entry.Exec'] || '').replace(/\s+%[a-zA-Z]/g, '');
+      const how = dir.includes('snapd') ? `sudo snap remove ${n.split('_')[0]}` : dir.includes('flatpak') ? `flatpak uninstall ${n.replace(/\.desktop$/, '')}`
+        : /\.AppImage\b/i.test(exec) ? `delete the AppImage (${exec.split(/\s+/)[0].replace(HOME, '~')})` : '';
+      out.push({ name: name.replace(/ (Desktop|Editor|AI)$/i, ''), file, exec, how });
+    }
+  }
+  return out;
+}
 function scanInstalledAgents() {
   const out = [];
   if (DEMO) return out;
@@ -775,7 +949,10 @@ function scanInstalledAgents() {
     out.push({ agent: name, category: 'AI agent installed', title: `${name} (${cmd} command)`, detail: `${f.replace(HOME, '~')}${target !== f ? ` → ${target.replace(HOME, '~')}` : ''}`,
       risk: 'low', source: f, action: { kind: 'none', hint: how ? `To uninstall: ${how}` : 'Uninstall it the way you installed it.' } });
   }
-  for (const dir of ['/Applications', h('Applications')]) {
+  for (const a of LINUX ? linuxApps() : []) out.push({ agent: a.name, category: 'AI agent installed', title: `${a.name} app`,
+    detail: `${a.exec.replace(HOME, '~').slice(0, 120)} (${a.file.replace(HOME, '~')})`, risk: 'low', source: a.file,
+    action: { kind: 'none', hint: a.how ? `To uninstall: ${a.how}` : 'Uninstall it with your package manager (for example apt remove or dnf remove).' } });
+  for (const dir of MAC ? ['/Applications', h('Applications')] : []) {
     let names = [];
     try { names = fs.readdirSync(dir).filter(n => AI_APPS.test(n)); } catch {}
     for (const n of names) out.push({ agent: n.replace(/\.app$/, ''), category: 'AI agent installed', title: `${n.replace(/\.app$/, '')} app`,
@@ -854,11 +1031,17 @@ function dangerReason(agentKey, cmd) {
   const hit = rules.find(([re]) => re.test(cmd));
   return hit && hit[1];
 }
+// every process: pid, parent, user id, running time, full command (BSD ps on a Mac, procps on Linux)
+const PS_ALL = MAC ? ['-axo', 'pid=,ppid=,uid=,etime=,command='] : ['-eo', 'pid=,ppid=,uid=,etime=,args='];
+function procCwd(pid) {
+  if (LINUX) { try { return fs.readlinkSync(`/proc/${pid}/cwd`); } catch { return ''; } }
+  return (sh('lsof', ['-a', '-p', pid, '-d', 'cwd', '-Fn'], 2000).match(/^n(.*)$/m) || [])[1] || '';
+}
 function scanProcesses() {
   const out = [];
   if (DEMO) return out;
   const procs = [];
-  for (const line of sh('ps', ['-axo', 'pid=,ppid=,uid=,etime=,command='], 5000).split('\n')) {
+  for (const line of sh('ps', PS_ALL, 5000).split('\n')) {
     const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/);
     if (m) procs.push({ pid: m[1], ppid: m[2], uid: m[3], etime: m[4], cmd: m[5] });
   }
@@ -892,7 +1075,7 @@ function scanProcesses() {
     const reason = dangerReason(key, cmd);
     const root = uid === '0';
     if (!reason && !root) continue;
-    const cwd = (sh('lsof', ['-a', '-p', pid, '-d', 'cwd', '-Fn'], 2000).match(/^n(.*)$/m) || [])[1] || '';
+    const cwd = procCwd(pid);
     const shortCmd = cmd.replace(HOME, '~').slice(0, 220);
     out.push({
       agent, category: 'Running agent', title: root ? `${agent} is running as administrator (root)` : `${agent} ${reason}`,
@@ -917,6 +1100,14 @@ function descendants(procs, pid) {
 }
 function connections(pids) {
   if (!pids.length) return [];
+  if (LINUX) {
+    const want = new Set(pids.map(String)), seen = new Set();
+    for (const l of sh('ss', ['-tnpH', 'state', 'established'], 4000).split('\n')) {
+      const c = l.trim().split(/\s+/), u = [...l.matchAll(/\("([^"]+)",pid=(\d+)/g)].find(m => want.has(m[2]));
+      if (u && c[3] && !/^(127\.|\[::1\]|\[::ffff:127\.)/.test(c[3])) seen.add(`${c[3]} (${u[1]})`);
+    }
+    return [...seen];
+  }
   const lines = sh('lsof', ['-nP', '-iTCP', '-sTCP:ESTABLISHED', '-a', '-p', pids.join(',')], 4000).split('\n').slice(1);
   const seen = new Set();
   for (const l of lines) {
@@ -980,7 +1171,9 @@ function scanInstalls(procs) {
 // Sampled every 2 seconds, so a connection that opens and closes in between can slip through.
 const UPLOAD_WINDOW = 10 * 60e3;
 const AI_LIMIT = 64 * 1024, ANY_LIMIT = 20 * 1024 * 1024;
-const SYSTEM_EXE_RE = /^\/(System|usr\/libexec|usr\/sbin|sbin|usr\/bin\/(nsurlsessiond|trustd))\//;
+const SYSTEM_EXE_RE = MAC ? /^\/(System|usr\/libexec|usr\/sbin|sbin|usr\/bin\/(nsurlsessiond|trustd))\//
+  : /^\/(usr\/lib\/(systemd|apt|snapd|packagekit|fwupd)|lib\/systemd|usr\/libexec|usr\/sbin|sbin)\//;
+const OWN_APP_RE = /AI Access Auditor\.app|\/ai-access-auditor(\.bin)?(\s|$)|\/AI Access Auditor\/|\.mount_AI-Acc/;
 const SENSITIVE_RE = /\/\.ssh\/|\/\.aws\/|\/\.config\/(gh|gcloud)\/|\/\.kube\/|\/\.gnupg\/|\/\.docker\/config|\/Keychains\/|\/\.env(\.|$)|\/Cookies$|\/Login Data$|\/\.npmrc$|\/\.netrc$|\/\.git-credentials$|credentials/i;
 const INTERP_RE = /^(node|python3?(\.\d+)?|Python|ruby|perl|bun|deno|php|java)$/;
 const uploads = { conns: new Map(), sent: new Map(), primed: false, timer: null, ps: null };
@@ -1022,6 +1215,19 @@ function startUploadMonitor() {
   }
   // one snapshot every 2 seconds: nettop's streaming mode is far heavier than a quick snapshot
   let busy = false;
+  if (LINUX) {
+    // ss reports how much each of your processes has sent on each TCP connection (bytes_sent), no admin rights needed
+    uploads.timer = setInterval(() => {
+      if (busy) return;
+      busy = true;
+      execFile('ss', ['-tinpH'], { timeout: 5000, maxBuffer: 8 << 20 }, (err, out) => {
+        busy = false;
+        if (!err && out) ingestSample(ssRecords(out));
+      });
+    }, 2000);
+    uploads.timer.unref();
+    return;
+  }
   uploads.timer = setInterval(() => {
     if (busy) return;
     busy = true;
@@ -1042,18 +1248,45 @@ function parseRemote(conn) {
   if (/^(127\.|0\.|169\.254\.|::1$|fe80:|::ffff:127\.)/i.test(ip)) return null;
   return { ip, port, key: `${m[1]} ${m[2]}<->${r}` };
 }
+// nettop -x -J bytes_out: a "name.pid,bytes" line for each process, then a line per connection
 function handleSample(lines) {
-  const now = Date.now();
+  const recs = [];
   let pid = null;
-  const live = new Set();
   for (const line of lines) {
     const pm = line.match(/^(.*)\.(\d+),(\d*),?$/);
     if (pm && !/^(tcp|udp)[46]\s/.test(line)) { pid = pm[2]; continue; }
     const cm = line.match(/^([^,]*),(\d*),?$/);
     if (!cm || !pid) continue;
     const rem = parseRemote(cm[1]);
-    if (!rem) continue;
-    const out = Number(cm[2] || 0), ck = `${pid}|${rem.key}`;
+    if (rem) recs.push({ pid, rem, out: Number(cm[2] || 0) });
+  }
+  ingestSample(recs);
+}
+// ss -tinpH: a line per connection ("ESTAB 0 0 local peer users:((name,pid=…))"), then an indented line with bytes_sent:N
+function ssRecords(text) {
+  const recs = [];
+  let cur = null;
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    if (!/^\s/.test(line)) {
+      const c = line.trim().split(/\s+/), u = line.match(/users:\(\("[^"]*",pid=(\d+)/);
+      cur = c.length >= 5 && u ? { pid: u[1], local: c[3], peer: c[4] } : null;
+      continue;
+    }
+    if (!cur) continue;
+    const b = line.match(/\bbytes_sent:(\d+)/) || line.match(/\bbytes_acked:(\d+)/);
+    const m = cur.peer.match(/^\[?(.+?)\]?:(\d+)$/);
+    const ip = m && m[1].replace(/^::ffff:/, '').replace(/%\w+$/, '');
+    if (b && ip && !/^(127\.|0\.|169\.254\.|::1$|fe80:)/i.test(ip)) recs.push({ pid: cur.pid, rem: { ip, port: m[2], key: `tcp ${cur.local}<->${cur.peer}` }, out: Number(b[1]) });
+    cur = null;
+  }
+  return recs;
+}
+function ingestSample(recs) {
+  const now = Date.now();
+  const live = new Set();
+  for (const { pid, rem, out } of recs) {
+    const ck = `${pid}|${rem.key}`;
     live.add(ck);
     const prev = uploads.conns.get(ck);
     // connections already open when we start only count from now on
@@ -1080,7 +1313,7 @@ function checkUploads(now) {
       // the process list is reused for a few seconds; busy apps cross the small limit all the time
       if (!uploads.ps || now - uploads.ps.at > 5000) {
         const list = [];
-        for (const line of sh('ps', ['-axo', 'pid=,ppid=,uid=,etime=,command='], 5000).split('\n')) {
+        for (const line of sh('ps', PS_ALL, 5000).split('\n')) {
           const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/);
           if (m) list.push({ pid: m[1], ppid: m[2], uid: m[3], etime: m[4], cmd: m[5] });
         }
@@ -1094,7 +1327,7 @@ function checkUploads(now) {
     if (!p && now - uploads.ps.at > 1000) { uploads.ps.at = 0; continue; } // refresh on the next sample
     if (!p || Number(p.pid) === process.pid || p.ppid === String(process.pid)) continue;
     const exe = exeOf(p.cmd);
-    if (SYSTEM_EXE_RE.test(exe) || /AI Access Auditor\.app/.test(p.cmd)) continue;
+    if (SYSTEM_EXE_RE.test(exe) || OWN_APP_RE.test(p.cmd)) continue;
     const key = appKey(p.cmd);
     if (st.trusted.includes(key)) continue;
     // started by an AI agent? (the agent itself talking to its model service is expected, so only its helpers count)
@@ -1105,15 +1338,9 @@ function checkUploads(now) {
     if (!by && total < ANY_LIMIT) continue;
     let ev = st.events.find(x => x.key === key && x.ip === e.ip && now - Date.parse(x.firstAt) < 24 * 3600e3);
     if (!ev) {
-      // regular files only (lsof -Ftn: a "tREG" line, then the "n<path>" line)
-      const files = [];
-      let reg = false;
-      for (const l of sh('lsof', ['-p', p.pid, '-Ftn'], 3000).split('\n')) {
-        if (l[0] === 't') reg = l === 'tREG';
-        else if (l[0] === 'n' && reg) files.push(l.slice(1));
-      }
-      files.splice(0, files.length, ...files.filter(f => SENSITIVE_RE.test(f)
-        || (f.startsWith(HOME) && !/\/Library\//.test(f) && !/\.(dylib|so|node|pyc)$/.test(f))));
+      // the files it has open that could matter: secrets, and your own files
+      const files = openFiles(p.pid).filter(f => SENSITIVE_RE.test(f)
+        || (f.startsWith(HOME) && !/\/(Library|\.cache)\//.test(f) && !/\.(dylib|so|node|pyc)$|\.so\.\d/.test(f)));
       ev = { key, ip: e.ip, port: e.port, pid: Number(p.pid), cmd: p.cmd.slice(0, 300), name: (() => { const n = appName(p.cmd); const sc = appKey(p.cmd).slice(exeOf(p.cmd).length).trim(); return INTERP_RE.test(n) && sc ? `${n} (${path.basename(sc)})` : n; })(), by, bytes: 0, firstAt: new Date(now).toISOString(),
         files: [...new Set(files)].sort((a, b) => SENSITIVE_RE.test(b) - SENSITIVE_RE.test(a)).slice(0, 6) };
       st.events.push(ev);
@@ -1128,6 +1355,24 @@ function checkUploads(now) {
     saveUploads(st);
   }
   if (changed) { changedFlag = true; flushEvents(); }
+}
+// regular files a process has open
+function openFiles(pid) {
+  const files = [];
+  if (LINUX) {
+    let fds = [];
+    try { fds = fs.readdirSync(`/proc/${pid}/fd`).slice(0, 4000); } catch { return files; }
+    for (const fd of fds) {
+      try { const f = fs.readlinkSync(`/proc/${pid}/fd/${fd}`); if (f.startsWith('/') && fs.statSync(f).isFile()) files.push(f); } catch {}
+    }
+    return files;
+  }
+  let reg = false; // lsof -Ftn: a "tREG" line, then the "n<path>" line
+  for (const l of sh('lsof', ['-p', pid, '-Ftn'], 3000).split('\n')) {
+    if (l[0] === 't') reg = l === 'tREG';
+    else if (l[0] === 'n' && reg) files.push(l.slice(1));
+  }
+  return files;
 }
 function scanUploads() {
   const out = [];
@@ -1186,6 +1431,10 @@ function scanInherited() {
   if (sudoCache.ok) add('Your account', 'Admin rights', 'sudo works without a password',
     'Any agent you run can become administrator without asking you', 'high', '/etc/sudoers', 'Remove NOPASSWD from your sudoers entry (sudo visudo), or run "sudo -k" to end a cached sudo session.');
 
+  // Linux: the docker group can start a container that mounts the whole disk as root, without a password
+  if (LINUX && /(^|\s)docker(\s|$)/.test(sh('id', ['-Gn'], 3000).trim())) add('Your account', 'Admin rights', 'Member of the docker group',
+    'Any agent you run can use Docker to get full administrator (root) access to this computer without a password', 'high', '/etc/group',
+    `Remove yourself from the group (sudo gpasswd -d ${os.userInfo().username} docker), or use rootless Docker.`);
   for (const l of sh('ssh-add', ['-l'], 3000).split('\n').filter(x => /SHA256:/.test(x))) {
     const parts = l.split(' ');
     add('Your account', 'Inherited credential', `SSH key: ${parts.slice(2, -1).join(' ').replace(HOME, '~') || parts[1]}`,
@@ -1275,6 +1524,7 @@ function migrateIds(list) {
 // What the page and the menu bar receive: no raw config values (those can hold unmasked tokens)
 function publicScan() {
   const r = scanAll();
+  r.os = OS_NAME;
   r.findings = r.findings.map(({ legacyId, ...f }) => ({ ...f, action: { kind: f.action.kind, hint: f.action.hint, url: f.action.url, label: f.action.label } }));
   return r;
 }
@@ -1343,10 +1593,29 @@ function doRevoke(f, reason) {
     log(`DISABLE launch agent ${f.title}  file=${a.file}  backup=${bk}${why}`);
     return { message: `Stopped and removed "${f.title}". Backup saved.`, backup: bk };
   }
+  if (a.kind === 'disableSystemdUnit') {
+    const bks = [];
+    for (const file of a.files.slice().reverse()) { // the timer first, so it can't start the service again
+      if (!exists(file)) continue;
+      bks.push(backup(file));
+      sh('systemctl', ['--user', 'disable', '--now', path.basename(file)], 15000);
+      fs.unlinkSync(file);
+    }
+    sh('systemctl', ['--user', 'daemon-reload'], 15000);
+    log(`DISABLE systemd unit ${f.title}  files=${a.files.join(',')}  backup=${bks.join(',')}${why}`);
+    return { message: `Stopped and removed "${f.title}". Backup saved.`, backup: bks[0] };
+  }
+  if (a.kind === 'removeAutostart') {
+    if (!exists(a.file)) throw new Error('That file is already gone. Rescan.');
+    const bk = backup(a.file);
+    fs.unlinkSync(a.file);
+    log(`REMOVE autostart ${f.title}  file=${a.file}  backup=${bk}${why}`);
+    return { message: `"${f.title}" won't start at login anymore. If it is running now, it keeps running until you quit it. Backup saved.`, backup: bk };
+  }
   if (a.kind === 'killProcess') {
     const now = sh('ps', ['-p', String(a.pid), '-o', 'command='], 2000).trim();
     if (!now || !now.startsWith(a.cmdStart.slice(0, 100))) return { message: `It had already stopped (process ${a.pid}).` };
-    const tree = a.tree ? descendants(sh('ps', ['-axo', 'pid=,ppid='], 3000).split('\n').map(l => l.trim().split(/\s+/)).filter(x => x.length === 2).map(([pid, ppid]) => ({ pid, ppid })), String(a.pid)) : [];
+    const tree = a.tree ? descendants(sh('ps', MAC ? ['-axo', 'pid=,ppid='] : ['-eo', 'pid=,ppid='], 3000).split('\n').map(l => l.trim().split(/\s+/)).filter(x => x.length === 2).map(([pid, ppid]) => ({ pid, ppid })), String(a.pid)) : [];
     process.kill(a.pid, 'SIGTERM');
     for (const k of tree) try { process.kill(Number(k.pid), 'SIGTERM'); } catch {}
     log(`STOP process ${a.pid}${tree.length ? ` and ${tree.length} helpers` : ''} [${f.agent}] ${f.title}${why}`);
@@ -1407,7 +1676,7 @@ function doRevoke(f, reason) {
   return { message: `Revoked "${f.title}". Backup saved.${restartHint}`, backup: bk };
 }
 
-const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'uninstallExt', 'killProcess', 'removeFolder', 'removeFile', 'removeTomlBlock'];
+const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'disableSystemdUnit', 'removeAutostart', 'uninstallExt', 'killProcess', 'removeFolder', 'removeFile', 'removeTomlBlock'];
 
 // Revoke several grants in one go. One scan up front; each revoke re-reads its file, so they don't clash.
 function revokeMany(ids) {
@@ -1475,7 +1744,11 @@ function restore(name) {
   }
   if (exists(meta.original)) backup(meta.original);
   fs.copyFileSync(path.join(BACKUP_DIR, name), meta.original);
-  if (meta.original.startsWith(h('Library', 'LaunchAgents'))) sh('launchctl', ['bootstrap', `gui/${process.getuid()}`, meta.original], 5000);
+  if (MAC && meta.original.startsWith(h('Library', 'LaunchAgents'))) sh('launchctl', ['bootstrap', `gui/${process.getuid()}`, meta.original], 5000);
+  if (LINUX && meta.original.startsWith(h('.config', 'systemd', 'user') + '/')) {
+    sh('systemctl', ['--user', 'daemon-reload'], 15000);
+    sh('systemctl', ['--user', 'enable', '--now', path.basename(meta.original)], 15000);
+  }
   log(`RESTORE ${meta.original} from ${name}`);
   return { message: `Restored ${meta.original.replace(HOME, '~')}` };
 }
@@ -1528,24 +1801,24 @@ function startWatching() {
     [h('.gemini'), /\.json$/], [h('.copilot'), /\.json$/], [h('.aws'), /^(credentials|config)$/], [h('.aws', 'amazonq'), /\.json$/],
     [h('.kiro', 'settings'), /\.json$/], [h('.config', 'opencode'), /\.json$/], [h('.continue'), /\.json$/], [h('.config', 'goose'), /\.yaml$/],
     [h('.config', 'gh'), /hosts\.yml$/], [h('.kube'), /^config$/], [h('.docker'), /config\.json$/], [h('.azure'), /\.json$/],
-    [h('Library', 'Application Support', 'Cursor', 'User'), /^settings\.json$/], [h('Library', 'Application Support', 'Windsurf', 'User'), /^settings\.json$/],
-    [h('Library', 'Application Support', 'Claude', 'Claude Extensions'), /./], [h('Library', 'Keychains'), /^login\.keychain-db$/],
-    [h('Library', 'Application Support', 'com.apple.TCC'), /^TCC\.db/],
-    [h('Library', 'Application Support', 'Google', 'Chrome', 'Default', 'Extensions'), /./],
-    [h('Library', 'Application Support', 'BraveSoftware', 'Brave-Browser', 'Default', 'Extensions'), /./],
-    [h('Library', 'Application Support', 'Microsoft Edge', 'Default', 'Extensions'), /./],
+    [appData('Cursor', 'User'), /^settings\.json$/], [appData('Windsurf', 'User'), /^settings\.json$/],
+    [appData('Claude', 'Claude Extensions'), /./],
+    ...BROWSERS.map(([, root]) => [path.join(root, 'Default', 'Extensions'), /./]),
+    ...(MAC ? [[h('Library', 'Keychains'), /^login\.keychain-db$/], [appData('com.apple.TCC'), /^TCC\.db/], [h('Library', 'LaunchAgents'), /\.plist$/]]
+      : [[h('.local', 'share', 'keyrings'), /./], [h('.config', 'systemd', 'user'), /\.(service|timer)$/], [h('.config', 'autostart'), /\.desktop$/],
+        ...DESKTOP_DIRS.map(d => [d, /\.desktop$/])]),
     [h('.claude'), /^settings(\.local)?\.json$/],
-    [h('Library', 'Application Support', 'Claude'), /^claude_desktop_config\.json$/],
+    [appData('Claude'), /^claude_desktop_config\.json$/],
     [h('.cursor'), /^(mcp|cli-config)\.json$/], [h('.codeium', 'windsurf'), /mcp_config\.json$/], [h('.gemini'), /settings\.json$/], [h('.codex'), /config\.toml$/],
-    [h('Library', 'Application Support', 'Code', 'User'), /^(settings|mcp)\.json$/],
-    [h('Library', 'LaunchAgents'), /\.plist$/],
+    [appData('Code', 'User'), /^(settings|mcp)\.json$/],
     [h('.vscode', 'extensions'), /./], [h('.cursor', 'extensions'), /./], [h('.windsurf', 'extensions'), /./],
   ];
   for (const proj of Object.keys((readJson(h('.claude.json')) || {}).projects || {}))
     targets.push([path.join(proj, '.claude'), /^settings(\.local)?\.json$/], [proj, /^\.mcp\.json$/]);
   for (const [, dir] of skillRoots()) targets.push([dir, /./]);
   for (const dir of BIN_DIRS) targets.push([dir, new RegExp(`^(${Object.keys(CLI_AGENTS).join('|')})$`)]);
-  targets.push(['/Applications', AI_APPS], [h('Applications'), AI_APPS], [h('.codex'), /^(config\.toml|auth\.json|\.credentials\.json|hooks\.json)$/]);
+  if (MAC) targets.push(['/Applications', AI_APPS], [h('Applications'), AI_APPS]);
+  targets.push([h('.claude'), /^\.credentials\.json$/], [h('.codex'), /^(config\.toml|auth\.json|\.credentials\.json|hooks\.json)$/]);
   for (const [dir, re] of targets) {
     try {
       fs.watch(dir, { persistent: false }, (_e, name) => {
@@ -1700,6 +1973,9 @@ function nodeBin() {
   if (!process.execPath.includes('/Cellar/')) return process.execPath;
   return ['/opt/homebrew/bin/node', '/usr/local/bin/node'].find(exists) || process.execPath;
 }
+// The Linux app runs us with its own built-in runtime and passes the command that starts it as Node.js
+// (ELECTRON_RUN_AS_NODE=1 "<the app>"), so the hook works without Node.js installed.
+const nodeCmd = () => process.env.AUDIT_NODE_CMD || `"${nodeBin()}"`;
 const GEMINI_SETTINGS = h('.gemini', 'settings.json');
 // our hook entry, whatever data folder it was installed from
 function isOurHook(e) { const t = JSON.stringify(e); return t.includes(GATE_MARK) || t.includes(GATE_SCRIPT) || t.includes('"ai-access-auditor"') || t.includes('AI Access Auditor'); }
@@ -1723,7 +1999,7 @@ function gateInstall(on, agent = 'Claude Code') {
   const bk = backup(file);
   j.hooks = j.hooks || {};
   const list = (j.hooks.PermissionRequest || []).filter(e => !JSON.stringify(e).includes(GATE_MARK));
-  if (on) list.push({ matcher: '*', hooks: [{ type: 'command', command: `"${nodeBin()}" "${GATE_SCRIPT}"`, timeout: 300 }] });
+  if (on) list.push({ matcher: '*', hooks: [{ type: 'command', command: `${nodeCmd()} "${GATE_SCRIPT}"`, timeout: 300 }] });
   if (list.length) j.hooks.PermissionRequest = list; else delete j.hooks.PermissionRequest;
   if (!Object.keys(j.hooks).length) delete j.hooks;
   writeJsonAtomic(file, j);
@@ -1741,7 +2017,7 @@ function codexGateInstall(on) {
   if (!j) throw new Error('Could not read ~/.codex/hooks.json (is it valid JSON?)');
   const bk = backup(file);
   j.hooks = j.hooks || {};
-  const hook = (statusMessage) => ({ type: 'command', command: `"${nodeBin()}" "${GATE_SCRIPT}" --agent=codex`, timeout: 300, statusMessage });
+  const hook = (statusMessage) => ({ type: 'command', command: `${nodeCmd()} "${GATE_SCRIPT}" --agent=codex`, timeout: 300, statusMessage });
   for (const [ev, matcher, msg] of [['PermissionRequest', '*', 'Asking you in AI Access Auditor'], ['PreToolUse', '^(Bash|apply_patch|mcp__.*)$', 'Checking with AI Access Auditor']]) {
     const list = (j.hooks[ev] || []).filter(e => !isOurHook(e));
     if (on) list.push({ matcher, hooks: [hook(msg)] });
@@ -1765,7 +2041,7 @@ function geminiGateInstall(on) {
   j.hooks = j.hooks || {};
   const list = (j.hooks.BeforeTool || []).filter(e => !isOurHook(e));
   if (on) list.push({ matcher: 'run_shell_command|write_file|replace|web_fetch|mcp_.*', hooks: [{
-    name: 'ai-access-auditor', type: 'command', command: `"${nodeBin()}" "${GATE_SCRIPT}"`, timeout: 300000,
+    name: 'ai-access-auditor', type: 'command', command: `${nodeCmd()} "${GATE_SCRIPT}"`, timeout: 300000,
     description: 'Asks you in AI Access Auditor before Gemini acts on its own (YOLO / auto-edit)' }] });
   if (list.length) j.hooks.BeforeTool = list; else delete j.hooks.BeforeTool;
   if (!Object.keys(j.hooks).length) delete j.hooks;
@@ -1793,7 +2069,7 @@ const server = http.createServer(async (req, res) => {
   if (!['127.0.0.1', 'localhost'].includes(host)) return send(res, 403, { error: 'forbidden host' });
   const url = new URL(req.url, 'http://localhost');
   if (url.pathname === '/' || url.pathname === '/index.html') {
-    const html = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8').replace('__TOKEN__', TOKEN);
+    const html = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8').replace('__TOKEN__', TOKEN).replace('<html lang="en">', `<html lang="en" data-os="${OS_NAME}">`);
     return send(res, 200, html, 'text/html; charset=utf-8');
   }
   if (url.pathname === '/i18n.js') return send(res, 200, fs.readFileSync(path.join(__dirname, 'public', 'i18n.js'), 'utf8'), 'text/javascript; charset=utf-8');
@@ -1867,4 +2143,4 @@ if (require.main === module) {
     console.log(`AI Access Auditor running at http://localhost:${server.address().port}`);
   });
 }
-module.exports = { scanAll };
+module.exports = { scanAll, _test: { ssRecords, iniFields, listeningSockets } };

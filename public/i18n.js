@@ -260,6 +260,8 @@
     ['Keep watching in the background', 'Continuer la surveillance en arrière-plan', 'المراقبة المستمرة في الخلفية'],
     ['The app lives in the menu bar. It keeps working after you close this window.', 'L’app vit dans la barre des menus. Elle continue de fonctionner quand vous fermez cette fenêtre.', 'يعيش التطبيق في شريط القوائم، ويواصل العمل بعد إغلاق هذه النافذة.'],
     ['Open at Login', 'Ouvrir à la connexion', 'الفتح عند تسجيل الدخول'],
+    ['Also cover background jobs for every other app.', 'Couvrir aussi les tâches de fond de toutes les autres apps.', 'تغطية المهام الخلفية لكل التطبيقات الأخرى أيضًا.'],
+    ['Now watching every app for background jobs', 'Surveillance des tâches de fond de toutes les apps', 'تتم الآن مراقبة المهام الخلفية لكل التطبيقات'],
     ['Starts quietly in the menu bar when you log in.', 'Démarre discrètement dans la barre des menus à la connexion.', 'يبدأ بهدوء في شريط القوائم عند تسجيل الدخول.'],
     ['Move the app to Applications first, so it can always be found at login.', 'Placez d’abord l’app dans Applications pour qu’elle soit toujours trouvée à la connexion.', 'انقل التطبيق إلى مجلد التطبيقات أولًا، ليُعثر عليه دائمًا عند تسجيل الدخول.'],
     ['Appearance', 'Apparence', 'المظهر'],
@@ -317,7 +319,21 @@
   const COL = { fr: 1, ar: 2 };
   let lang = 'en', map = new Map();
   function tr(s) { return lang === 'en' ? s : (map.get(s) ?? s); }
-  function translate(s) {
+  // The same app on Linux: say "computer" instead of "Mac", and "system tray" instead of "menu bar", in every language
+  const OS = document.documentElement.dataset.os || new URLSearchParams(location.search).get('os') || 'mac';
+  const OS_WORDS = OS === 'mac' ? null : {
+    en: [[/\bthis Mac\b/g, 'this computer'], [/\byour Mac's\b/g, 'your computer\'s'], [/\byour Mac\b/g, 'your computer'], [/\b([Mm])atch the Mac\b/g, '$1atch the system'],
+      [/\bthe menu bar\b/g, 'the system tray']],
+    fr: [[/\bce Mac\b/g, 'cet ordinateur'], [/\bvotre Mac\b/g, 'votre ordinateur'], [/\b([Cc])omme le Mac\b/g, '$1omme le système'], [/la barre des menus/g, 'la zone de notification']],
+    ar: [[/شريط القوائم/g, 'منطقة الإشعارات']],
+  };
+  function osWords(s) {
+    if (!OS_WORDS || !s || !/Mac|menu|barre|شريط/.test(s)) return s;
+    for (const [re, to] of OS_WORDS[lang]) s = s.replace(re, to);
+    return s;
+  }
+  function translate(s) { return osWords(translateLang(s)); }
+  function translateLang(s) {
     if (lang === 'en' || !s) return s;
     const lead = s.match(/^\s*/)[0], trail = s.match(/\s*$/)[0], core = s.trim();
     if (!core) return s;
@@ -394,8 +410,9 @@
     return changed; // the page re-renders to bring back English or apply the new language everywhere
   };
   window.t = translate;
-  const nativeConfirm = window.confirm.bind(window);
-  window.confirm = msg => nativeConfirm(translate(String(msg)));
+  const browserConfirm = window.confirm.bind(window);
+  // the Linux app shows its own dialog (with Confirm / Cancel in the app's language)
+  window.confirm = msg => (window.nativeConfirm || browserConfirm)(translate(String(msg)));
 
   document.addEventListener('DOMContentLoaded', () => {
     obs.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ATTRS });
