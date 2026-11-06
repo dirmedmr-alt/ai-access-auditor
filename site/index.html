@@ -210,7 +210,7 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
 </div></nav>
 
 <header class="hero"><div class="wrap">
-  <span class="badge">Free beta for macOS and Linux</span>
+  <span class="badge">Free beta for macOS, Windows and Linux</span>
   <h1>See and control <em>everything</em> your AI agents can do.</h1>
   <p class="lead">AI Access Auditor finds every permission, folder, login and privilege your AI agents have, pops up the moment that changes, and lets you take any of it back with one click.</p>
   <div class="cta">
@@ -218,9 +218,10 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
       <span>Download for Mac<span class="sub">Version 1.0.4 beta · 71 MB</span></span>
     </a>
+    <a class="btn" href="#windows">Download for Windows</a>
     <a class="btn" href="#linux">Download for Linux</a>
   </div>
-  <p class="req">macOS 13 Ventura or later, Apple Silicon and Intel · Linux: Ubuntu 22.04, Debian 12 or later, and similar · Nothing else to install</p>
+  <p class="req">macOS 13 Ventura or later · Windows 10 and 11 · Linux: Ubuntu 22.04, Debian 12 or later, and similar · Nothing else to install</p>
   <div class="shot">
     <div class="chrome"><i></i><i></i><i></i></div>
     <img class="only-light" src="assets/overview-light.png" alt="AI Access Auditor overview: a safety score, high-risk grants, new access and protection status" width="2360" height="1560">
@@ -334,6 +335,13 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
   <div class="note"><b>Prefer the Terminal?</b> Instead of steps 2–3, you can remove the download flag with:
     <span class="code">xattr -dr com.apple.quarantine "/Applications/AI Access Auditor.app"</span></div>
 
+  <h3 class="sub-h" id="windows">On Windows</h3>
+  <div class="steps">
+    <div class="card step"><h3>Download and run the installer</h3><p>For most PCs: <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.4-beta/AI-Access-Auditor-1.0.4-beta-windows-x64.exe" download>Windows (x64)</a>. For ARM PCs, such as Snapdragon laptops: <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.4-beta/AI-Access-Auditor-1.0.4-beta-windows-arm64.exe" download>Windows on ARM</a> (not tested yet). It installs for your account only, without administrator rights.</p></div>
+    <div class="card step"><h3>If Windows warns you</h3><p>This beta isn't signed yet, so Windows may say <b>Windows protected your PC</b>. Click <b>More info</b>, then <b>Run anyway</b>. Then follow the welcome screen.</p></div>
+  </div>
+  <div class="note"><b>On Windows,</b> the app also checks startup entries, scheduled tasks and logins saved in Credential Manager. It doesn't watch uploads yet, because Windows only shows how much each program sends to administrators. Checksums: <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.4-beta/SHA256SUMS-windows.txt">SHA256SUMS-windows.txt</a></div>
+
   <h3 class="sub-h" id="linux">On Linux</h3>
   <div class="steps">
     <div class="card step"><h3>Ubuntu, Debian, Mint, Pop!_OS</h3><p>Download the .deb for your computer: <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.4-beta/AI-Access-Auditor-1.0.4-beta-amd64.deb" download>Intel or AMD (x64)</a> or <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.4-beta/AI-Access-Auditor-1.0.4-beta-arm64.deb" download>ARM (arm64)</a>. Then install it from the Terminal:
@@ -349,7 +357,7 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
   <h2>Questions</h2>
   <details><summary>Is it free?</summary><p>Yes. The beta is free to download and use.</p></details>
   <details><summary>Why does macOS warn me when I open it?</summary><p>Apps from outside the App Store need an Apple Developer signature and notarization to open without a warning. This beta doesn't have that yet. The steps under Install show how to open it safely.</p></details>
-  <details><summary>Which computers does it run on?</summary><p>Macs with macOS 13 Ventura or later, Apple Silicon and Intel. On Linux: Ubuntu 22.04, Debian 12 or later and similar distributions, on x64 and ARM. Everything it needs is included, so there's nothing else to install. A Windows version is planned.</p></details>
+  <details><summary>Which computers does it run on?</summary><p>Macs with macOS 13 Ventura or later, Apple Silicon and Intel. Windows 10 and 11. On Linux: Ubuntu 22.04, Debian 12 or later and similar distributions, on x64 and ARM. Everything it needs is included, so there's nothing else to install.</p></details>
   <details><summary>Can it stop an agent before it does something?</summary><p>For Claude Code, Codex CLI and Gemini CLI, yes. Turn on "Ask before it acts" for each one on the Overview, and you approve actions before they run. With Claude Code and Codex, the popup replaces the agent's own prompt. With Gemini, it steps in when Gemini would otherwise act without asking (YOLO or auto-edit mode). Codex asks you to trust the new hook once: type <code>/hooks</code> inside Codex. Other agents don't offer a way to be paused from outside, so for them you're alerted within seconds of any new access, and can remove it right away.</p></details>
   <details><summary>How is it different from MCP scanners?</summary><p>MCP scanners such as Snyk Agent Scan look deeply at MCP servers, for example checking their tool descriptions for hidden instructions. AI Access Auditor doesn&rsquo;t do that deep analysis. It covers the wider picture instead: every kind of access your agents have, a popup before Claude Code, Codex or Gemini acts, and one-click removal. The two work well side by side.</p></details>
   <details><summary>Can it block data from leaving my Mac?</summary><p>It can stop the program that's sending it, and it asks you first. It can't block a single connection while letting the program run. That needs a network filter, like the free LuLu firewall, and the two work well together. It checks every 2 seconds, so a very short upload can slip past it, and it shows the IP address rather than a website name, because looking names up would mean contacting the internet.</p></details>
@@ -360,17 +368,19 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
       <li>Quit it from the shield in the menu bar, then move it from Applications to the Trash.</li>
       <li>Optionally delete its data folder: <code>~/.ai-access-audit</code></li>
     </ol>
-    <p>On Linux, turn off the same switches, quit it from the tray icon, then remove it with <code>sudo apt remove ai-access-auditor</code> (or delete the AppImage).</p></details>
+    <p>On Linux, turn off the same switches, quit it from the tray icon, then remove it with <code>sudo apt remove ai-access-auditor</code> (or delete the AppImage).</p>
+    <p>On Windows, turn off the same switches, quit it from the tray icon, then uninstall it in Settings → Apps → Installed apps.</p></details>
 </div></section>
 
 <div class="wrap" id="download">
   <div class="band">
     <h2>Know what your agents can do.</h2>
-    <p>Free beta for macOS 13 or later and Linux.</p>
+    <p>Free beta for macOS 13 or later, Windows and Linux.</p>
     <a class="btn" href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.4-beta/AI-Access-Auditor-1.0.4-beta.dmg" download>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
       Download AI Access Auditor
     </a>
+    <a class="btn ghost-light" href="#windows">Windows</a>
     <a class="btn ghost-light" href="#linux">Linux</a>
     <div class="sum">SHA-256: <span id="sha">c0acd270ace970b25daa107fe426c6ed393476f426e1a913ed16496e0125ae17</span></div>
   </div>

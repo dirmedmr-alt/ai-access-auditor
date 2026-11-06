@@ -1,0 +1,41 @@
+# Windows build and test on AppVeyor (free for public projects): the same checks as
+# .github/workflows/windows.yml, for when GitHub Actions isn't available.
+version: '{build}'
+image: Visual Studio 2022
+branches:
+  only: [windows, main]
+skip_tags: true
+clone_depth: 5
+environment:
+  ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+install:
+  - ps: Install-Product node 22 x64
+  - node --version
+build_script:
+  - node .github/scripts/check-windows.js
+  - node desktop/gen-strings.js --check
+  - cd desktop
+  - npm ci --no-audit --no-fund
+  - npx electron-builder --win --x64 --arm64 --publish never
+  - cd ..
+test_script:
+  - ps: |
+      $setup = Get-ChildItem desktop\dist -Filter "*-x64.exe" | Select-Object -First 1
+      Write-Host "Installing $($setup.Name)"
+      Start-Process $setup.FullName -ArgumentList '/S' -Wait
+      $exe = "$env:LOCALAPPDATA\Programs\ai-access-auditor\AI Access Auditor.exe"
+      if (-not (Test-Path $exe)) { Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Depth 1 | Select-Object FullName; throw "not installed at $exe" }
+      $env:AUDIT_SMOKE = "$env:APPVEYOR_BUILD_FOLDER\shots"
+      $p = Start-Process $exe -PassThru
+      if (-not $p.WaitForExit(180000)) { Stop-Process -Id $p.Id -Force; Write-Host "timed out" }
+      Remove-Item Env:\AUDIT_SMOKE
+      Get-Content shots\done.txt
+      Get-Content shots\page.txt -TotalCount 30
+      if (-not (Test-Path shots\window.png) -or -not (Test-Path shots\popup-ar.png)) { throw "screenshots missing" }
+      $cmd = "$env:USERPROFILE\.ai-access-audit\node.cmd"
+      if (-not (Test-Path $cmd)) { throw "node.cmd missing" }
+      cmd /d /c "`"$cmd`" -e `"console.log('cmd ok', process.versions.node)`""
+      & "C:\Program Files\Git\bin\bash.exe" -c "'$($cmd -replace '\\','/')' -e 'console.log(\`"bash ok\`", process.versions.node)'"
+artifacts:
+  - path: desktop\dist\*.exe
+  - path: shots\*

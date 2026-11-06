@@ -4,16 +4,20 @@
 'use strict';
 const http = require('http');
 const fs = require('fs');
-const path = require('path');
+const path = process.platform === 'win32' ? require('path').win32 : require('path'); // the same on a real system; lets tests run the Windows code elsewhere
 const os = require('os');
 const crypto = require('crypto');
 const { execFileSync, execFile } = require('child_process');
 
 const HOME = os.homedir();
-const MAC = process.platform === 'darwin', LINUX = process.platform === 'linux';
-const OS_NAME = MAC ? 'mac' : LINUX ? 'linux' : process.platform;
-// where desktop apps keep their settings: ~/Library/Application Support on a Mac, ~/.config on Linux
-const appData = (...p) => MAC ? path.join(HOME, 'Library', 'Application Support', ...p) : path.join(process.env.XDG_CONFIG_HOME || path.join(HOME, '.config'), ...p);
+const MAC = process.platform === 'darwin', LINUX = process.platform === 'linux', WIN = process.platform === 'win32';
+const OS_NAME = MAC ? 'mac' : LINUX ? 'linux' : WIN ? 'windows' : process.platform;
+// where desktop apps keep their settings: ~/Library/Application Support on a Mac, ~/.config on Linux,
+// %APPDATA% (AppData\Roaming) on Windows; LOCAL_APPDATA is where Windows apps install themselves and keep caches
+const appData = (...p) => MAC ? path.join(HOME, 'Library', 'Application Support', ...p)
+  : WIN ? path.join(process.env.APPDATA || path.join(HOME, 'AppData', 'Roaming'), ...p)
+  : path.join(process.env.XDG_CONFIG_HOME || path.join(HOME, '.config'), ...p);
+const LOCAL_APPDATA = process.env.LOCALAPPDATA || path.join(HOME, 'AppData', 'Local');
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4517;
 const DEMO = !!process.env.AUDIT_DEMO; // screenshots: only scan the (fake) home folder, nothing system-wide
 const DATA_DIR = process.env.AUDIT_DATA_DIR || path.join(HOME, '.ai-access-audit'); // override for tests
@@ -34,8 +38,12 @@ const getScope = () => ((readJson(SETTINGS_FILE) || {}).scope === 'all' ? 'all' 
 const UPLOADS_FILE = path.join(DATA_DIR, 'uploads.json');     // apps caught sending data out, and apps you trust to
 const DECISIONS_FILE = path.join(DATA_DIR, 'decisions.json'); // every Allow / Deny you gave in the popup
 function sh(cmd, args, timeout = 10000) {
-  try { return execFileSync(cmd, args, { encoding: 'utf8', timeout, maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }); }
+  try { return execFileSync(cmd, args, { encoding: 'utf8', timeout, maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }); }
   catch { return ''; }
+}
+// Windows: run a PowerShell script and return its output (UTF-8, so non-English names survive)
+function psh(script, timeout = 20000) {
+  return sh('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', `[Console]::OutputEncoding=[Text.Encoding]::UTF8; ${script}`], timeout);
 }
 const TOKEN = crypto.randomBytes(16).toString('hex');
 fs.mkdirSync(BACKUP_DIR, { recursive: true });
@@ -202,7 +210,7 @@ function scanClaudeCode() {
   const out = [];
   out.push(...claudeSettingsFindings(h('.claude', 'settings.json'), 'user'));
   out.push(...claudeSettingsFindings(h('.claude', 'settings.local.json'), 'user local'));
-  for (const f of [MAC ? '/Library/Application Support/ClaudeCode/managed-settings.json' : '/etc/claude-code/managed-settings.json'])
+  for (const f of MAC ? ['/Library/Application Support/ClaudeCode/managed-settings.json'] : WIN ? ['C:\\Program Files\\ClaudeCode\\managed-settings.json', 'C:\\ProgramData\\ClaudeCode\\managed-settings.json'] : ['/etc/claude-code/managed-settings.json'])
     claudeSettingsFindings(f, 'managed').forEach(x => { x.action = { kind: 'none', hint: 'Managed by your organization.' }; out.push(x); });
 
   const cj = h('.claude.json');
@@ -406,12 +414,23 @@ const MANUAL_CHECKS = [
 
 function scanEnvKeys() {
   const out = [];
-  const files = ['.zshrc', '.zprofile', '.bashrc', '.bash_profile', '.profile', '.config/fish/config.fish'].map(f => h(f));
+  if (WIN && !DEMO) {
+    for (const line of sh('reg', ['query', 'HKCU\\Environment'], 5000).split(/\r?\n/)) {
+      const m = line.match(/^\s{4}([A-Z0-9_]*(?:API_KEY|TOKEN|SECRET)[A-Z0-9_]*)\s{4}REG_/i);
+      if (m) out.push({
+        agent: 'Shell', category: 'Exposed secret', title: m[1], detail: 'Saved in your Windows user environment variables: every program you run, including every agent, can read it',
+        risk: /ANTHROPIC|OPENAI|GITHUB|AWS|GH_/i.test(m[1]) ? 'medium' : 'low', source: 'HKCU\\Environment',
+        action: { kind: 'none', hint: 'Remove it in Settings → System → About → Advanced system settings → Environment Variables, and keep it in a secrets manager instead.' },
+      });
+    }
+  }
+  const files = ['.zshrc', '.zprofile', '.bashrc', '.bash_profile', '.profile', '.config/fish/config.fish'].map(f => h(f))
+    .concat(WIN ? ['PowerShell', 'WindowsPowerShell'].map(d => h('Documents', d, 'Microsoft.PowerShell_profile.ps1')) : []);
   for (const f of files) {
     if (!exists(f)) continue;
     const lines = fs.readFileSync(f, 'utf8').split('\n');
     lines.forEach((l, i) => {
-      const m = l.match(/^\s*(?:export\s+|set\s+-gx\s+)?([A-Z0-9_]*(?:API_KEY|TOKEN|SECRET)[A-Z0-9_]*)\s*[= ]/);
+      const m = l.match(/^\s*(?:export\s+|set\s+-gx\s+|\$env:)?([A-Z0-9_]*(?:API_KEY|TOKEN|SECRET)[A-Z0-9_]*)\s*[= ]/);
       if (m) out.push({
         agent: 'Shell', category: 'Exposed secret', title: m[1], detail: `${f.replace(HOME, '~')}:${i + 1}: every agent you run in a shell can read it`,
         risk: /ANTHROPIC|OPENAI|GITHUB|AWS|GH_/.test(m[1]) ? 'medium' : 'low', source: f,
@@ -470,10 +489,31 @@ function scanSecretService() {
   }
   return out;
 }
+// Windows: Credential Manager. cmdkey lists the names (never the passwords). Its labels are in the
+// system's language, so only the shape of each block is relied on: "label: target=NAME", then type, then user.
+function scanCredentialManager(text = sh('cmdkey', ['/list'], 8000)) {
+  const out = [];
+  for (const block of text.split(/\r?\n\s*\r?\n/)) {
+    const lines = block.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const ti = lines.findIndex(l => /target=/i.test(l));
+    if (ti < 0) continue;
+    const target = lines[ti].replace(/^.*?target=/i, '').trim();
+    const user = ((lines[ti + 2] || '').match(/^[^:]+:\s*(.+)$/) || [])[1] || '';
+    if (!(AI_NAME_RE.test(target) || /^gh:github\.com|^git:https:\/\/github\.com|^github\.com$/i.test(target))) continue;
+    out.push({
+      agent: keyringAgent(target), category: 'Saved login', title: target.replace(/:$/, ''),
+      detail: `Password/token for ${target}${user ? ` (account ${mask(user)})` : ''}, saved in Windows Credential Manager`,
+      risk: /github/i.test(target) ? 'high' : 'medium', source: 'Windows Credential Manager',
+      action: { kind: 'none', hint: `Open Credential Manager (Control Panel → Credential Manager → Windows Credentials), find "${target}" and remove it. Or in a terminal: cmdkey /delete:"${target}"` },
+    });
+  }
+  return out;
+}
 function scanKeychain() {
   const out = [];
   if (DEMO) return out;
   if (LINUX) return scanSecretService();
+  if (WIN) return scanCredentialManager();
   if (!MAC) return out;
   const dump = sh('security', ['dump-keychain'], 20000);
   for (const block of dump.split(/^keychain: /m).slice(1)) {
@@ -572,8 +612,67 @@ function scanLinuxJobs() {
   return out;
 }
 
+// Windows: Run entries in the registry, the Startup folders, and Task Scheduler (tasks outside \Microsoft\)
+const RUN_KEYS = [['HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', true], ['HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', false]];
+let tasksCache = { at: 0, list: [] };
+const PS_TASKS = "Get-ScheduledTask | Where-Object { $_.TaskPath -notlike '\\Microsoft\\*' -and $_.State -ne 'Disabled' } | ForEach-Object { "
+  + "$a = ($_.Actions | ForEach-Object { \"$($_.Execute) $($_.Arguments)\" }) -join ' ; '; $t = ($_.Triggers | ForEach-Object { $_.CimClass.CimClassName }) -join ','; "
+  + "\"{0}`t{1}`t{2}`t{3}`t{4}\" -f $_.TaskPath, $_.TaskName, $_.Principal.UserId, $t, ($a -replace \"[`r`n`t]\", ' ') }";
+function parseWinTasks(out) {
+  const list = [];
+  for (const line of out.split(/\r?\n/)) {
+    const [tpath, name, user, triggers, action] = line.split('\t');
+    if (name) list.push({ tpath, name, user: user || '', triggers: triggers || '', action: (action || '').trim() });
+  }
+  return list;
+}
+function windowsTasks() {
+  if (Date.now() - tasksCache.at < (winHelper ? 120e3 : 60e3)) return tasksCache.list;
+  tasksCache = { at: Date.now(), list: parseWinTasks(psh(PS_TASKS, 30000)) };
+  return tasksCache.list;
+}
+function scanWindowsJobs() {
+  const out = [];
+  const add = (owner, title, when, prog, file, action, systemWide) => {
+    if (OWN_APP_RE.test(prog) || /^AI Access Auditor$/i.test(title)) return;
+    const aiMatch = (`${title} ${prog}`.match(AI_NAME_RE) || [])[0];
+    if (getScope() === 'ai' && !aiMatch) return;
+    out.push({
+      agent: aiMatch ? (AGENT_NAMES[aiMatch.toLowerCase()] || aiMatch.replace(/^./, c => c.toUpperCase())) : owner,
+      category: 'Background agent', title,
+      detail: `Runs ${when}: ${prog.replace(HOME, '~').slice(0, 160)}${systemWide ? ' (system-wide)' : ''}`,
+      risk: aiMatch ? (systemWide || when === 'at startup' ? 'high' : 'medium') : 'low', source: file, action,
+    });
+  };
+  for (const [key, userOwned] of RUN_KEYS) {
+    for (const line of sh('reg', ['query', key], 5000).split(/\r?\n/)) {
+      const m = line.match(/^\s{4}(.+?)\s{4}(REG_(?:SZ|EXPAND_SZ))\s{4}(.*)$/);
+      if (!m) continue;
+      const [, name, type, value] = m;
+      add(name, name, 'at login', value, `${key}\\${name}`, userOwned ? { kind: 'removeRunValue', key, name, type, value }
+        : { kind: 'none', hint: `Needs an administrator: remove "${name}" in Task Manager → Startup apps, or with reg delete "${key}" /v "${name}" /f in an administrator terminal.` }, !userOwned);
+    }
+  }
+  for (const [dir, userOwned] of [[appData('Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup'), true], ['C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\StartUp', false]]) {
+    let names = [];
+    try { names = fs.readdirSync(dir).filter(n => !/^desktop\.ini$/i.test(n)); } catch { continue; }
+    for (const n of names) {
+      const file = path.join(dir, n), title = n.replace(/\.(lnk|url|bat|cmd|exe)$/i, '');
+      add(title, title, 'at login', file, file, userOwned ? { kind: 'removeAutostart', file } : { kind: 'none', hint: `Needs an administrator: delete ${file}` }, !userOwned);
+    }
+  }
+  for (const t of windowsTasks()) {
+    const full = `${t.tpath}${t.name}`;
+    const when = /Boot/.test(t.triggers) ? 'at startup' : /Logon/.test(t.triggers) ? 'at login' : /Time|Daily|Weekly|Monthly/.test(t.triggers) ? 'on a schedule' : 'on demand';
+    const mine = !t.user || t.user.toLowerCase().split('\\').pop() === os.userInfo().username.toLowerCase();
+    add(t.tpath.replace(/^\\|\\$/g, '') || 'Task Scheduler', full, when, t.action, `task ${full}`,
+      mine ? { kind: 'disableTask', task: full } : { kind: 'none', hint: `Needs an administrator: disable "${full}" in Task Scheduler.` }, !mine);
+  }
+  return out;
+}
+
 function scanBackgroundAgents() {
-  const out = LINUX ? scanLinuxJobs() : [];
+  const out = LINUX ? scanLinuxJobs() : WIN && !DEMO ? scanWindowsJobs() : [];
   const dirs = !MAC ? [] : [[h('Library', 'LaunchAgents'), true], ...(DEMO ? [] : [['/Library/LaunchAgents', false], ['/Library/LaunchDaemons', false]])];
   for (const [dir, userOwned] of dirs) {
     let files = [];
@@ -615,7 +714,11 @@ function findCommand(cmd, extra = []) {
   for (const d of dirs) { const f = path.join(d, cmd); try { fs.accessSync(f, fs.constants.X_OK); return f; } catch {} }
   return '';
 }
-const EDITORS = MAC ? [
+const EDITORS = WIN ? [
+  ['VS Code', h('.vscode', 'extensions'), path.join(LOCAL_APPDATA, 'Programs', 'Microsoft VS Code', 'bin', 'code.cmd')],
+  ['Cursor', h('.cursor', 'extensions'), path.join(LOCAL_APPDATA, 'Programs', 'cursor', 'resources', 'app', 'bin', 'cursor.cmd')],
+  ['Windsurf', h('.windsurf', 'extensions'), path.join(LOCAL_APPDATA, 'Programs', 'Windsurf', 'bin', 'windsurf.cmd')],
+] : MAC ? [
   ['VS Code', h('.vscode', 'extensions'), '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code'],
   ['Cursor', h('.cursor', 'extensions'), '/Applications/Cursor.app/Contents/Resources/app/bin/cursor'],
   ['Windsurf', h('.windsurf', 'extensions'), '/Applications/Windsurf.app/Contents/Resources/app/bin/windsurf'],
@@ -651,7 +754,12 @@ function scanEditorExtensions() {
 }
 
 // AI extensions in Chromium browsers (Chrome, Brave, Edge, Arc; on Linux also Chromium, including the Snap and Flatpak versions)
-const BROWSERS = MAC ? [
+const BROWSERS = WIN ? [
+  ['Chrome', path.join(LOCAL_APPDATA, 'Google', 'Chrome', 'User Data')],
+  ['Edge', path.join(LOCAL_APPDATA, 'Microsoft', 'Edge', 'User Data')],
+  ['Brave', path.join(LOCAL_APPDATA, 'BraveSoftware', 'Brave-Browser', 'User Data')],
+  ['Vivaldi', path.join(LOCAL_APPDATA, 'Vivaldi', 'User Data')],
+] : MAC ? [
   ['Chrome', appData('Google', 'Chrome')],
   ['Brave', appData('BraveSoftware', 'Brave-Browser')],
   ['Edge', appData('Microsoft Edge')],
@@ -711,7 +819,16 @@ function scanBrowserExtensions() {
 
 // Sockets waiting for connections: [{ proc, pid, addr }]. On Linux, ss only names your own processes
 // (system services show no name), which is why the known ports below matter.
+// Windows: netstat -ano ("TCP  local  remote  state  pid"). The state word is in the system's language,
+// so listening sockets are recognised by their remote address (0.0.0.0:0 or [::]:0) instead.
+function netstat(text = sh('netstat', ['-ano', '-p', 'TCP'], 8000) + '\n' + sh('netstat', ['-ano', '-p', 'TCPv6'], 8000), procs = processList(3000)) {
+  const names = new Map(procs.map(p => [p.pid, exeBase(p.cmd)]));
+  return text.split(/\r?\n/)
+    .map(l => l.trim().split(/\s+/)).filter(c => c.length >= 5 && /^TCP/i.test(c[0]) && /^\d+$/.test(c[c.length - 1]))
+    .map(c => ({ local: c[1], remote: c[2], pid: c[c.length - 1], proc: names.get(c[c.length - 1]) || '', listening: /^(0\.0\.0\.0|\[::\]):0$/.test(c[2]) }));
+}
 function listeningSockets() {
+  if (WIN) return netstat().filter(x => x.listening).map(x => ({ proc: x.proc, pid: x.pid, addr: x.local }));
   if (LINUX) return sh('ss', ['-tlnpH'], 5000).split('\n').map(l => {
     const c = l.trim().split(/\s+/), u = l.match(/users:\(\("([^"]+)",pid=(\d+)/) || [];
     return c.length >= 4 ? { proc: u[1] || '', pid: u[2] || '', addr: c[3] } : null;
@@ -909,7 +1026,10 @@ function geminiRules(file) {
 // AI agents installed on this Mac: command-line agents in the usual bin folders, and AI apps
 const NVM_BINS = (() => { try { return fs.readdirSync(h('.nvm', 'versions', 'node')).sort().reverse().map(v => h('.nvm', 'versions', 'node', v, 'bin')); } catch { return []; } })();
 const BIN_DIRS = [...(MAC ? ['/opt/homebrew/bin'] : []), '/usr/local/bin', h('.local', 'bin'), h('.npm-global', 'bin'), h('.bun', 'bin'), h('.cargo', 'bin'), h('.volta', 'bin'),
-  ...(LINUX ? ['/usr/bin', '/snap/bin', '/home/linuxbrew/.linuxbrew/bin'] : []), ...NVM_BINS];
+  ...(LINUX ? ['/usr/bin', '/snap/bin', '/home/linuxbrew/.linuxbrew/bin'] : []), ...NVM_BINS,
+  ...(WIN ? [appData('npm'), path.join(LOCAL_APPDATA, 'Programs'), h('scoop', 'shims'), path.join(LOCAL_APPDATA, 'Microsoft', 'WinGet', 'Links'), 'C:\\Program Files\\nodejs'] : [])];
+// on Windows a command is a file with an extension (claude.cmd from npm, claude.exe from an installer)
+const binFile = (dir, cmd) => (WIN ? [`${cmd}.exe`, `${cmd}.cmd`, `${cmd}.ps1`] : [cmd]).map(n => path.join(dir, n)).find(exists);
 const CLI_AGENTS = { claude: ['Claude Code', 'npm uninstall -g @anthropic-ai/claude-code'], codex: ['Codex CLI', 'npm uninstall -g @openai/codex'],
   gemini: ['Gemini CLI', 'npm uninstall -g @google/gemini-cli'], 'cursor-agent': ['Cursor CLI', 'rm "$(command -v cursor-agent)"'], aider: ['Aider', 'pipx uninstall aider-chat'],
   goose: ['Goose', MAC ? 'brew uninstall block-goose-cli' : ''], opencode: ['OpenCode', 'npm uninstall -g opencode-ai'], copilot: ['Copilot CLI', 'npm uninstall -g @github/copilot'],
@@ -919,6 +1039,25 @@ const AI_APPS = new RegExp(`^(${AI_APP_NAMES})\\.app$`);
 // Linux: apps show up as desktop entries (menu items), wherever they came from
 const DESKTOP_DIRS = ['/usr/share/applications', '/usr/local/share/applications', h('.local', 'share', 'applications'), '/var/lib/flatpak/exports/share/applications',
   h('.local', 'share', 'flatpak', 'exports', 'share', 'applications'), '/var/lib/snapd/desktop/applications'];
+// Windows: apps show up as Start menu shortcuts
+function windowsApps() {
+  const out = [], seen = new Set(), re = new RegExp(`^(${AI_APP_NAMES})( (Desktop|Editor|AI))?$`, 'i');
+  const walk = (dir, depth) => {
+    let ents = [];
+    try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) {
+      const f = path.join(dir, e.name);
+      if (e.isDirectory() && depth > 0) { walk(f, depth - 1); continue; }
+      const name = e.name.replace(/\.lnk$/i, '');
+      if (!/\.lnk$/i.test(e.name) || !re.test(name) || seen.has(name.toLowerCase())) continue;
+      seen.add(name.toLowerCase());
+      out.push({ name: name.replace(/ (Desktop|Editor|AI)$/i, ''), file: f });
+    }
+  };
+  walk(appData('Microsoft', 'Windows', 'Start Menu', 'Programs'), 2);
+  walk('C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs', 2);
+  return out;
+}
 function linuxApps() {
   const out = [], seen = new Set(), re = new RegExp(`^(${AI_APP_NAMES})( (Desktop|Editor|AI))?$`, 'i');
   for (const dir of DESKTOP_DIRS) {
@@ -942,13 +1081,16 @@ function scanInstalledAgents() {
   if (DEMO) return out;
   const seen = new Set();
   for (const dir of BIN_DIRS) for (const [cmd, [name, how]] of Object.entries(CLI_AGENTS)) {
-    const f = path.join(dir, cmd);
-    if (seen.has(cmd) || !exists(f)) continue;
+    const f = binFile(dir, cmd);
+    if (seen.has(cmd) || !f) continue;
     seen.add(cmd);
     let target = f; try { target = fs.realpathSync(f); } catch {}
     out.push({ agent: name, category: 'AI agent installed', title: `${name} (${cmd} command)`, detail: `${f.replace(HOME, '~')}${target !== f ? ` → ${target.replace(HOME, '~')}` : ''}`,
       risk: 'low', source: f, action: { kind: 'none', hint: how ? `To uninstall: ${how}` : 'Uninstall it the way you installed it.' } });
   }
+  for (const a of WIN ? windowsApps() : []) out.push({ agent: a.name, category: 'AI agent installed', title: `${a.name} app`,
+    detail: `Start menu: ${a.file.replace(HOME, '~')}`, risk: 'low', source: a.file,
+    action: { kind: 'none', hint: 'To uninstall: Settings → Apps → Installed apps, then the ⋯ menu next to it → Uninstall.' } });
   for (const a of LINUX ? linuxApps() : []) out.push({ agent: a.name, category: 'AI agent installed', title: `${a.name} app`,
     detail: `${a.exec.replace(HOME, '~').slice(0, 120)} (${a.file.replace(HOME, '~')})`, risk: 'low', source: a.file,
     action: { kind: 'none', hint: a.how ? `To uninstall: ${a.how}` : 'Uninstall it with your package manager (for example apt remove or dnf remove).' } });
@@ -1031,45 +1173,99 @@ function dangerReason(agentKey, cmd) {
   const hit = rules.find(([re]) => re.test(cmd));
   return hit && hit[1];
 }
-// every process: pid, parent, user id, running time, full command (BSD ps on a Mac, procps on Linux)
+// every process: pid, parent, user id, running time, full command (BSD ps on a Mac, procps on Linux,
+// PowerShell on Windows, where it is slow enough that a list less than a few seconds old is reused)
 const PS_ALL = MAC ? ['-axo', 'pid=,ppid=,uid=,etime=,command='] : ['-eo', 'pid=,ppid=,uid=,etime=,args='];
+let procCache = { at: 0, list: [] };
+// Windows: only the four properties needed, which is much faster than asking for whole process objects
+const PS_PROCS = '$n = Get-Date; Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,CreationDate,CommandLine | ForEach-Object { '
+  + '$s = if ($_.CreationDate) { [int]($n - $_.CreationDate).TotalSeconds } else { 0 }; '
+  + '"{0}`t{1}`t{2}`t{3}" -f $_.ProcessId, $_.ParentProcessId, $s, ($_.CommandLine -replace "[`r`n`t]", " ") }';
+function parseWinProcs(out) {
+  const list = [];
+  for (const line of out.split(/\r?\n/)) {
+    const [pid, ppid, secs, ...cmd] = line.split('\t');
+    if (!/^\d+$/.test(pid || '')) continue;
+    const t = Number(secs) || 0, d = Math.floor(t / 86400), hh = String(Math.floor(t % 86400 / 3600)).padStart(2, '0'), mm = String(Math.floor(t % 3600 / 60)).padStart(2, '0'), ss = String(t % 60).padStart(2, '0');
+    list.push({ pid, ppid, uid: '', etime: `${d ? d + '-' : ''}${hh}:${mm}:${ss}`, cmd: cmd.join(' ').trim() });
+  }
+  return list;
+}
+function processList(maxAge = 0) {
+  // on Windows the helper below keeps the list fresh (every few seconds), so scans never wait for PowerShell
+  if (maxAge && Date.now() - procCache.at < (WIN && winHelper ? 30000 : maxAge)) return procCache.list;
+  let list = [];
+  if (WIN) list = parseWinProcs(psh(PS_PROCS));
+  else {
+    for (const line of sh('ps', PS_ALL, 5000).split('\n')) {
+      const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/);
+      if (m) list.push({ pid: m[1], ppid: m[2], uid: m[3], etime: m[4], cmd: m[5] });
+    }
+  }
+  procCache = { at: Date.now(), list };
+  return list;
+}
+// Windows: one PowerShell stays open and reports the process list every few seconds and the scheduled tasks
+// every minute. Starting PowerShell each time would cost close to a second; it quits when this program does.
+let winHelper = null;
+function startWindowsHelper() {
+  if (!WIN || DEMO || winHelper) return;
+  const script = `[Console]::OutputEncoding=[Text.Encoding]::UTF8; $i = 0; while ($true) { `
+    + `if (-not (Get-Process -Id ${process.pid} -ErrorAction SilentlyContinue)) { exit }; `
+    + `${PS_PROCS}; '@@PROCS'; if ($i % 8 -eq 0) { ${PS_TASKS}; '@@TASKS' }; $i++; Start-Sleep -Seconds 6 }`;
+  winHelper = require('child_process').spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
+    { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+  let buf = '';
+  winHelper.stdout.setEncoding('utf8');
+  winHelper.stdout.on('data', d => {
+    buf += d;
+    for (let m; (m = buf.match(/^@@(PROCS|TASKS)\r?$/m));) {
+      const chunk = buf.slice(0, m.index);
+      buf = buf.slice(m.index + m[0].length).replace(/^\n/, '');
+      if (m[1] === 'PROCS') procCache = { at: Date.now(), list: parseWinProcs(chunk) };
+      else tasksCache = { at: Date.now(), list: parseWinTasks(chunk) };
+    }
+  });
+  winHelper.on('exit', () => { winHelper = null; });
+  process.on('exit', () => { try { if (winHelper) winHelper.kill(); } catch {} });
+}
+// A command line as [program, ...arguments]. Windows programs can be quoted or have spaces in their path.
+function cmdTokens(cmd) {
+  const s = String(cmd || '').trim();
+  const q = s.match(/^"([^"]*)"\s*(.*)$/s) || (WIN && s.match(/^([A-Za-z]:\\.*?\.(?:exe|cmd|bat|com))(?=\s|$)\s*(.*)$/is));
+  const [first, rest] = q ? [q[1], q[2]] : (i => i < 0 ? [s, ''] : [s.slice(0, i), s.slice(i).trim()])(s.search(/\s/));
+  return [first, ...(rest ? rest.split(/\s+/).map(t => t.replace(/^"(.*)"$/, '$1')) : [])];
+}
+// the program's short name: "node", "claude" (no folder, no .exe)
+const exeBase = cmd => path.basename(cmdTokens(cmd)[0] || '').replace(/\.(exe|cmd|bat|com)$/i, '');
+// for matching patterns written for macOS and Linux: forward slashes, no .exe, no quotes
+const normCmd = cmd => WIN ? String(cmd).replace(/\\/g, '/').replace(/\.(exe|cmd|bat)(?=["\s]|$)/gi, '').replace(/"/g, '') : String(cmd);
 function procCwd(pid) {
   if (LINUX) { try { return fs.readlinkSync(`/proc/${pid}/cwd`); } catch { return ''; } }
+  if (WIN) return ''; // another process's folder isn't available on Windows without extra tools
   return (sh('lsof', ['-a', '-p', pid, '-d', 'cwd', '-Fn'], 2000).match(/^n(.*)$/m) || [])[1] || '';
+}
+// Which agent (if any) a process is. Only the program actually running counts, not text in its arguments.
+function agentKey(cmd) {
+  const tokens = cmdTokens(cmd);
+  const exe = exeBase(cmd).toLowerCase();
+  if (AGENT_NAMES[exe]) return exe;
+  if (!/^(node|bun|deno|python3?(\.\d+)?|pythonw?)$/.test(exe)) return null;
+  const script = normCmd(tokens.slice(1).find(t => !t.startsWith('-')) || '');
+  const pm = script.match(AGENT_PROC_RE);
+  return pm ? pm[1] || (pm[0].match(/claude|codex|gemini|copilot|amp|opencode/) || ['agent'])[0] : null;
 }
 function scanProcesses() {
   const out = [];
   if (DEMO) return out;
-  const procs = [];
-  for (const line of sh('ps', PS_ALL, 5000).split('\n')) {
-    const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/);
-    if (m) procs.push({ pid: m[1], ppid: m[2], uid: m[3], etime: m[4], cmd: m[5] });
-  }
+  const procs = processList(3000);
   out.push(...scanInstalls(procs));
-  // Which agent (if any) a process is. Only the program actually running counts, not text in its arguments.
-  const agentKey = cmd => {
-    const tokens = cmd.split(/\s+/);
-    const exe = path.basename(tokens[0] || '');
-    if (AGENT_NAMES[exe]) return exe;
-    if (!/^(node|bun|deno|python3?(\.\d+)?)$/.test(exe)) return null;
-    const script = tokens.slice(1).find(t => !t.startsWith('-')) || '';
-    const pm = script.match(AGENT_PROC_RE);
-    return pm ? pm[1] || (pm[0].match(/claude|codex|gemini|copilot|amp|opencode/) || ['agent'])[0] : null;
-  };
   const byPid = new Map(procs.map(p => [p.pid, p]));
   for (const { pid, ppid, uid, etime, cmd } of procs) {
     if (Number(pid) === process.pid) continue;
     // Some agents (Gemini CLI) relaunch themselves as a child process: report the session once, at the top
-    const k0 = agentKey(cmd);
-    if (k0 && byPid.has(ppid) && agentKey(byPid.get(ppid).cmd) === k0) continue;
-    const tokens = cmd.split(/\s+/);
-    const exe = path.basename(tokens[0] || '');
-    let key = AGENT_NAMES[exe] ? exe : null;
-    if (!key && /^(node|bun|deno|python3?(\.\d+)?)$/.test(exe)) {
-      const script = tokens.slice(1).find(t => !t.startsWith('-')) || '';
-      const pm = script.match(AGENT_PROC_RE);
-      if (pm) key = pm[1] || (pm[0].match(/claude|codex|gemini|copilot|amp|opencode/) || ['agent'])[0];
-    }
+    const key = agentKey(cmd);
+    if (key && byPid.has(ppid) && agentKey(byPid.get(ppid).cmd) === key) continue;
     if (!key) continue;
     const agent = AGENT_NAMES[key] || key;
     const reason = dangerReason(key, cmd);
@@ -1088,7 +1284,7 @@ function scanProcesses() {
 }
 
 // Someone (you, or an agent) is installing or setting up an AI tool right now: an MCP server, agent skills, an agent plugin
-const SHELL_RE = /^-?(zsh|bash|sh|fish|dash|login|tmux|screen)$/;
+const SHELL_RE = /^-?(zsh|bash|sh|fish|dash|login|tmux|screen|cmd|powershell|pwsh|windowsterminal|wt)$/;
 const SETUP_RE = /^(setup|install|init|add|configure|register|enable|login|onboard)$/i;
 const AGENT_PKG_RE = /mcp|agent|claude|codex|gemini|copilot|cursor|skill|anthropic|openai|aider|goose|opencode|qwen|crush|kiro|llm|gpt/i;
 function descendants(procs, pid) {
@@ -1100,6 +1296,11 @@ function descendants(procs, pid) {
 }
 function connections(pids) {
   if (!pids.length) return [];
+  if (WIN) {
+    const want = new Set(pids.map(String));
+    return [...new Set(netstat().filter(x => !x.listening && want.has(x.pid) && !/^(127\.|\[::1\]|\[::ffff:127\.)/.test(x.remote) && !/:0$/.test(x.remote))
+      .map(x => `${x.remote} (${x.proc})`))];
+  }
   if (LINUX) {
     const want = new Set(pids.map(String)), seen = new Set();
     for (const l of sh('ss', ['-tnpH', 'state', 'established'], 4000).split('\n')) {
@@ -1122,11 +1323,11 @@ function scanInstalls(procs) {
   const byPid = new Map(procs.map(p => [p.pid, p]));
   const hits = [];
   for (const p of procs) {
-    const pkg = execPackage(p.cmd);
-    const mcpAdd = /(?:^|\/)(claude|codex|gemini|cursor-agent|opencode|goose|amp|copilot)\s+(mcp|plugins?|extensions?)\s+(add|install)\b/.exec(p.cmd);
+    const pkg = execPackage(normCmd(p.cmd));
+    const mcpAdd = /(?:^|\/)(claude|codex|gemini|cursor-agent|opencode|goose|amp|copilot)\s+(mcp|plugins?|extensions?)\s+(add|install)\b/.exec(normCmd(p.cmd));
     if (!pkg && !mcpAdd) continue;
     const parent = byPid.get(p.ppid);
-    const parentExe = parent ? path.basename(parent.cmd.split(/\s+/)[0]) : '';
+    const parentExe = parent ? exeBase(parent.cmd).toLowerCase() : '';
     let info = null, name, isTool, isSetup;
     if (mcpAdd) { name = `${mcpAdd[1]} ${mcpAdd[2]} ${mcpAdd[3]}`; isTool = true; isSetup = true; }
     else {
@@ -1146,14 +1347,15 @@ function scanInstalls(procs) {
     // who started it: an AI agent somewhere above it, or you
     let by = 'You';
     for (let n = 0, a = byPid.get(p.ppid); a && n < 30; n++, a = byPid.get(a.ppid)) {
-      const exe = path.basename(a.cmd.split(/\s+/)[0]);
-      const k = AGENT_NAMES[exe] ? exe : (a.cmd.match(AGENT_PROC_RE) || [])[1];
+      const exe = exeBase(a.cmd).toLowerCase();
+      const k = AGENT_NAMES[exe] ? exe : (normCmd(a.cmd).match(AGENT_PROC_RE) || [])[1];
       if (k && AGENT_NAMES[k]) { by = AGENT_NAMES[k]; break; }
       if (/Claude\.app|Cursor\.app|Windsurf\.app/.test(a.cmd)) { by = (a.cmd.match(/(Claude|Cursor|Windsurf)\.app/) || [])[1]; break; }
+      if (WIN && /[\\/](AnthropicClaude|cursor|Windsurf)[\\/]/i.test(a.cmd)) { by = /cursor/i.test(a.cmd) ? 'Cursor' : /windsurf/i.test(a.cmd) ? 'Windsurf' : 'Claude Desktop'; break; }
     }
     const kids = descendants(procs, p.pid);
     const net = connections([p.pid, ...kids.map(k => k.pid)]);
-    const helpers = [...new Set(kids.map(k => path.basename(k.cmd.split(/\s+/)[0])))].filter(x => !/^(sh|bash|zsh|node)$/.test(x)).slice(0, 6);
+    const helpers = [...new Set(kids.map(k => exeBase(k.cmd)))].filter(x => !/^(sh|bash|zsh|node|cmd|conhost|powershell|pwsh)$/i.test(x)).slice(0, 6);
     const text = `${name} ${info ? info.text : ''}`.toLowerCase();
     out.push({
       agent: by, category: 'AI tool install', title: `Installing an AI tool: ${name}`,
@@ -1173,7 +1375,7 @@ const UPLOAD_WINDOW = 10 * 60e3;
 const AI_LIMIT = 64 * 1024, ANY_LIMIT = 20 * 1024 * 1024;
 const SYSTEM_EXE_RE = MAC ? /^\/(System|usr\/libexec|usr\/sbin|sbin|usr\/bin\/(nsurlsessiond|trustd))\//
   : /^\/(usr\/lib\/(systemd|apt|snapd|packagekit|fwupd)|lib\/systemd|usr\/libexec|usr\/sbin|sbin)\//;
-const OWN_APP_RE = /AI Access Auditor\.app|\/ai-access-auditor(\.bin)?(\s|$)|\/AI Access Auditor\/|\.mount_AI-Acc/;
+const OWN_APP_RE = /AI Access Auditor\.app|AI Access Auditor\.exe|\/ai-access-auditor(\.bin)?(\s|$)|\/AI Access Auditor\/|\.mount_AI-Acc/;
 const SENSITIVE_RE = /\/\.ssh\/|\/\.aws\/|\/\.config\/(gh|gcloud)\/|\/\.kube\/|\/\.gnupg\/|\/\.docker\/config|\/Keychains\/|\/\.env(\.|$)|\/Cookies$|\/Login Data$|\/\.npmrc$|\/\.netrc$|\/\.git-credentials$|credentials/i;
 const INTERP_RE = /^(node|python3?(\.\d+)?|Python|ruby|perl|bun|deno|php|java)$/;
 const uploads = { conns: new Map(), sent: new Map(), primed: false, timer: null, ps: null };
@@ -1182,7 +1384,7 @@ function saveUploads(st) { fs.writeFileSync(UPLOADS_FILE, JSON.stringify(st, nul
 function fmtBytes(n) { return n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} bytes`; }
 // "the app" for trust purposes: the program, plus the script when the program is an interpreter
 // the program's path; Mac apps have spaces in their paths, so use the .app bundle when there is one
-function exeOf(cmd) { const m = cmd.match(/^(.+?\.app)\//); return m ? m[1] : (cmd.split(/\s+/)[0] || ''); }
+function exeOf(cmd) { const m = cmd.match(/^(.+?\.app)\//); return m ? m[1] : (cmdTokens(cmd)[0] || ''); }
 function appName(cmd) { const e = exeOf(cmd); return path.basename(e).replace(/\.app$/, ''); }
 function appKey(cmd) {
   const t = cmd.split(/\s+/);
@@ -1202,7 +1404,8 @@ function appKey(cmd) {
   return `${exe} ${script}`;
 }
 function startUploadMonitor() {
-  if (DEMO || uploads.timer) return;
+  // Windows only shows how much each connection sent to administrators, so uploads aren't watched there
+  if (DEMO || uploads.timer || WIN) return;
   // tests (preview mode only) can replay recorded nettop output instead of watching the real network
   const replay = process.env.AUDIT_PREVIEW && process.env.AUDIT_NETTOP_REPLAY;
   if (replay) {
@@ -1312,12 +1515,7 @@ function checkUploads(now) {
     if (!procs) {
       // the process list is reused for a few seconds; busy apps cross the small limit all the time
       if (!uploads.ps || now - uploads.ps.at > 5000) {
-        const list = [];
-        for (const line of sh('ps', PS_ALL, 5000).split('\n')) {
-          const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/);
-          if (m) list.push({ pid: m[1], ppid: m[2], uid: m[3], etime: m[4], cmd: m[5] });
-        }
-        uploads.ps = { at: now, list };
+        uploads.ps = { at: now, list: processList() };
       }
       procs = uploads.ps.list;
       st = uploadStore();
@@ -1331,7 +1529,7 @@ function checkUploads(now) {
     const key = appKey(p.cmd);
     if (st.trusted.includes(key)) continue;
     // started by an AI agent? (the agent itself talking to its model service is expected, so only its helpers count)
-    const agentOf = q => { const x = path.basename(q.cmd.split(/\s+/)[0]); const k = AGENT_NAMES[x] ? x : (q.cmd.match(AGENT_PROC_RE) || [])[1]; return k && AGENT_NAMES[k]; };
+    const agentOf = q => { const x = exeBase(q.cmd).toLowerCase(); const k = AGENT_NAMES[x] ? x : (normCmd(q.cmd).match(AGENT_PROC_RE) || [])[1]; return k && AGENT_NAMES[k]; };
     if (agentOf(p)) continue;
     let by = null;
     for (let n = 0, a = byPid.get(p.ppid); a && n < 30; n++, a = byPid.get(a.ppid)) if ((by = agentOf(a))) break;
@@ -1415,7 +1613,7 @@ function untrustUploader(key) {
 }
 
 // Privileges every agent inherits from your account: admin rights, SSH keys, cloud and developer logins
-let sudoCache = { at: 0, ok: false };
+let sudoCache = { at: 0, ok: false }, winAdminCache = { at: 0, groups: '', uac: '' };
 function demoInherited() {
   return [{ agent: 'Your account', category: 'Inherited credential', title: 'SSH key: ~/.ssh/id_ed25519', detail: 'Loaded in ssh-agent: any agent can use it to log in to servers or push code', risk: 'medium', source: 'ssh-agent', action: { kind: 'none', hint: 'ssh-add -D' } }];
 }
@@ -1423,10 +1621,20 @@ function scanInherited() {
   const out = [];
   const add = (agent, category, title, detail, risk, source, hint) => out.push({ agent, category, title, detail, risk, source, action: { kind: 'none', hint } });
   if (DEMO) return out.concat(demoInherited());
-  if (Date.now() - sudoCache.at > 10 * 60e3) {
+  if (!WIN && Date.now() - sudoCache.at > 10 * 60e3) {
     let ok = false;
     try { execFileSync('sudo', ['-n', 'true'], { stdio: 'ignore', timeout: 3000 }); ok = true; } catch {}
     sudoCache = { at: Date.now(), ok };
+  }
+  // Windows: an administrator account that gets admin rights without being asked (UAC off, or set to never prompt)
+  if (WIN) {
+    if (Date.now() - winAdminCache.at > 10 * 60e3) winAdminCache = { at: Date.now(), groups: sh('whoami', ['/groups'], 5000), uac: sh('reg', ['query', 'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System'], 5000) };
+    const isAdmin = /S-1-5-32-544/.test(winAdminCache.groups), uac = winAdminCache.uac;
+    const val = k => { const m = uac.match(new RegExp(`\\s${k}\\s+REG_DWORD\\s+0x([0-9a-f]+)`, 'i')); return m ? parseInt(m[1], 16) : null; };
+    if (isAdmin && (val('EnableLUA') === 0 || val('ConsentPromptBehaviorAdmin') === 0)) add('Your account', 'Admin rights',
+      val('EnableLUA') === 0 ? 'User Account Control is off' : 'Admin rights without asking',
+      'Your account is an administrator and Windows never asks before a program uses those rights, so any agent you run can change the whole system',
+      'high', 'User Account Control', 'Turn User Account Control back on: Start → "Change User Account Control settings", and choose one of the top two levels.');
   }
   if (sudoCache.ok) add('Your account', 'Admin rights', 'sudo works without a password',
     'Any agent you run can become administrator without asking you', 'high', '/etc/sudoers', 'Remove NOPASSWD from your sudoers entry (sudo visudo), or run "sudo -k" to end a cached sudo session.');
@@ -1468,9 +1676,11 @@ function scanInherited() {
 
 function scanAll() {
   const tcc = scanTcc();
-  const findings = [...scanClaudeCode(), ...scanClaudeDesktop(), ...scanOtherMcp(), ...tcc.findings, ...scanEnvKeys(),
-    ...scanKeychain(), ...scanBackgroundAgents(), ...scanEditorExtensions(), ...scanBrowserExtensions(), ...scanLocalServers(),
-    ...scanMoreAgents(), ...scanInstalledAgents(), ...scanSkills(), ...scanProcesses(), ...scanUploads(), ...scanInherited()];
+  const timing = process.env.AUDIT_TIMING ? {} : null; // how long each check takes (tests)
+  const findings = [scanClaudeCode, scanClaudeDesktop, scanOtherMcp, () => tcc.findings, scanEnvKeys, scanKeychain, scanBackgroundAgents,
+    scanEditorExtensions, scanBrowserExtensions, scanLocalServers, scanMoreAgents, scanInstalledAgents, scanSkills, scanProcesses, scanUploads, scanInherited]
+    .flatMap(fn => { const t0 = Date.now(), r = fn(); if (timing) timing[fn.name || 'tcc'] = Date.now() - t0; return r; });
+  if (timing) console.log('timing (ms):', JSON.stringify(timing));
   const reviews = readJson(REVIEW_FILE) || {};
   const expiries = readJson(EXPIRY_FILE) || {};
   const seen = new Set();
@@ -1564,6 +1774,14 @@ function backup(file) {
   fs.writeFileSync(dest + '.meta.json', JSON.stringify({ original: file, at: new Date().toISOString() }));
   return name;
 }
+// Some changes aren't files (a registry value, a scheduled task): the backup records the command that undoes it
+const RESTORE_CMDS = ['reg', 'schtasks'];
+function backupCommand(label, cmd, args) {
+  const name = `${Date.now()}__${label.replace(/[\/\\:*?"<>| ]/g, '_').slice(0, 120)}`;
+  fs.writeFileSync(path.join(BACKUP_DIR, name), `${label}\n${cmd} ${args.join(' ')}\n`);
+  fs.writeFileSync(path.join(BACKUP_DIR, name + '.meta.json'), JSON.stringify({ original: label, at: new Date().toISOString(), restore: { cmd, args } }));
+  return name;
+}
 function writeJsonAtomic(file, obj) {
   const tmp = file + '.ai-audit-tmp';
   fs.writeFileSync(tmp, JSON.stringify(obj, null, 2) + '\n', { mode: fs.statSync(file).mode });
@@ -1605,6 +1823,20 @@ function doRevoke(f, reason) {
     log(`DISABLE systemd unit ${f.title}  files=${a.files.join(',')}  backup=${bks.join(',')}${why}`);
     return { message: `Stopped and removed "${f.title}". Backup saved.`, backup: bks[0] };
   }
+  if (a.kind === 'removeRunValue') {
+    const bk = backupCommand(`${a.key}\\${a.name}`, 'reg', ['add', a.key, '/v', a.name, '/t', a.type, '/d', a.value, '/f']);
+    execFileSync('reg', ['delete', a.key, '/v', a.name, '/f'], { stdio: 'pipe', windowsHide: true });
+    log(`REMOVE startup entry ${a.key}\\${a.name}  backup=${bk}${why}`);
+    return { message: `"${f.title}" won't start at login anymore. If it is running now, it keeps running until you quit it. You can undo this under History.`, backup: bk };
+  }
+  if (a.kind === 'disableTask') {
+    try { execFileSync('schtasks', ['/change', '/tn', a.task, '/disable'], { stdio: 'pipe', windowsHide: true }); }
+    catch (e) { throw new Error(`Windows didn't allow it (${String(e.stderr || e.message).trim().slice(0, 160)}). Disable it in Task Scheduler as an administrator.`); }
+    const bk = backupCommand(`task ${a.task}`, 'schtasks', ['/change', '/tn', a.task, '/enable']);
+    tasksCache = { at: 0, list: [] };
+    log(`DISABLE scheduled task ${a.task}  backup=${bk}${why}`);
+    return { message: `Turned off the scheduled task "${f.title}". You can turn it back on under History.`, backup: bk };
+  }
   if (a.kind === 'removeAutostart') {
     if (!exists(a.file)) throw new Error('That file is already gone. Rescan.');
     const bk = backup(a.file);
@@ -1613,9 +1845,10 @@ function doRevoke(f, reason) {
     return { message: `"${f.title}" won't start at login anymore. If it is running now, it keeps running until you quit it. Backup saved.`, backup: bk };
   }
   if (a.kind === 'killProcess') {
-    const now = sh('ps', ['-p', String(a.pid), '-o', 'command='], 2000).trim();
+    const procs = processList();
+    const now = (procs.find(p => p.pid === String(a.pid)) || {}).cmd || '';
     if (!now || !now.startsWith(a.cmdStart.slice(0, 100))) return { message: `It had already stopped (process ${a.pid}).` };
-    const tree = a.tree ? descendants(sh('ps', MAC ? ['-axo', 'pid=,ppid='] : ['-eo', 'pid=,ppid='], 3000).split('\n').map(l => l.trim().split(/\s+/)).filter(x => x.length === 2).map(([pid, ppid]) => ({ pid, ppid })), String(a.pid)) : [];
+    const tree = a.tree ? descendants(procs, String(a.pid)) : [];
     process.kill(a.pid, 'SIGTERM');
     for (const k of tree) try { process.kill(Number(k.pid), 'SIGTERM'); } catch {}
     log(`STOP process ${a.pid}${tree.length ? ` and ${tree.length} helpers` : ''} [${f.agent}] ${f.title}${why}`);
@@ -1647,7 +1880,10 @@ function doRevoke(f, reason) {
     return { message: `Removed "${f.title}". A copy is saved, so you can restore it from History.`, backup: name };
   }
   if (a.kind === 'uninstallExt') {
-    execFileSync(a.cli, ['--uninstall-extension', a.extId], { stdio: 'pipe', timeout: 60000 });
+    if (!/^[\w.-]+$/.test(a.extId)) throw new Error('Unexpected extension name.');
+    // Windows editors ship a .cmd launcher, which only runs through cmd.exe
+    if (WIN) execFileSync('cmd.exe', ['/d', '/s', '/c', `""${a.cli}" --uninstall-extension ${a.extId}"`], { stdio: 'pipe', timeout: 60000, windowsHide: true, windowsVerbatimArguments: true });
+    else execFileSync(a.cli, ['--uninstall-extension', a.extId], { stdio: 'pipe', timeout: 60000 });
     log(`UNINSTALL ${a.editor} extension ${a.extId}${why}`);
     return { message: `Uninstalled ${f.title} from ${a.editor}. Reinstall it from the marketplace if you need it again.` };
   }
@@ -1676,7 +1912,7 @@ function doRevoke(f, reason) {
   return { message: `Revoked "${f.title}". Backup saved.${restartHint}`, backup: bk };
 }
 
-const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'disableSystemdUnit', 'removeAutostart', 'uninstallExt', 'killProcess', 'removeFolder', 'removeFile', 'removeTomlBlock'];
+const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'disableSystemdUnit', 'removeAutostart', 'removeRunValue', 'disableTask', 'uninstallExt', 'killProcess', 'removeFolder', 'removeFile', 'removeTomlBlock'];
 
 // Revoke several grants in one go. One scan up front; each revoke re-reads its file, so they don't clash.
 function revokeMany(ids) {
@@ -1736,6 +1972,13 @@ function restore(name) {
   if (name.includes('/') || name.includes('..')) throw new Error('bad name');
   const meta = readJson(path.join(BACKUP_DIR, name + '.meta.json'));
   if (!meta) throw new Error('Backup not found');
+  if (meta.restore) {
+    if (!RESTORE_CMDS.includes(meta.restore.cmd) || !Array.isArray(meta.restore.args)) throw new Error('This backup can\'t be restored automatically.');
+    execFileSync(meta.restore.cmd, meta.restore.args.map(String), { stdio: 'pipe', windowsHide: true });
+    tasksCache = { at: 0, list: [] };
+    log(`RESTORE ${meta.original} from ${name}`);
+    return { message: `Restored ${meta.original}` };
+  }
   if (meta.folder) {
     if (exists(meta.original)) throw new Error(`${meta.original.replace(HOME, '~')} exists again. Remove or rename it first.`);
     fs.cpSync(path.join(BACKUP_DIR, name), meta.original, { recursive: true, verbatimSymlinks: true });
@@ -1805,6 +2048,7 @@ function startWatching() {
     [appData('Claude', 'Claude Extensions'), /./],
     ...BROWSERS.map(([, root]) => [path.join(root, 'Default', 'Extensions'), /./]),
     ...(MAC ? [[h('Library', 'Keychains'), /^login\.keychain-db$/], [appData('com.apple.TCC'), /^TCC\.db/], [h('Library', 'LaunchAgents'), /\.plist$/]]
+      : WIN ? [[appData('Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup'), /./], [appData('Microsoft', 'Windows', 'Start Menu', 'Programs'), /\.lnk$/i]]
       : [[h('.local', 'share', 'keyrings'), /./], [h('.config', 'systemd', 'user'), /\.(service|timer)$/], [h('.config', 'autostart'), /\.desktop$/],
         ...DESKTOP_DIRS.map(d => [d, /\.desktop$/])]),
     [h('.claude'), /^settings(\.local)?\.json$/],
@@ -2133,6 +2377,7 @@ if (require.main === module) {
     } catch (e) { console.error('gate setup failed:', e.message); }
     startWatching();
     startUploadMonitor();
+    startWindowsHelper();
     if (process.env.PORT === '0') {
       console.log(`TOKEN ${TOKEN}`); // only for the Mac app that launched us
       // Exit when the Mac app goes away, even if it was force-quit
@@ -2143,4 +2388,4 @@ if (require.main === module) {
     console.log(`AI Access Auditor running at http://localhost:${server.address().port}`);
   });
 }
-module.exports = { scanAll, _test: { ssRecords, iniFields, listeningSockets } };
+module.exports = { scanAll, _test: { startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason } };

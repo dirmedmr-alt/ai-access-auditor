@@ -1,0 +1,93 @@
+# Builds the Windows app (installers for x64 and arm64), tests the scanner and the installed app on real
+# Windows machines, and adds the installers to the GitHub release when a version tag is created by ./release.sh.
+name: Windows app
+on:
+  push:
+    tags: ['v*']
+    branches: ['windows'] # test builds while the Windows version is being made
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: The scanner's Windows checks work on real Windows
+        run: node .github/scripts/check-windows.js
+      - name: Popup translations match the Mac app
+        run: node desktop/gen-strings.js --check
+      - name: Version from the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: desktop
+        shell: bash
+        run: npm version --no-git-tag-version --allow-same-version "${GITHUB_REF_NAME#v}"
+      - name: Build the installers
+        working-directory: desktop
+        env: { ELECTRON_SKIP_BINARY_DOWNLOAD: '1' }
+        run: |
+          npm ci --no-audit --no-fund
+          npx electron-builder --win --publish never
+      - name: Checksums
+        working-directory: desktop/dist
+        shell: bash
+        run: sha256sum *.exe | tee SHA256SUMS-windows.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installers
+          path: |
+            desktop/dist/*.exe
+            desktop/dist/SHA256SUMS-windows.txt
+
+  test:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: windows-latest, name: x64 }
+          - { runner: windows-11-arm, name: arm64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: windows-installers, path: pkgs }
+      - name: Install (per user, silently)
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem pkgs -Filter "*-${{ matrix.name }}.exe" | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList '/S' -Wait
+          $exe = "$env:LOCALAPPDATA\Programs\ai-access-auditor\AI Access Auditor.exe"
+          if (-not (Test-Path $exe)) { Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Depth 1 | Select-Object FullName; throw "not installed at $exe" }
+          "EXE=$exe" | Out-File -Append $env:GITHUB_ENV
+      - name: Start the app and take screenshots
+        shell: pwsh
+        run: |
+          $env:AUDIT_SMOKE = "$PWD\shots"
+          $p = Start-Process $env:EXE -PassThru
+          if (-not $p.WaitForExit(180000)) { Stop-Process -Id $p.Id -Force; Write-Host "timed out" }
+          Get-Content shots\done.txt
+          Get-Content shots\page.txt -TotalCount 30
+          if (-not (Test-Path shots\window.png) -or -not (Test-Path shots\popup-ar.png)) { throw "screenshots missing" }
+      - name: The Allow / Deny hook can run, from cmd.exe and from Git Bash
+        shell: pwsh
+        run: |
+          $cmd = "$env:USERPROFILE\.ai-access-audit\node.cmd"
+          if (-not (Test-Path $cmd)) { throw "node.cmd missing" }
+          cmd /d /c "`"$cmd`" -e `"console.log('cmd ok', process.versions.node)`""
+          & "C:\Program Files\Git\bin\bash.exe" -c "'$($cmd -replace '\\','/')' -e 'console.log(\"bash ok\", process.versions.node)'"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: 'windows-screenshots-${{ matrix.name }}', path: shots }
+
+  release:
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: windows-installers, path: pkgs }
+      - name: Add to the GitHub release
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: gh release upload "$GITHUB_REF_NAME" pkgs/* --clobber --repo "$GITHUB_REPOSITORY"

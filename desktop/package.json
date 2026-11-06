@@ -1,7 +1,7 @@
 {
   "name": "ai-access-auditor",
   "productName": "AI Access Auditor",
-  "version": "1.0.4-beta",
+  "version": "1.0.5-beta",
   "description": "Find and revoke the access you've given AI agents",
   "homepage": "https://dirmedmr-alt.github.io/ai-access-auditor/",
   "author": {
@@ -13,7 +13,8 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "dist": "node gen-strings.js --check && electron-builder --linux --publish never"
+    "dist": "node gen-strings.js --check && electron-builder --linux --publish never",
+    "dist:win": "node gen-strings.js --check && electron-builder --win --publish never"
   },
   "devDependencies": {
     "electron": "37.2.6",
@@ -96,6 +97,27 @@
         "iproute2",
         "procps"
       ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "artifactName": "AI-Access-Auditor-${version}-windows-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "shortcutName": "AI Access Auditor",
+      "uninstallDisplayName": "AI Access Auditor",
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "AI-Access-Auditor-${version}-windows-${arch}.${ext}"
     }
   }
 }
