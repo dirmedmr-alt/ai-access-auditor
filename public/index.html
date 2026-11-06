@@ -231,9 +231,7 @@ html.native .insp-in{padding-top:34px}
 .dots i{width:7px;height:7px;border-radius:50%;background:var(--line)}.dots i.on{background:var(--acc)}
 .sbtns{display:flex;gap:8px;flex-wrap:wrap}
 
-/* right-to-left (Arabic): the sidebar stays where the Mac window draws it; everything inside is mirrored */
-[dir="rtl"] .app{direction:ltr}
-[dir="rtl"] .side,[dir="rtl"] .main,[dir="rtl"] .toast,[dir="rtl"] .setup{direction:rtl}
+/* right-to-left (Arabic): the whole window is mirrored, so the sidebar sits on the right */
 [dir="rtl"] .chev{transform:scaleX(-1)}
 [dir="rtl"] .log,[dir="rtl"] .kv dd{direction:ltr;text-align:end;unicode-bidi:plaintext}
 :lang(ar) body{font-family:-apple-system,BlinkMacSystemFont,"SF Arabic","Geeza Pro","Segoe UI",Tahoma,sans-serif}
