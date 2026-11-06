@@ -31,7 +31,7 @@ rm -rf "$REL" && mkdir -p "$REL"
 cp -R "dist/AI Access Auditor.app" "$APP"
 T=$(mktemp -d)
 for ARCH in arm64 x86_64; do
-  swiftc -O -target "$ARCH-apple-macos13.0" -o "$T/app-$ARCH" macos/main.swift macos/prompt.swift -framework Cocoa -framework WebKit
+  swiftc -O -target "$ARCH-apple-macos13.0" -o "$T/app-$ARCH" macos/main.swift macos/prompt.swift macos/i18n.swift -framework Cocoa -framework WebKit
 done
 lipo -create "$T/app-arm64" "$T/app-x86_64" -output "$APP/Contents/MacOS/AIAccessAuditor"
 rm -rf "$T"

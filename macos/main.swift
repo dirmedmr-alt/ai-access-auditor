@@ -36,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     // MARK: launch
     func applicationDidFinishLaunching(_ note: Notification) {
+        I18n.load()
         buildMenu()
         buildWindow()
         buildStatusItem()
@@ -155,7 +156,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if port == nil, let r = buffer.range(of: #"LISTENING \d+"#, options: .regularExpression),
            let p = Int(buffer[r].split(separator: " ")[1]) {
             port = p
-            webView.load(URLRequest(url: URL(string: "http://127.0.0.1:\(p)/?native=1")!))
+            webView.load(URLRequest(url: URL(string: "http://127.0.0.1:\(p)/?native=1&syslang=\(I18n.systemLang)")!))
             checkForChanges()
             timer = Timer.scheduledTimer(withTimeInterval: CHECK_INTERVAL, repeats: true) { [weak self] _ in self?.checkForChanges() }
             timer?.tolerance = 30
@@ -227,12 +228,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             : g.tool.hasPrefix("Web") || g.tool == "web_fetch" ? "globe" : "hand.raised.fill"
         let panel = PromptPanel(.init(
             symbol: symbol, risk: g.risk,
-            title: "\(g.agent) wants to \(g.action)",
-            subtitle: g.cwd.isEmpty ? "Tool: \(g.tool)" : "Tool: \(g.tool) · in \(g.cwd)",
+            title: L("%@ wants to %@", g.agent, I18n.action(g.action)),
+            subtitle: g.cwd.isEmpty ? L("Tool: %@", g.tool) : L("Tool: %@ · in %@", g.tool, g.cwd),
             detail: g.text,
-            footnote: "\(g.agent) is paused until you decide. You can take back this decision later under Decisions.",
-            options: g.canAlways ? ["Just this once", "Always (don't ask again)"] : ["Just this once"],
-            allowTitle: "Allow", denyTitle: "Deny"))
+            footnote: L("%@ is paused until you decide. You can take back this decision later under Decisions.", g.agent),
+            options: g.canAlways ? [L("Just this once"), L("Always (don't ask again)")] : [L("Just this once")],
+            allowTitle: L("Allow"), denyTitle: L("Deny")))
         panel.onDecision = { [weak self] allowed, option in
             guard let self else { return }
             self.panels.removeValue(forKey: g.id)
@@ -255,14 +256,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             let isProcess = g.category == "Running agent" || g.category == "AI tool install" || isUpload
             let panel = PromptPanel(.init(
                 symbol: isUpload ? "arrow.up.doc.fill" : isProcess ? "bolt.trianglebadge.exclamationmark.fill" : "exclamationmark.shield.fill", risk: g.risk,
-                title: isProcess ? g.title : g.category == "AI agent installed" ? "New AI agent on this Mac: \(g.agent)" : "\(g.agent) got new access",
-                subtitle: g.category,
+                title: isProcess ? g.title : g.category == "AI agent installed" ? L("New AI agent on this Mac: %@", g.agent) : L("%@ got new access", g.agent),
+                subtitle: L(g.category),
                 detail: "\(g.title)\n\(g.detail)",
-                footnote: isUpload ? "\"Stop it\" ends the program now. \"Always\" lets this app send data without asking again (undo it under Decisions)."
-                    : isProcess ? "\"Stop it\" ends the process now. \"Let it run\" can also be limited to 1 hour, 1 day or 7 days."
-                    : canRemove ? "Remove takes the access away now (a backup is saved, so you can undo it)." : "This one has to be removed by hand. Choose \"Review\" to see how.",
-                options: isUpload ? ["Allow this time", "Always for this app"] : isProcess ? ["Until it ends", "For 1 hour", "For 1 day", "For 7 days"] : ["Keep it", "Keep for 1 hour", "Keep for 1 day", "Keep for 7 days"],
-                allowTitle: isUpload ? "Allow" : isProcess ? "Let it run" : "Keep", denyTitle: canRemove ? (isProcess ? "Stop it" : "Remove") : "Review"))
+                footnote: isUpload ? L("\"Stop it\" ends the program now. \"Always\" lets this app send data without asking again (undo it under Decisions).")
+                    : isProcess ? L("\"Stop it\" ends the process now. \"Let it run\" can also be limited to 1 hour, 1 day or 7 days.")
+                    : canRemove ? L("Remove takes the access away now (a backup is saved, so you can undo it).") : L("This one has to be removed by hand. Choose \"Review\" to see how."),
+                options: (isUpload ? ["Allow this time", "Always for this app"] : isProcess ? ["Until it ends", "For 1 hour", "For 1 day", "For 7 days"] : ["Keep it", "Keep for 1 hour", "Keep for 1 day", "Keep for 7 days"]).map { L($0) },
+                allowTitle: L(isUpload ? "Allow" : isProcess ? "Let it run" : "Keep"), denyTitle: L(canRemove ? (isProcess ? "Stop it" : "Remove") : "Review")))
             panel.onDecision = { [weak self] allowed, option in
                 guard let self else { return }
                 self.panels.removeValue(forKey: "grant-\(g.id)")
@@ -271,7 +272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                     if !canRemove { self.openFinding(g.id); return }
                     self.api("revoke", method: "POST", body: ["id": g.id]) { data in
                         if data == nil {
-                            let a = NSAlert(); a.messageText = "Couldn't remove \(g.title)"; a.informativeText = "Open AI Access Auditor to try again."; a.runModal()
+                            let a = NSAlert(); a.messageText = L("Couldn't remove %@", g.title); a.informativeText = L("Open AI Access Auditor to try again."); a.runModal()
                         }
                         self.checkForChanges()
                     }
@@ -295,11 +296,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let key = "grant-\(g.id)"
         let panel = PromptPanel(.init(
             symbol: "hand.raised.fill", risk: "medium",
-            title: "New AI agent on this Mac: \(g.agent)",
-            subtitle: "AI agent installed",
+            title: L("New AI agent on this Mac: %@", g.agent),
+            subtitle: L("AI agent installed"),
             detail: "\(g.title)\n\(g.detail)",
-            footnote: "\"Ask before it acts\" adds a small hook (a backup is saved) so \(g.agent) asks you here before it runs commands or changes files. You can turn it off any time on the Overview.",
-            allowTitle: "Ask before it acts", denyTitle: "Not now"))
+            footnote: L("\"Ask before it acts\" adds a small hook (a backup is saved) so %@ asks you here before it runs commands or changes files. You can turn it off any time on the Overview.", g.agent),
+            allowTitle: L("Ask before it acts"), denyTitle: L("Not now")))
         panel.onDecision = { [weak self] allowed, _ in
             guard let self else { return }
             self.panels.removeValue(forKey: key)
@@ -308,8 +309,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             self.api("gate/install", method: "POST", body: ["on": true, "agent": g.agent]) { data in
                 let msg = (data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?["message"] as? String
                 let a = NSAlert()
-                a.messageText = msg == nil ? "Couldn't turn it on" : "\(g.agent) will ask you here"
-                a.informativeText = msg ?? "Open AI Access Auditor and use the switch on the Overview."
+                a.messageText = msg == nil ? L("Couldn't turn it on") : L("%@ will ask you here", g.agent)
+                a.informativeText = msg ?? L("Open AI Access Auditor and use the switch on the Overview.")
                 a.runModal()
             }
         }
@@ -326,13 +327,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let on = !gateInstalled
         if on {
             let a = NSAlert()
-            a.messageText = "Ask before Claude Code acts?"
-            a.informativeText = "Whenever Claude Code is about to ask for permission, this app pops up instead so you can Allow or Deny. This adds a hook to ~/.claude/settings.json (a backup is saved). If this app isn't running, Claude Code just asks the usual way."
-            a.addButton(withTitle: "Turn On"); a.addButton(withTitle: "Cancel")
+            a.messageText = L("Ask before Claude Code acts?")
+            a.informativeText = L("Whenever Claude Code is about to ask for permission, this app pops up instead so you can Allow or Deny. This adds a hook to ~/.claude/settings.json (a backup is saved). If this app isn't running, Claude Code just asks the usual way.")
+            a.addButton(withTitle: L("Turn On")); a.addButton(withTitle: L("Cancel"))
             guard a.runModal() == .alertFirstButtonReturn else { return }
         }
         api("gate/install", method: "POST", body: ["on": on]) { [weak self] data in
-            if data == nil { let a = NSAlert(); a.messageText = "Couldn't change the Claude Code gate"; a.runModal() }
+            if data == nil { let a = NSAlert(); a.messageText = L("Couldn't change the Claude Code gate"); a.runModal() }
             self?.refreshGateStatus()
             self?.runJS("window.rescan && window.rescan()")
         }
@@ -345,8 +346,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let ordered = grants.sorted { rank($0.risk) < rank($1.risk) }
         for g in ordered.prefix(3) {
             let c = UNMutableNotificationContent()
-            c.title = "\(g.agent) gained access"
-            c.subtitle = "\(g.category) · \(g.risk == "high" ? "High risk" : g.risk.capitalized)"
+            c.title = L("%@ gained access", g.agent)
+            c.subtitle = "\(L(g.category)) · \(L(g.risk == "high" ? "High risk" : g.risk.capitalized))"
             c.body = g.title
             c.sound = g.risk == "high" ? .default : nil
             c.userInfo = ["id": g.id]
@@ -354,8 +355,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         if ordered.count > 3 {
             let c = UNMutableNotificationContent()
-            c.title = "\(ordered.count - 3) more new AI grants"
-            c.body = "Open AI Access Auditor to review them."
+            c.title = L("%d more new AI grants", ordered.count - 3)
+            c.body = L("Open AI Access Auditor to review them.")
             c.userInfo = ["view": "new"]
             center.add(UNNotificationRequest(identifier: "more-\(Date().timeIntervalSince1970)", content: c, trigger: nil))
         }
@@ -363,7 +364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func notifyExpired(_ grants: [Grant]) {
         guard !grants.isEmpty else { return }
         let c = UNMutableNotificationContent()
-        c.title = grants.count == 1 ? "Access expired and was removed" : "\(grants.count) grants expired and were removed"
+        c.title = grants.count == 1 ? L("Access expired and was removed") : L("%d grants expired and were removed", grants.count)
         c.body = grants.prefix(4).map { "\($0.agent): \($0.title)" }.joined(separator: "\n")
         c.userInfo = ["view": "history"]
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "expired-\(Date().timeIntervalSince1970)", content: c, trigger: nil))
@@ -424,15 +425,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         button.image = img
         button.imagePosition = .imageLeading
         button.title = count > 0 ? " \(count)" : ""
-        button.toolTip = alert ? "\(count) new AI access grant\(count == 1 ? "" : "s")" : "No new AI access"
+        button.toolTip = alert ? (count == 1 ? L("1 new AI access grant") : L("%d new AI access grants", count)) : L("No new AI access")
     }
 
     // Rebuilt every time the menu opens so it is always current
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         let c = lastChanges
-        let header = NSMenuItem(title: c == nil ? "Checking…" :
-            (c!.new.isEmpty ? "No new AI access" : "\(c!.new.count) new grant\(c!.new.count == 1 ? "" : "s") since you last looked"),
+        let header = NSMenuItem(title: c == nil ? L("Checking…") :
+            (c!.new.isEmpty ? L("No new AI access") : c!.new.count == 1 ? L("1 new grant since you last looked") : L("%d new grants since you last looked", c!.new.count)),
             action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
@@ -445,30 +446,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 item.target = self
                 menu.addItem(item)
             }
-            if c.new.count > 8 { addItem(menu, "…and \(c.new.count - 8) more", #selector(menuOpenNew)) }
-            if !c.new.isEmpty { addItem(menu, "Mark All as Seen", #selector(ackAll)) }
+            if c.new.count > 8 { addItem(menu, L("…and %d more", c.new.count - 8), #selector(menuOpenNew)) }
+            if !c.new.isEmpty { addItem(menu, L("Mark All as Seen"), #selector(ackAll)) }
             menu.addItem(.separator())
-            let info = NSMenuItem(title: "\(c.total) grants · \(c.openHigh) high-risk not reviewed", action: nil, keyEquivalent: "")
+            let info = NSMenuItem(title: L("%d grants · %d high-risk not reviewed", c.total, c.openHigh), action: nil, keyEquivalent: "")
             info.isEnabled = false
             menu.addItem(info)
             let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             if let d = f.date(from: c.scannedAt) {
-                let t = NSMenuItem(title: "Checked \(RelativeDateTimeFormatter().localizedString(for: d, relativeTo: Date()))", action: nil, keyEquivalent: "")
+                let t = NSMenuItem(title: L("Checked %@", { let r = RelativeDateTimeFormatter(); r.locale = Locale(identifier: I18n.lang); return r.localizedString(for: d, relativeTo: Date()) }()), action: nil, keyEquivalent: "")
                 t.isEnabled = false
                 menu.addItem(t)
             }
         }
         menu.addItem(.separator())
-        addItem(menu, "Open AI Access Auditor", #selector(showWindow), "o")
-        addItem(menu, "Check Now", #selector(checkForChanges), "r")
-        addItem(menu, "Decisions…", #selector(menuOpenDecisions))
-        addItem(menu, "Setup…", #selector(menuOpenSetup))
+        addItem(menu, L("Open AI Access Auditor"), #selector(showWindow), "o")
+        addItem(menu, L("Check Now"), #selector(checkForChanges), "r")
+        addItem(menu, L("Decisions…"), #selector(menuOpenDecisions))
+        addItem(menu, L("Setup…"), #selector(menuOpenSetup))
         menu.addItem(.separator())
-        let gate = addItem(menu, "Ask Before Claude Code Acts", #selector(toggleGate))
+        let gate = addItem(menu, L("Ask Before Claude Code Acts"), #selector(toggleGate))
         gate.state = gateInstalled ? .on : .off
-        let login = addItem(menu, "Open at Login", #selector(toggleLogin))
+        let login = addItem(menu, L("Open at Login"), #selector(toggleLogin))
         login.state = loginEnabled ? .on : .off
-        addItem(menu, "Quit", #selector(NSApplication.terminate(_:)), "q").target = NSApp
+        addItem(menu, L("Quit"), #selector(NSApplication.terminate(_:)), "q").target = NSApp
     }
 
     @discardableResult
@@ -540,8 +541,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         a.messageText = parts.first ?? message
         a.informativeText = parts.dropFirst().joined(separator: "\n\n")
         a.alertStyle = .warning
-        a.addButton(withTitle: "Confirm")
-        a.addButton(withTitle: "Cancel")
+        a.addButton(withTitle: L("Confirm"))
+        a.addButton(withTitle: L("Cancel"))
         completionHandler(a.runModal() == .alertFirstButtonReturn)
     }
 
@@ -552,6 +553,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         switch cmd {
         case "setLogin":
             if (body["on"] as? Bool ?? false) != loginEnabled { toggleLogin() }
+        case "setLang":
+            I18n.set(body["lang"] as? String)
+            return
         case "setTheme":
             let t = body["theme"] as? String ?? "system"
             NSApp.appearance = t == "dark" ? NSAppearance(named: .darkAqua) : t == "light" ? NSAppearance(named: .aqua) : nil
