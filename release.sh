@@ -73,6 +73,7 @@ sed -i '' -E \
   -e "s|· [0-9]+ MB</span>|· $SIZE_MB MB</span>|" \
   -e "s/Version [0-9]+\.[0-9]+\.[0-9]+ beta/Version ${VERSION/-/ }/g" \
   site/index.html
+node i18n/build-site.js   # French and Arabic pages get the same link, size and checksum
 if [ "${PUBLISH:-}" = "1" ] && [ -n "${REPO:-}" ]; then
   gh release create "v$VERSION" "$DMG" "$DMG.sha256" --repo "$REPO" --prerelease \
     --title "AI Access Auditor $VERSION" \

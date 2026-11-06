@@ -6,7 +6,13 @@
 <title>AI Access Auditor — see and control what your AI agents can do</title>
 <meta name="description" content="A free Mac app that finds every permission, folder, login and privilege your AI agents have, pops up the moment that changes, and lets you take any of it back.">
 <link rel="icon" href="assets/favicon.png">
-<script>try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="alternate" hreflang="en" href="https://dirmedmr-alt.github.io/ai-access-auditor/">
+<link rel="alternate" hreflang="fr" href="https://dirmedmr-alt.github.io/ai-access-auditor/fr/">
+<link rel="alternate" hreflang="ar" href="https://dirmedmr-alt.github.io/ai-access-auditor/ar/">
+<link rel="alternate" hreflang="x-default" href="https://dirmedmr-alt.github.io/ai-access-auditor/">
+<script>try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}
+// first visit with a French or Arabic browser: open that version (the visitor's own choice is remembered after that)
+try{var L=localStorage.getItem('lang');if(!L&&document.documentElement.lang==='en'){var b=((navigator.languages&&navigator.languages[0])||navigator.language||'').slice(0,2).toLowerCase();if(b==='fr'||b==='ar')location.replace(b+'/'+location.hash)}}catch(e){}</script>
 <style>
 :root{
   --bg:#fbfbfa; --bg2:#f3f3f1; --card:#ffffff; --fg:#1b1b1a; --mut:#62625e; --faint:#9a9a95; --line:rgba(0,0,0,.08);
@@ -42,7 +48,7 @@ nav .wrap{display:flex;align-items:center;gap:22px;height:62px}
 .brand{display:flex;align-items:center;gap:10px;font-weight:700;color:var(--fg);letter-spacing:-.01em;white-space:nowrap}
 .brand img{width:30px;height:30px}
 .brand:hover{text-decoration:none}
-nav .links{display:flex;gap:22px;margin-left:auto;font-size:14.5px}
+nav .links{display:flex;align-items:center;gap:22px;margin-inline-start:auto;font-size:14.5px}
 nav .links a{color:var(--mut)}
 nav .links a:hover{color:var(--fg);text-decoration:none}
 
@@ -74,6 +80,10 @@ h1 em{font-style:normal;background:linear-gradient(120deg,var(--acc),#8e5bd6);-w
 .theme button:hover{color:var(--fg)}
 .theme button[aria-pressed="true"]{background:var(--card);color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.15)}
 .theme svg{width:15px;height:15px}
+.langs{display:inline-flex;background:var(--bg2);border:1px solid var(--line);border-radius:99px;padding:2px}
+.langs a{color:var(--faint);font-size:12.5px;font-weight:650;min-width:30px;height:28px;padding:0 7px;border-radius:99px;display:grid;place-items:center}
+.langs a:hover{color:var(--fg);text-decoration:none}
+.langs a[aria-current]{background:var(--card);color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.15)}
 
 /* works with */
 .works{padding:44px 0 10px;text-align:center}
@@ -96,13 +106,13 @@ h2{font-size:clamp(28px,4vw,42px);line-height:1.12;letter-spacing:-.025em;margin
 .split{display:grid;grid-template-columns:1fr 1fr;gap:56px;align-items:center}
 .split.rev .txt{order:2}
 .check{list-style:none;padding:0;margin:22px 0 0}
-.check li{position:relative;padding-left:30px;margin:10px 0;color:var(--mut)}
+.check li{position:relative;padding-inline-start:30px;margin:10px 0;color:var(--mut)}
 .check li b{color:var(--fg)}
-.check li::before{content:"";position:absolute;left:0;top:5px;width:18px;height:18px;border-radius:50%;background:var(--acc-soft)}
-.check li::after{content:"";position:absolute;left:6px;top:9px;width:6px;height:9px;border:solid var(--acc);border-width:0 2px 2px 0;transform:rotate(45deg)}
+.check li::before{content:"";position:absolute;inset-inline-start:0;top:5px;width:18px;height:18px;border-radius:50%;background:var(--acc-soft)}
+.check li::after{content:"";position:absolute;inset-inline-start:6px;top:9px;width:6px;height:9px;border:solid var(--acc);border-width:0 2px 2px 0;transform:rotate(45deg)}
 .popups{display:grid;gap:16px}
 .popups img{border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line)}
-.popups img:nth-child(2){margin-left:48px}
+.popups img:nth-child(2){margin-inline-start:48px}
 .frame{border-radius:14px;overflow:hidden;box-shadow:var(--shadow);border:1px solid var(--line)}
 
 .privacy{background:var(--bg2)}
@@ -121,11 +131,11 @@ h2{font-size:clamp(28px,4vw,42px);line-height:1.12;letter-spacing:-.025em;margin
 
 /* install */
 .steps{counter-reset:s;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
-.step{position:relative;padding-left:66px}
-.step::before{counter-increment:s;content:counter(s);position:absolute;left:24px;top:24px;width:28px;height:28px;border-radius:50%;background:var(--acc);color:#fff;font-weight:700;font-size:14px;display:grid;place-items:center}
+.step{position:relative;padding-inline-start:66px}
+.step::before{counter-increment:s;content:counter(s);position:absolute;inset-inline-start:24px;top:24px;width:28px;height:28px;border-radius:50%;background:var(--acc);color:#fff;font-weight:700;font-size:14px;display:grid;place-items:center}
 code,.code{font:13.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
 .code{display:block;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:10px;overflow-x:auto;white-space:pre;color:var(--fg)}
-.note{border-left:3px solid var(--med);background:color-mix(in srgb,var(--med) 9%,transparent);border-radius:0 12px 12px 0;padding:14px 18px;margin-top:22px;color:var(--mut);font-size:15px}
+.note{border-inline-start:3px solid var(--med);background:color-mix(in srgb,var(--med) 9%,transparent);border-radius:12px;border-start-start-radius:0;border-end-start-radius:0;padding:14px 18px;margin-top:22px;color:var(--mut);font-size:15px}
 .note b{color:var(--fg)}
 
 /* faq */
@@ -143,6 +153,15 @@ details p,details ol{color:var(--mut);margin:10px 0 0}
 .band .btn{background:#fff;color:#1b2c73;border-color:#fff}
 .band .sum{font:12px ui-monospace,Menlo,monospace;color:rgba(255,255,255,.7);margin-top:18px;word-break:break-all}
 
+/* right-to-left (Arabic): commands stay left-to-right; Arabic letters must not be spaced apart */
+[dir="rtl"] code{direction:ltr;unicode-bidi:isolate}
+[dir="rtl"] .code{direction:ltr;text-align:left}
+.shot .chrome{direction:ltr}
+:lang(ar) body{font-family:-apple-system,BlinkMacSystemFont,"SF Arabic","Geeza Pro","Noto Sans Arabic","Segoe UI",Tahoma,sans-serif}
+:lang(ar) h1,:lang(ar) h2,:lang(ar) h3,:lang(ar) .brand,:lang(ar) .eyebrow,:lang(ar) .works p{letter-spacing:0}
+:lang(ar) h1{line-height:1.3}
+:lang(ar) h2{line-height:1.35}
+
 footer{border-top:1px solid var(--line);padding:30px 0 50px;color:var(--faint);font-size:13.5px}
 footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
 
@@ -150,7 +169,7 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
   .grid,.pv{grid-template-columns:1fr 1fr}
   .split{grid-template-columns:1fr;gap:32px}.split.rev .txt{order:0}
   .steps{grid-template-columns:1fr}
-  nav .links a:not(.btn){display:none}
+  nav .links > a:not(.btn){display:none}
   nav .links{gap:10px}
 }
 @media (max-width:600px){
@@ -158,9 +177,12 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
   .grid,.pv,.diff{grid-template-columns:1fr}
   .hero{padding-top:48px}
   section{padding:60px 0}
-  .popups img:nth-child(2){margin-left:0}
+  .popups img:nth-child(2){margin-inline-start:0}
   .brand{font-size:15px;gap:8px}.brand img{width:26px;height:26px}
   .theme button{width:26px}
+  .langs a{min-width:26px;padding:0 5px}
+  nav .wrap{gap:12px}
+  nav .links{gap:6px}
 }
 @media (max-width:380px){.brand span{display:none}}
 </style>
@@ -179,6 +201,7 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
       <button data-t="system" title="Match my device" aria-label="Match my device"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg></button>
       <button data-t="dark" title="Dark" aria-label="Dark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
     </div>
+    <div class="langs" role="group" aria-label="Language"><a href="./" hreflang="en" lang="en" aria-current="page">EN</a><a href="fr/" hreflang="fr" lang="fr">FR</a><a href="ar/" hreflang="ar" lang="ar" title="العربية">ع</a></div>
     <a class="btn primary small" href="#download">Download</a>
   </div>
 </div></nav>
@@ -316,7 +339,7 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
   <details><summary>Why does macOS warn me when I open it?</summary><p>Apps from outside the App Store need an Apple Developer signature and notarization to open without a warning. This beta doesn't have that yet. The steps under Install show how to open it safely.</p></details>
   <details><summary>Which Macs does it run on?</summary><p>macOS 13 Ventura or later, on Apple Silicon and Intel. Everything it needs is included, so there's nothing else to install.</p></details>
   <details><summary>Can it stop an agent before it does something?</summary><p>For Claude Code, Codex CLI and Gemini CLI, yes. Turn on "Ask before it acts" for each one on the Overview, and you approve actions before they run. With Claude Code and Codex, the popup replaces the agent's own prompt. With Gemini, it steps in when Gemini would otherwise act without asking (YOLO or auto-edit mode). Codex asks you to trust the new hook once: type <code>/hooks</code> inside Codex. Other agents don't offer a way to be paused from outside, so for them you're alerted within seconds of any new access, and can remove it right away.</p></details>
-  <details><summary>How is it different from MCP scanners?</summary><p>MCP scanners such as Snyk Agent Scan look deeply at MCP servers, for example checking their tool descriptions for hidden instructions. AI Access Auditor doesn&rsquo;t do that deep analysis. It covers the wider picture instead: every kind of access your agents have, a popup before Claude Code acts, and one-click removal. The two work well side by side.</p></details>
+  <details><summary>How is it different from MCP scanners?</summary><p>MCP scanners such as Snyk Agent Scan look deeply at MCP servers, for example checking their tool descriptions for hidden instructions. AI Access Auditor doesn&rsquo;t do that deep analysis. It covers the wider picture instead: every kind of access your agents have, a popup before Claude Code, Codex or Gemini acts, and one-click removal. The two work well side by side.</p></details>
   <details><summary>Can it block data from leaving my Mac?</summary><p>It can stop the program that's sending it, and it asks you first. It can't block a single connection while letting the program run. That needs a network filter, like the free LuLu firewall, and the two work well together. It checks every 2 seconds, so a very short upload can slip past it, and it shows the IP address rather than a website name, because looking names up would mean contacting the internet.</p></details>
   <details><summary>Why does it want Full Disk Access?</summary><p>Only to read macOS's list of which apps can record your screen, control your Mac or read all your files. Without it, everything else still works. Those system permissions just aren't included.</p></details>
   <details><summary>How do I uninstall it?</summary>
@@ -356,6 +379,13 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
   btns.forEach(function (b) { b.addEventListener('click', function () { set(b.dataset.t, true); }); });
   set(root.dataset.theme || 'system', false);
 })();
+// Language: remember the visitor's choice and keep their place on the page
+document.querySelectorAll('.langs a').forEach(function (a) {
+  a.addEventListener('click', function () {
+    try { localStorage.setItem('lang', a.getAttribute('hreflang')); } catch (e) {}
+    a.href = a.getAttribute('href') + location.hash;
+  });
+});
 </script>
 </body>
 </html>
