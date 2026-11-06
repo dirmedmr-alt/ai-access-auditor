@@ -1,12 +1,19 @@
 # AI Access Auditor
 
-A Mac app that finds every access and privilege you've given to AI agents, asks before they act,
-and lets you take any of it back. Everything stays on your Mac: no account, no cloud, no tracking.
+An app for macOS and Linux that finds every access and privilege you've given to AI agents, asks before
+they act, and lets you take any of it back. Everything stays on your computer: no account, no cloud, no tracking.
 
 **Download:** [website](https://dirmedmr-alt.github.io/ai-access-auditor/) ·
 [latest release](https://github.com/dirmedmr-alt/ai-access-auditor/releases/latest)
-(free beta, macOS 13 or later, Apple Silicon and Intel; unsigned, so approve it once under
-System Settings → Privacy & Security → Open Anyway).
+(free beta).
+- **Mac:** macOS 13 or later, Apple Silicon and Intel. Unsigned, so approve it once under
+  System Settings → Privacy & Security → Open Anyway.
+- **Linux:** a `.deb` for Ubuntu, Debian and similar (x64 and arm64: `sudo apt install ./AI-Access-Auditor-*.deb`),
+  or an AppImage for other x64 distributions (needs `libfuse2t64` on Ubuntu 22.04 or later; on 22.04 the package is `libfuse2`).
+
+On Linux the app lives in the tray instead of the menu bar. It finds the same agent access, and in place of
+the Mac-only parts it checks systemd and autostart jobs, logins saved in GNOME Keyring or KWallet (by name only),
+and membership of the `docker` group. The Linux app is in `desktop/` (Electron); see `build-linux.sh`.
 
 **Build it yourself:** `./build-app.sh`, then open `dist/AI Access Auditor.app`. You can drag it into
 /Applications. It needs Node.js (`brew install node`) and doesn't use a browser.
@@ -68,15 +75,20 @@ The server listens only on 127.0.0.1, checks a per-session token, and masks secr
 
 ## Releasing a download and the website
 
-    VERSION=1.0.2-beta ./release.sh                                          # local preview in site/downloads
-    VERSION=1.0.2-beta REPO=dirmedmr-alt/ai-access-auditor PUBLISH=1 ./release.sh   # upload to a GitHub Release
+    VERSION=1.0.4-beta ./build-linux.sh                                      # Linux files, built in Docker
+
+    VERSION=1.0.4-beta ./release.sh                                          # local preview in site/downloads
+    VERSION=1.0.4-beta REPO=dirmedmr-alt/ai-access-auditor PUBLISH=1 ./release.sh   # upload to a GitHub Release
 
 This builds `dist/AI-Access-Auditor-<version>.dmg`:
 - It runs on Apple Silicon and Intel, on macOS 13 or later.
 - It includes the official Node.js, checksum-verified, so users don't need to install anything.
 
-It also updates the download link, version, size and SHA-256 shown in `site/index.html`. With `REPO`
-set, the link points at the GitHub Release and `PUBLISH=1` uploads the DMG there. The website itself
+It also updates the download links, version, size and SHA-256 shown in `site/index.html`. With `REPO`
+set, the links point at the GitHub Release, and `PUBLISH=1` uploads the DMG there, together with the Linux files
+from `build-linux.sh` (AppImage for x64, `.deb` for x64 and arm64, and `SHA256SUMS-linux.txt`). The GitHub
+workflow in `.github/workflows/linux.yml` can build and test the Linux files on Ubuntu instead, when Actions
+are available on the account. The website itself
 is published from `site/` to GitHub Pages with `./publish-site.sh` (it pushes `site/` to the
 `gh-pages` branch, which Pages serves).
 
