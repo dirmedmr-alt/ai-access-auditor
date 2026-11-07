@@ -1601,7 +1601,7 @@ const SENSITIVE_RE = /\/\.ssh\/|\/\.aws\/|\/\.config\/(gh|gcloud)\/|\/\.kube\/|\
 const INTERP_RE = /^(node|python3?(\.\d+)?|Python|ruby|perl|bun|deno|php|java)$/;
 const uploads = { conns: new Map(), sent: new Map(), primed: false, timer: null, ps: null };
 function uploadStore() { const j = readJson(UPLOADS_FILE) || {}; return { events: j.events || [], trusted: j.trusted || [] }; }
-function saveUploads(st) { fs.writeFileSync(UPLOADS_FILE, JSON.stringify(st, null, 2)); }
+function saveUploads(st) { saveFile(UPLOADS_FILE, JSON.stringify(st, null, 2)); }
 function fmtBytes(n) { return n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} bytes`; }
 // "the app" for trust purposes: the program, plus the script when the program is an interpreter
 // the program's path; Mac apps have spaces in their paths, so use the .app bundle when there is one
@@ -1928,7 +1928,7 @@ function scanAll() {
   if (!st0.agentsBaselined) {
     const add = list.filter(f => f.category === 'AI agent installed').map(f => f.id);
     known = [...known, ...add]; writeIds(KNOWN_FILE, known);
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ ...st0, agentsBaselined: true }, null, 2));
+    saveFile(SETTINGS_FILE, JSON.stringify({ ...st0, agentsBaselined: true }, null, 2));
   }
   const knownSet = new Set(known);
   list.forEach(f => { f.isNew = !knownSet.has(f.id) && !f.reviewedAt; });
@@ -1948,7 +1948,7 @@ function migrateIds(list) {
   if (Array.isArray(notified)) writeIds(NOTIFIED_FILE, [...notified.map(i => map.get(i) || i), ...list.map(f => f.id)]);
   const known = readJson(KNOWN_FILE);
   if (Array.isArray(known)) writeIds(KNOWN_FILE, [...known.map(i => map.get(i) || i), ...list.map(f => f.id)]);
-  fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ ...st, idVersion: 2 }, null, 2));
+  saveFile(SETTINGS_FILE, JSON.stringify({ ...st, idVersion: 2 }, null, 2));
   log(`MIGRATED grant ids to v2 (${map.size} grants)`);
   return true;
 }
@@ -1987,7 +1987,7 @@ function checkForUpdate(force = false) {
           const rel = JSON.parse(d).find(r => !r.draft && /^v\d+\.\d+\.\d+/.test(r.tag_name || ''));
           if (rel) Object.assign(u, { latest: rel.tag_name.replace(/^v/, ''), url: rel.html_url });
           u.checkedAt = new Date().toISOString();
-          fs.writeFileSync(UPDATE_FILE, JSON.stringify(u, null, 2));
+          saveFile(UPDATE_FILE, JSON.stringify(u, null, 2));
           if (rel && newerThan(u.latest, APP_VERSION)) { changedFlag = true; flushEvents(); }
         } catch {}
         resolve(updateInfo());
@@ -2004,12 +2004,12 @@ function updateToNotify() {
   const u = readJson(UPDATE_FILE) || {};
   if (u.notified === info.latest) return null;
   u.notified = info.latest;
-  fs.writeFileSync(UPDATE_FILE, JSON.stringify(u, null, 2));
+  saveFile(UPDATE_FILE, JSON.stringify(u, null, 2));
   return { version: info.latest, url: info.url };
 }
 
 // ---------- change tracking ----------
-function writeIds(file, ids) { fs.writeFileSync(file, JSON.stringify([...new Set(ids)].slice(-5000))); }
+function writeIds(file, ids) { saveFile(file, JSON.stringify([...new Set(ids)].slice(-5000))); }
 function changes() {
   const expired = sweepExpired();
   const r = publicScan();
@@ -2051,6 +2051,12 @@ function backupCommand(label, cmd, args) {
   fs.writeFileSync(path.join(BACKUP_DIR, name + '.meta.json'), JSON.stringify({ original: label, at: new Date().toISOString(), restore: { cmd, args } }));
   return name;
 }
+// The app's own state files: written to a temporary file first, so a full disk never leaves them empty
+function saveFile(file, text) {
+  const tmp = file + '.ai-audit-tmp';
+  try { fs.writeFileSync(tmp, text); fs.renameSync(tmp, file); }
+  catch (e) { try { fs.unlinkSync(tmp); } catch {} throw e; }
+}
 function writeJsonAtomic(file, obj) {
   const tmp = file + '.ai-audit-tmp';
   fs.writeFileSync(tmp, JSON.stringify(obj, null, 2) + '\n', { mode: fs.statSync(file).mode });
@@ -2059,7 +2065,7 @@ function writeJsonAtomic(file, obj) {
 
 function clearExpiry(findingId) {
   const ex = readJson(EXPIRY_FILE) || {};
-  if (ex[findingId]) { delete ex[findingId]; fs.writeFileSync(EXPIRY_FILE, JSON.stringify(ex, null, 2)); }
+  if (ex[findingId]) { delete ex[findingId]; saveFile(EXPIRY_FILE, JSON.stringify(ex, null, 2)); }
 }
 
 function revoke(findingId, reason = '', snapshot = null) {
@@ -2224,13 +2230,13 @@ function revokeMany(ids) {
 // Time-limited access: revoke automatically once the time is up
 function setExpiry(findingId, hours) {
   const ex = readJson(EXPIRY_FILE) || {};
-  if (!hours) { delete ex[findingId]; fs.writeFileSync(EXPIRY_FILE, JSON.stringify(ex, null, 2)); return { message: 'Auto-revoke turned off' }; }
+  if (!hours) { delete ex[findingId]; saveFile(EXPIRY_FILE, JSON.stringify(ex, null, 2)); return { message: 'Auto-revoke turned off' }; }
   const f = scanAll().findings.find(x => x.id === findingId);
   if (!f) throw new Error('Finding not found. Rescan.');
   if (!REVOCABLE.includes(f.action.kind)) throw new Error('This grant can\'t be revoked automatically.');
   const at = new Date(Date.now() + Number(hours) * 3600e3).toISOString();
   ex[findingId] = { at, title: f.title, agent: f.agent, category: f.category, risk: f.risk };
-  fs.writeFileSync(EXPIRY_FILE, JSON.stringify(ex, null, 2));
+  saveFile(EXPIRY_FILE, JSON.stringify(ex, null, 2));
   ack([findingId]);
   log(`EXPIRY set for [${f.agent}] ${f.title} at ${at}`);
   return { message: `"${f.title}" will be revoked ${new Date(at).toLocaleString()}` };
@@ -2293,7 +2299,7 @@ function markReviewed(findingId, on) {
   if (on) ack([findingId]);
   const r = readJson(REVIEW_FILE) || {};
   if (on) r[findingId] = new Date().toISOString(); else delete r[findingId];
-  fs.writeFileSync(REVIEW_FILE, JSON.stringify(r, null, 2));
+  saveFile(REVIEW_FILE, JSON.stringify(r, null, 2));
   return { ok: true };
 }
 
@@ -2447,7 +2453,7 @@ function recordDecision(g, allow, always) {
     savedRules: always ? (g.suggestions || []).flatMap(sug => (sug.rules || []).map(ruleTitle)) : [],
     blockRule: g.info.agent === 'Claude Code' ? exactRule(g.info.tool, g.input, g.cwd) : '', // "Block from now on" writes a Claude Code rule
   });
-  fs.writeFileSync(DECISIONS_FILE, JSON.stringify(list.slice(0, 500), null, 2));
+  saveFile(DECISIONS_FILE, JSON.stringify(list.slice(0, 500), null, 2));
 }
 
 function userDenyRules() { return (((readJson(h('.claude', 'settings.json')) || {}).permissions || {}).deny) || []; }
@@ -2643,13 +2649,13 @@ const server = http.createServer(async (req, res) => {
       if (body.theme !== undefined) next.theme = ['light', 'dark'].includes(body.theme) ? body.theme : 'system';
       if (body.lang !== undefined) next.lang = ['en', 'fr', 'ar'].includes(body.lang) ? body.lang : 'auto';
       if (body.updates !== undefined) next.updates = body.updates === 'off' ? 'off' : 'on';
-      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2));
+      saveFile(SETTINGS_FILE, JSON.stringify(next, null, 2));
       if (body.scope === 'all' && cur.scope !== 'all') { const known = readJson(KNOWN_FILE) || []; writeIds(KNOWN_FILE, [...known, ...scanAll().findings.map(f => f.id)]); } // widening the view isn't "new access"
       if (body.updates === 'on' && cur.updates === 'off') checkForUpdate(true);
       return send(res, 200, { scope: getScope(), onboarded: !!next.onboarded, theme: next.theme || 'system', lang: next.lang || 'auto', updates: next.updates === 'off' ? 'off' : 'on' });
     }
     if (url.pathname === '/api/update/check') return send(res, 200, await checkForUpdate(true));
-    if (url.pathname === '/api/update/dismiss') { const u = readJson(UPDATE_FILE) || {}; u.dismissed = String(body.version || ''); fs.writeFileSync(UPDATE_FILE, JSON.stringify(u, null, 2)); return send(res, 200, updateInfo()); }
+    if (url.pathname === '/api/update/dismiss') { const u = readJson(UPDATE_FILE) || {}; u.dismissed = String(body.version || ''); saveFile(UPDATE_FILE, JSON.stringify(u, null, 2)); return send(res, 200, updateInfo()); }
     if (url.pathname === '/api/decisions/change') return send(res, 200, changeDecision(body));
     if (url.pathname === '/api/gate/install') return send(res, 200, gateInstall(!!body.on, ['Gemini CLI', 'Codex CLI'].includes(body.agent) ? body.agent : 'Claude Code'));
     if (url.pathname === '/api/revoke-many') return send(res, 200, revokeMany(body.ids));
@@ -2665,6 +2671,15 @@ const server = http.createServer(async (req, res) => {
 });
 
 if (require.main === module) {
+  // A full disk shouldn't stop the watcher: a background save that fails is skipped and done again next round
+  let diskFullSince = 0;
+  process.on('uncaughtException', err => {
+    if (err && ['ENOSPC', 'EDQUOT'].includes(err.code)) {
+      if (Date.now() - diskFullSince > 600000) { diskFullSince = Date.now(); console.error(`Disk full, couldn't save ${err.path || 'a file'}; still running.`); }
+      return;
+    }
+    console.error(err); process.exit(1);
+  });
   if (process.argv.includes('--scan')) {
     const r = scanAll();
     for (const f of r.findings) console.log(`[${f.risk.toUpperCase().padEnd(6)}] ${f.agent} · ${f.category} · ${f.title}\n          ${f.detail}`);
@@ -2694,4 +2709,4 @@ if (require.main === module) {
     console.log(`AI Access Auditor running at http://localhost:${server.address().port}`);
   });
 }
-module.exports = { scanAll, _test: { gateInstall, gateStatus, historyFiles, refreshHistory, scanHistory, startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason } };
+module.exports = { scanAll, _test: { saveFile, gateInstall, gateStatus, historyFiles, refreshHistory, scanHistory, startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason } };
