@@ -20,6 +20,12 @@ build_script:
   - cd ..
 test_script:
   - ps: |
+      # the ARM installer must refuse to run on this x64 machine instead of installing nothing
+      $arm = Get-ChildItem desktop\dist -Filter "*-arm64.exe" | Select-Object -First 1
+      $r = Start-Process $arm.FullName -ArgumentList '/S' -Wait -PassThru
+      if ($r.ExitCode -ne 2) { throw "ARM installer on x64 exited with $($r.ExitCode), expected 2" }
+      if (Test-Path "$env:LOCALAPPDATA\Programs\ai-access-auditor") { throw "ARM installer on x64 left files behind" }
+      Write-Host "ARM installer refused to run on x64, as expected"
       $setup = Get-ChildItem desktop\dist -Filter "*-x64.exe" | Select-Object -First 1
       Write-Host "Installing $($setup.Name)"
       Start-Process $setup.FullName -ArgumentList '/S' -Wait
