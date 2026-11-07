@@ -88,7 +88,7 @@ function settings() { try { return JSON.parse(fs.readFileSync(path.join(DATA_DIR
 
 // ---------- state ----------
 let win = null, tray = null, server = null, port = null, token = null, buffer = '';
-let pageLoaded = false, pendingJS = [], lastChanges = null, gateInstalled = false, quitting = false, toldStillRunning = false;
+let pageLoaded = false, pendingJS = [], lastChanges = null, gateInstalled = false, quitting = false, toldStillRunning = false, updateInfo = null;
 const panels = new Map(); // open popups by request id
 
 // ---------- single instance: starting it again shows the window ----------
@@ -169,6 +169,8 @@ function startServer() {
     ...process.env, ELECTRON_RUN_AS_NODE: '1', PORT: '0',
     // the hooks agents run must start Node.js the same way, so they work without Node.js installed
     AUDIT_NODE_CMD: hookNodeCmd(),
+    // lets the scanner tell when a newer version is out (running from source has no release version: no check)
+    ...(app.isPackaged ? { AUDIT_APP_VERSION: app.getVersion() } : {}),
   };
   server = spawn(process.execPath, [path.join(CORE, 'server.js')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   const onData = d => {
@@ -218,6 +220,9 @@ async function checkForChanges() {
   setTrayIcon(c.new.length > 0, c.new.length);
   promptNewGrants(c.toNotify || []);
   notifyExpired(c.expired || []);
+  if (c.update) notifyUpdate(c.update);
+  updateInfo = await api('update');
+  buildTrayMenu();
   if (win.isVisible()) runJS('window.rescan && window.rescan()');
 }
 // Long-poll the scanner: it answers as soon as an agent asks something or an agent's config changes
@@ -381,6 +386,13 @@ function notifyExpired(grants) {
   n.on('click', () => openView('history'));
   n.show();
 }
+// one notification per new version; clicking it opens the download page
+function notifyUpdate(u) {
+  if (!Notification.isSupported() || !/^https:\/\/github\.com\//.test(u.url)) return;
+  const n = new Notification({ title: L('AI Access Auditor %@ is available', u.version.replace('-', ' ')), body: L('Open the download page to get it.'), icon: appIcon() });
+  n.on('click', () => openExternal(u.url));
+  n.show();
+}
 function openFinding(id) { showWindow(); runJS(`window.selectFinding && window.selectFinding('${String(id).replace(/[^0-9a-f]/gi, '')}')`); }
 function openView(v) { showWindow(); runJS(`window.showView && window.showView('${String(v).replace(/[^a-z]/gi, '')}')`); }
 
@@ -417,7 +429,11 @@ function buildTrayMenu() {
     if (c.new.length) items.push({ label: L('Mark All as Seen'), click: async () => { await api('ack', 'POST', {}); checkForChanges(); } });
     items.push({ type: 'separator' }, { label: L('%d grants · %d high-risk not reviewed', c.total, c.openHigh), enabled: false });
   }
-  items.push({ type: 'separator' },
+  items.push({ type: 'separator' });
+  const u = updateInfo;
+  if (u && u.enabled && u.available && u.latest && /^https:\/\/github\.com\//.test(u.url || ''))
+    items.push({ label: L('Update available: %@…', u.latest.replace('-', ' ')), click: () => openExternal(u.url) }, { type: 'separator' });
+  items.push(
     { label: L('Open AI Access Auditor'), click: showWindow },
     { label: L('Check Now'), click: checkForChanges },
     { label: L('Decisions…'), click: () => openView('decisions') },

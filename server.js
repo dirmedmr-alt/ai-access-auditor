@@ -1961,6 +1961,53 @@ function publicScan() {
   return r;
 }
 
+// ---------- update check ----------
+// Once a day the app asks GitHub which version is the newest. Nothing about this computer is sent: it is one
+// plain request for the public release list. It can be switched off in Setup ("Check for updates").
+const UPDATE_FILE = path.join(DATA_DIR, 'update.json');
+const RELEASES_API = 'https://api.github.com/repos/dirmedmr-alt/ai-access-auditor/releases?per_page=10';
+const APP_VERSION = process.env.AUDIT_APP_VERSION || ''; // given by the Mac, Windows and Linux apps
+const updatesOn = () => (readJson(SETTINGS_FILE) || {}).updates !== 'off';
+// "1.0.6-beta" → [1, 0, 6]; versions differ only in their numbers
+const verParts = v => (String(v).match(/(\d+)\.(\d+)\.(\d+)/) || [0, 0, 0, 0]).slice(1).map(Number);
+function newerThan(a, b) { const x = verParts(a), y = verParts(b); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i]; return false; }
+function updateInfo() {
+  const u = readJson(UPDATE_FILE) || {};
+  return { enabled: updatesOn(), current: APP_VERSION || null, latest: u.latest || null, url: u.url || null, checkedAt: u.checkedAt || null,
+    available: !!(APP_VERSION && u.latest && newerThan(u.latest, APP_VERSION)), dismissed: u.dismissed || null };
+}
+function checkForUpdate(force = false) {
+  return new Promise(resolve => {
+    const u = readJson(UPDATE_FILE) || {};
+    if (DEMO || !APP_VERSION || (!force && (!updatesOn() || (u.checkedAt && Date.now() - Date.parse(u.checkedAt) < 23 * 3600e3)))) return resolve(updateInfo());
+    const req = require('https').get(RELEASES_API, { headers: { 'User-Agent': 'AI-Access-Auditor', Accept: 'application/vnd.github+json' }, timeout: 15000 }, res => {
+      let d = '';
+      res.on('data', c => { if (d.length < 2e6) d += c; }).on('end', () => {
+        try {
+          const rel = JSON.parse(d).find(r => !r.draft && /^v\d+\.\d+\.\d+/.test(r.tag_name || ''));
+          if (rel) Object.assign(u, { latest: rel.tag_name.replace(/^v/, ''), url: rel.html_url });
+          u.checkedAt = new Date().toISOString();
+          fs.writeFileSync(UPDATE_FILE, JSON.stringify(u, null, 2));
+          if (rel && newerThan(u.latest, APP_VERSION)) { changedFlag = true; flushEvents(); }
+        } catch {}
+        resolve(updateInfo());
+      });
+    });
+    req.on('timeout', () => req.destroy());
+    req.on('error', () => resolve(updateInfo()));
+  });
+}
+// the apps show one notification per new version
+function updateToNotify() {
+  const info = updateInfo();
+  if (!info.enabled || !info.available) return null;
+  const u = readJson(UPDATE_FILE) || {};
+  if (u.notified === info.latest) return null;
+  u.notified = info.latest;
+  fs.writeFileSync(UPDATE_FILE, JSON.stringify(u, null, 2));
+  return { version: info.latest, url: info.url };
+}
+
 // ---------- change tracking ----------
 function writeIds(file, ids) { fs.writeFileSync(file, JSON.stringify([...new Set(ids)].slice(-5000))); }
 function changes() {
@@ -1977,7 +2024,7 @@ function changes() {
   if (toNotify.length) writeIds(NOTIFIED_FILE, [...notified, ...toNotify.map(f => f.id)]);
   const openHigh = r.findings.filter(f => f.risk === 'high' && !f.reviewedAt).length;
   const slim = f => ({ id: f.id, agent: f.agent, title: f.title, category: f.category, risk: f.risk, detail: f.detail, revocable: REVOCABLE.includes(f.action.kind) });
-  return { scannedAt: r.scannedAt, total: r.findings.length, openHigh, new: fresh.map(slim), toNotify: toNotify.map(slim), expired };
+  return { scannedAt: r.scannedAt, total: r.findings.length, openHigh, new: fresh.map(slim), toNotify: toNotify.map(slim), expired, update: updateToNotify() };
 }
 function ack(ids) {
   const known = readJson(KNOWN_FILE) || [];
@@ -2573,7 +2620,8 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && url.pathname === '/api/scan') { sweepExpired(); return send(res, 200, publicScan()); }
     if (req.method === 'GET' && url.pathname === '/api/events') return waitEvents(res);
-    if (req.method === 'GET' && url.pathname === '/api/settings') return send(res, 200, { scope: getScope(), onboarded: !!(readJson(SETTINGS_FILE) || {}).onboarded, theme: (readJson(SETTINGS_FILE) || {}).theme || 'system', lang: (readJson(SETTINGS_FILE) || {}).lang || 'auto' });
+    if (req.method === 'GET' && url.pathname === '/api/update') return send(res, 200, updateInfo());
+    if (req.method === 'GET' && url.pathname === '/api/settings') return send(res, 200, { scope: getScope(), onboarded: !!(readJson(SETTINGS_FILE) || {}).onboarded, theme: (readJson(SETTINGS_FILE) || {}).theme || 'system', lang: (readJson(SETTINGS_FILE) || {}).lang || 'auto', updates: updatesOn() ? 'on' : 'off' });
     if (req.method === 'GET' && url.pathname === '/api/decisions') return send(res, 200, listDecisions());
     if (req.method === 'GET' && url.pathname === '/api/gate/status') return send(res, 200, gateStatus());
     if (req.method === 'GET' && url.pathname === '/api/changes') return send(res, 200, changes());
@@ -2590,10 +2638,14 @@ const server = http.createServer(async (req, res) => {
       if (body.onboarded !== undefined) next.onboarded = !!body.onboarded;
       if (body.theme !== undefined) next.theme = ['light', 'dark'].includes(body.theme) ? body.theme : 'system';
       if (body.lang !== undefined) next.lang = ['en', 'fr', 'ar'].includes(body.lang) ? body.lang : 'auto';
+      if (body.updates !== undefined) next.updates = body.updates === 'off' ? 'off' : 'on';
       fs.writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2));
       if (body.scope === 'all' && cur.scope !== 'all') { const known = readJson(KNOWN_FILE) || []; writeIds(KNOWN_FILE, [...known, ...scanAll().findings.map(f => f.id)]); } // widening the view isn't "new access"
-      return send(res, 200, { scope: getScope(), onboarded: !!next.onboarded, theme: next.theme || 'system', lang: next.lang || 'auto' });
+      if (body.updates === 'on' && cur.updates === 'off') checkForUpdate(true);
+      return send(res, 200, { scope: getScope(), onboarded: !!next.onboarded, theme: next.theme || 'system', lang: next.lang || 'auto', updates: next.updates === 'off' ? 'off' : 'on' });
     }
+    if (url.pathname === '/api/update/check') return send(res, 200, await checkForUpdate(true));
+    if (url.pathname === '/api/update/dismiss') { const u = readJson(UPDATE_FILE) || {}; u.dismissed = String(body.version || ''); fs.writeFileSync(UPDATE_FILE, JSON.stringify(u, null, 2)); return send(res, 200, updateInfo()); }
     if (url.pathname === '/api/decisions/change') return send(res, 200, changeDecision(body));
     if (url.pathname === '/api/gate/install') return send(res, 200, gateInstall(!!body.on, ['Gemini CLI', 'Codex CLI'].includes(body.agent) ? body.agent : 'Claude Code'));
     if (url.pathname === '/api/revoke-many') return send(res, 200, revokeMany(body.ids));
@@ -2626,6 +2678,8 @@ if (require.main === module) {
     startUploadMonitor();
     startWindowsHelper();
     if (!DEMO) setInterval(() => refreshHistory(3000), 45e3).unref(); // keeps checking new session logs in the background
+    setTimeout(() => checkForUpdate(), 20e3).unref();
+    setInterval(() => checkForUpdate(), 3600e3).unref(); // checks at most once a day (see checkForUpdate)
     if (process.env.PORT === '0') {
       console.log(`TOKEN ${TOKEN}`); // only for the Mac app that launched us
       // Exit when the Mac app goes away, even if it was force-quit

@@ -1,7 +1,8 @@
 # AI Access Auditor
 
 An app for macOS, Windows and Linux that finds every access and privilege you've given to AI agents, asks before
-they act, and lets you take any of it back. Everything stays on your computer: no account, nothing sent online, no tracking.
+they act, and lets you take any of it back. Everything stays on your computer: no account, no tracking. The only connection it makes is a daily check
+for a new version (switch it off in Setup).
 
 **Download:** [website](https://dirmedmr-alt.github.io/ai-access-auditor/) ·
 [latest release](https://github.com/dirmedmr-alt/ai-access-auditor/releases/latest)
