@@ -11,9 +11,18 @@ module.exports = [
   ['<title>AI Access Auditor — see and control what your AI agents can do</title>',
    '<title>AI Access Auditor — voyez et contrôlez tout ce que vos agents IA peuvent faire</title>',
    '<title>AI Access Auditor — اعرف كل ما يستطيع وكلاء الذكاء الاصطناعي فعله والتحكم فيه</title>'],
-  ['A free Mac app that finds every permission, folder, login and privilege your AI agents have, pops up the moment that changes, and lets you take any of it back.',
-   'Une app Mac gratuite qui trouve chaque permission, dossier, identifiant et privilège de vos agents IA, vous alerte dès que cela change et vous permet de tout retirer.',
-   'تطبيق مجاني لأجهزة Mac يكشف كل إذن ومجلد وتسجيل دخول وصلاحية لدى وكلاء الذكاء الاصطناعي، وينبّهك فور حدوث أي تغيير، ويتيح لك سحب أيٍّ منها.'],
+  ['Free app for macOS, Windows and Linux. See every permission, folder, login and key your AI agents (Claude Code, Codex, Gemini CLI, Cursor) have, and take any of it back.',
+   'App gratuite pour macOS, Windows et Linux. Voyez chaque permission, dossier, identifiant et clé de vos agents IA (Claude Code, Codex, Gemini CLI, Cursor) et retirez ce que vous voulez.',
+   'تطبيق مجاني لأنظمة macOS وWindows وLinux. اعرف كل إذن ومجلد وتسجيل دخول ومفتاح لدى وكلاء الذكاء الاصطناعي (Claude Code وCodex وGemini CLI وCursor) واسحب ما تشاء منها.'],
+  // link previews and search engines: each language is its own page with its own card image
+  ['<link rel="canonical" href="https://dirmedmr-alt.github.io/ai-access-auditor/">', '<link rel="canonical" href="https://dirmedmr-alt.github.io/ai-access-auditor/fr/">', '<link rel="canonical" href="https://dirmedmr-alt.github.io/ai-access-auditor/ar/">'],
+  ['<meta property="og:url" content="https://dirmedmr-alt.github.io/ai-access-auditor/">', '<meta property="og:url" content="https://dirmedmr-alt.github.io/ai-access-auditor/fr/">', '<meta property="og:url" content="https://dirmedmr-alt.github.io/ai-access-auditor/ar/">'],
+  ['"url":"https://dirmedmr-alt.github.io/ai-access-auditor/"', '"url":"https://dirmedmr-alt.github.io/ai-access-auditor/fr/"', '"url":"https://dirmedmr-alt.github.io/ai-access-auditor/ar/"'],
+  ['<meta property="og:locale" content="en_US">', '<meta property="og:locale" content="fr_FR">', '<meta property="og:locale" content="ar_AR">'],
+  ['assets/og.jpg"', 'assets/og-fr.jpg"', 'assets/og-ar.jpg"'],
+  ['<meta property="og:title" content="AI Access Auditor: see and control what your AI agents can do">',
+   '<meta property="og:title" content="AI Access Auditor : voyez et contrôlez ce que vos agents IA peuvent faire">',
+   '<meta property="og:title" content="AI Access Auditor: اعرف ما يستطيع وكلاء الذكاء الاصطناعي فعله وتحكّم فيه">'],
 
   // ---------- navigation ----------
   ['>Features</a>', '>Fonctionnalités</a>', '>المزايا</a>'],
@@ -148,9 +157,9 @@ module.exports = [
    'يزيل كل عنصر أو يعطّله أو يوقفه بنقرة واحدة، ويحفظ نسخة احتياطية من الملف أولًا، ويمكنه التراجع من «السجل».'],
   ['<h3>It speaks plain language</h3>', '<h3>Il parle un langage clair</h3>', '<h3>يتحدث بلغة واضحة</h3>'],
   ['Are written for security engineers, often run from the Terminal.', 'Sont conçus pour des ingénieurs sécurité, souvent en ligne de commande.', 'مكتوبة لمهندسي الأمن، وغالبًا تُشغَّل من الطرفية.'],
-  ['A native Mac app with a safety score and a one-line explanation of every permission, so anyone can decide in seconds.',
-   'Une app Mac native avec un score de sécurité et une explication en une ligne pour chaque permission, pour que chacun puisse décider en quelques secondes.',
-   'تطبيق Mac أصلي مع درجة أمان وشرح في سطر واحد لكل إذن، ليقرر أي شخص خلال ثوانٍ.'],
+  ['A desktop app for Mac, Windows and Linux with a safety score and a one-line explanation of every permission, so anyone can decide in seconds.',
+   'Une app pour Mac, Windows et Linux avec un score de sécurité et une explication en une ligne pour chaque permission, pour que chacun puisse décider en quelques secondes.',
+   'تطبيق لأنظمة Mac وWindows وLinux مع درجة أمان وشرح في سطر واحد لكل إذن، ليقرر أي شخص خلال ثوانٍ.'],
 
   // ---------- privacy ----------
   ['>Privacy</p>', '>Confidentialité</p>', '>الخصوصية</p>'],
