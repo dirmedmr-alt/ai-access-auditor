@@ -57,6 +57,14 @@ if (task) {
   check(/Disabled|Désactivé/i.test(run('powershell', ['-NoProfile', '-Command', "(Get-ScheduledTask -TaskName 'Claude nightly').State"])), 'turning off a scheduled task disables it');
 }
 
+// the "Ask before Claude Code acts" switch: the hook must be found again once added (Windows paths have backslashes)
+t.gateInstall(true); t.gateInstall(true);
+const perm = (JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude', 'settings.json'), 'utf8')).hooks || {}).PermissionRequest || [];
+check(t.gateStatus().installed && perm.length === 1, 'the Claude Code hook shows as on after turning it on, and only once');
+check(/\/gate\.js"$/.test(perm[0]?.hooks[0].command || ''), 'the hook command uses forward slashes for the script');
+t.gateInstall(false);
+check(!t.gateStatus().installed, 'turning the Claude Code hook off removes it');
+
 // clean up
 run('reg', ['delete', RUN, '/v', 'Claude Background', '/f']);
 run('cmdkey', ['/delete:gh:github.com']);
