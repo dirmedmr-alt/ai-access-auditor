@@ -155,9 +155,9 @@ module.exports = [
   // ---------- privacy ----------
   ['>Privacy</p>', '>Confidentialité</p>', '>الخصوصية</p>'],
   ['<h2>It stays on your Mac. All of it.</h2>', '<h2>Tout reste sur votre Mac. Absolument tout.</h2>', '<h2>كل شيء يبقى على جهازك. كل شيء.</h2>'],
-  ['A security tool shouldn\'t create a new risk. AI Access Auditor has no account, sends nothing online and does no tracking.',
-   'Un outil de sécurité ne devrait pas créer de nouveau risque. AI Access Auditor n’a ni compte ni pistage, et n’envoie rien en ligne.',
-   'لا ينبغي لأداة أمان أن تخلق خطرًا جديدًا. لا حساب ولا تتبّع في AI Access Auditor، ولا يرسل أي شيء عبر الإنترنت.'],
+  ['A security tool shouldn\'t create a new risk. AI Access Auditor has no account and no tracking. The only thing it asks the internet is whether a new version is out, once a day, and you can turn that off.',
+   'Un outil de sécurité ne devrait pas créer de nouveau risque. AI Access Auditor n’a ni compte ni pistage. La seule chose qu’il demande à Internet, une fois par jour, est si une nouvelle version est sortie, et vous pouvez le désactiver.',
+   'لا ينبغي لأداة أمان أن تخلق خطرًا جديدًا. لا حساب ولا تتبّع في AI Access Auditor. الشيء الوحيد الذي يسأل عنه الإنترنت هو صدور إصدار جديد، مرة يوميًا، ويمكنك إيقاف ذلك.'],
   ['<h3>No network</h3><p>The app only talks to itself, on your own Mac. Nothing is uploaded, ever. It watches other apps\' traffic using macOS\'s own counters, without reading what they send.</p>',
    '<h3>Pas de réseau</h3><p>L’app ne communique qu’avec elle-même, sur votre Mac. Rien n’est jamais envoyé. Elle surveille le trafic des autres apps avec les compteurs de macOS, sans lire ce qu’elles envoient.</p>',
    '<h3>بلا شبكة</h3><p>لا يتواصل التطبيق إلا مع نفسه على جهازك، ولا يُرفع أي شيء أبدًا. يراقب حركة التطبيقات الأخرى بعدّادات macOS نفسها، دون قراءة ما ترسله.</p>'],

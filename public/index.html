@@ -81,6 +81,9 @@ html.native .head{padding-top:30px}
 .btn svg{width:14px;height:14px}
 
 /* overview */
+.upd{display:flex;align-items:center;gap:14px;background:color-mix(in srgb,var(--acc) 9%,transparent);border:1px solid color-mix(in srgb,var(--acc) 30%,transparent);border-radius:14px;padding:12px 16px;margin-top:8px}
+.upd .pi{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;background:color-mix(in srgb,var(--acc) 16%,transparent);color:var(--acc);flex:none}
+.upd .pi svg{width:18px;height:18px}.upd .pm{flex:1;min-width:0;display:flex;flex-direction:column}.upd .pm span{font-size:13px;color:var(--mut)}
 .hero{display:grid;grid-template-columns:auto 1fr;gap:28px;align-items:center;background:var(--pane2);border-radius:16px;padding:22px 26px;margin-top:8px}
 .ring{position:relative;width:118px;height:118px}
 .ring svg{transform:rotate(-90deg)}
@@ -365,9 +368,10 @@ const toast = (m, ms = 3800) => { const t = $('#toast'); t.textContent = m; t.cl
 async function scan() {
   $('#rescan').innerHTML = icon('refresh', 'spin');
   let settings = {};
-  try { [data, { installed: gateOn, gemini: gemOn, geminiInstalled: gemHere, codex: cdxOn, codexInstalled: cdxHere }, settings] = await Promise.all([api('scan'), api('gate/status'), api('settings')]); scope = settings.scope; }
+  try { [data, { installed: gateOn, gemini: gemOn, geminiInstalled: gemHere, codex: cdxOn, codexInstalled: cdxHere }, settings, update] = await Promise.all([api('scan'), api('gate/status'), api('settings'), api('update').catch(() => null)]); scope = settings.scope; }
   catch (e) { $('#when').textContent = e.message; return; }
   finally { $('#rescan').innerHTML = icon('refresh'); }
+  updatesPref = settings.updates || 'on';
   if (settings.theme && !themeLoaded) { themeLoaded = true; applyTheme(settings.theme, false); }
   if (settings.lang && settings.lang !== langPref) { langPref = settings.lang; setLang(langPref); nativeCmd('setLang', { lang: langPref }); }
   if (!settings.onboarded && !setupShownOnce) { setupShownOnce = true; openSetup(); }
@@ -418,6 +422,13 @@ function renderMain() {
   renderList();
 }
 
+// "Version X is available": shown on the Overview until you download it or choose Later for that version
+function updateBanner() {
+  const u = update;
+  if (!u || !u.enabled || !u.available || u.dismissed === u.latest) return '';
+  return `<div class="upd"><span class="pi">${icon('refresh')}</span><div class="pm"><b>Version ${esc(u.latest.replace('-', ' '))} is available</b><span>You have ${esc((u.current || '').replace('-', ' '))}. Download it and install it over this one.</span></div>
+    <a class="btn primary" href="${esc(u.url)}" target="_blank" rel="noopener">Download</a><button class="btn ghost" data-upd-later="${esc(u.latest)}">Later</button></div>`;
+}
 function renderOverview() {
   const f = data.findings, open = f.filter(x => !x.reviewedAt);
   const s = score();
@@ -434,6 +445,7 @@ function renderOverview() {
   const fda = !tccMissing;
   const prot = (ic, label, sub, ctrl, ok) => `<div class="pt ${ok ? 'on' : ''}"><span class="pi">${icon(ic)}</span><div class="pm"><b>${label}</b><span>${sub}</span></div>${ctrl}</div>`;
   $('#body').innerHTML = `
+    ${updateBanner()}
     <div class="hero">
       <div class="ring">
         <svg width="112" height="112" viewBox="0 0 118 118"><circle cx="59" cy="59" r="50" stroke="var(--line)" stroke-width="10" fill="none"/>
@@ -718,7 +730,8 @@ $('#themeBtn').addEventListener('click', () => {
 });
 
 // ---------- welcome / setup ----------
-let themeLoaded = false, langPref = 'auto';
+let themeLoaded = false, langPref = 'auto', update = null;
+let updatesPref = 'on';
 let setupStep = 0, setupShownOnce = false, nativeInfo = { native: false, login: false, inApplications: false };
 const isNative = () => !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.native);
 const nativeCmd = (cmd, extra = {}) => { if (isNative()) window.webkit.messageHandlers.native.postMessage({ cmd, ...extra }); };
@@ -766,7 +779,9 @@ function renderSetup() {
       <div class="srow"><span class="ic low">${icon('Browser extension')}</span><div><b>Language</b><p>Auto follows your Mac's language.</p></div>
         <div class="seg" style="margin-inline-start:auto;align-self:center">${[['auto', 'Auto'], ['en', 'English'], ['fr', 'Français'], ['ar', 'العربية']].map(([v, l]) => `<button data-lang-pick="${v}" class="${langPref === v ? 'on' : ''}" lang="${v === 'auto' ? '' : v}">${l}</button>`).join('')}</div></div>
       <div class="srow"><span class="ic low">${icon('macOS privacy')}</span><div><b>Watch all apps, not just AI</b><p>${MACOS ? 'Also cover camera, screen, files and background jobs for every other app.' : 'Also cover background jobs for every other app.'}</p></div>
-        <label class="switch"><input type="checkbox" data-setsw="scope" ${scope === 'all' ? 'checked' : ''}></label></div>`,
+        <label class="switch"><input type="checkbox" data-setsw="scope" ${scope === 'all' ? 'checked' : ''}></label></div>
+      <div class="srow"><span class="ic low">${icon('refresh')}</span><div><b>Check for updates</b><p>Once a day, asks GitHub whether a new version is out. Nothing about your computer is sent.</p></div>
+        <label class="switch"><input type="checkbox" data-setsw="updates" ${updatesPref !== 'off' ? 'checked' : ''}></label></div>`,
     () => `${big('Trusted folder')}<div class="stepno">All set</div>
       <h2>You're protected</h2>
       <p class="lead">Here's what's switched on. You can change any of it later from <b>Setup</b> at the bottom of the sidebar.</p>
@@ -786,6 +801,8 @@ function renderSetup() {
 }
 
 document.addEventListener('click', e => {
+  const later = e.target.closest('[data-upd-later]');
+  if (later) { api('update/dismiss', { version: later.dataset.updLater }).then(u => { update = u; render(); }).catch(() => {}); return; }
   const t = e.target.closest('[data-lang-pick],[data-theme-pick],[data-setup-step],[data-setup],[data-snav],[data-sclose],[data-native],[data-recheck]');
   if (!t) return;
   if (t.dataset.langPick) { langPref = t.dataset.langPick; setLang(langPref); nativeCmd('setLang', { lang: langPref }); api('settings', { lang: langPref }).catch(() => {}); render(); return renderSetup(); }
@@ -804,6 +821,7 @@ document.addEventListener('change', async e => {
   try {
     if (k === 'gate') toast((await api('gate/install', { on })).message, 4000);
     if (k === 'scope') await api('settings', { scope: on ? 'all' : 'ai' });
+    if (k === 'updates') { await api('settings', { updates: on ? 'on' : 'off' }); update = await api('update').catch(() => update); updatesPref = on ? 'on' : 'off'; }
     if (k === 'login') nativeCmd('setLogin', { on });
   } catch (err) { toast(err.message); }
   await scan();

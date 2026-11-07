@@ -137,6 +137,9 @@ enum I18n {
         "Browser extension": ["Extension de navigateur", "إضافة متصفح"],
         "Network exposure": ["Exposition réseau", "مكشوف على الشبكة"],
         "Exposed secret": ["Secret exposé", "مفتاح سري مكشوف"],
+        "AI Access Auditor %@ is available": ["AI Access Auditor %@ est disponible", "AI Access Auditor %@ متاح"],
+        "Open the download page to get it.": ["Ouvrez la page de téléchargement pour l’obtenir.", "افتح صفحة التنزيل للحصول عليه."],
+        "Update available: %@…": ["Mise à jour disponible : %@…", "تحديث متاح: %@…"],
         "Secret in history": ["Secret dans l’historique", "مفتاح سري في السجل"],
         "Data sharing": ["Partage de données", "مشاركة البيانات"],
 

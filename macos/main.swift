@@ -15,7 +15,9 @@ struct Grant: Decodable { let id, agent, title, category, risk, detail: String; 
 struct GateRequest: Decodable { let id, agent, tool, action, text, risk, cwd: String; let canAlways: Bool }
 struct Events: Decodable { let gate: [GateRequest]; let changed: Bool; let closed: [String] }
 struct GateStatus: Decodable { let installed: Bool }
-struct Changes: Decodable { let scannedAt: String; let total, openHigh: Int; let new, toNotify: [Grant]; let expired: [Grant]? }
+struct Changes: Decodable { let scannedAt: String; let total, openHigh: Int; let new, toNotify: [Grant]; let expired: [Grant]?; let update: NewVersion? }
+struct NewVersion: Decodable { let version, url: String }
+struct UpdateInfo: Decodable { let enabled, available: Bool; let latest, url: String? }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate,
                          UNUserNotificationCenterDelegate, NSMenuDelegate, WKScriptMessageHandler {
@@ -32,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     var timer: Timer?
     var panels: [String: PromptPanel] = [:]   // open Allow/Deny prompts by request id
     var gateInstalled = false
+    var updateInfo: UpdateInfo?
     let startHidden = CommandLine.arguments.contains("--background")
 
     // MARK: launch
@@ -131,6 +134,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         p.arguments = [script]
         var env = ProcessInfo.processInfo.environment
         env["PORT"] = "0"
+        // lets the scanner tell when a newer version is out (development builds have no real version: no check)
+        if let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String, v.range(of: #"^\d+\.\d+\.\d+"#, options: .regularExpression) != nil {
+            env["AUDIT_APP_VERSION"] = v
+        }
         p.environment = env
         let pipe = Pipe()
         p.standardOutput = pipe
@@ -201,6 +208,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             NSApp.dockTile.badgeLabel = c.new.isEmpty ? nil : String(c.new.count)
             self.promptNewGrants(c.toNotify)
             self.notifyExpired(c.expired ?? [])
+            if let u = c.update { self.notifyUpdate(u) }
+            self.api("update") { data in self.updateInfo = data.flatMap { try? JSONDecoder().decode(UpdateInfo.self, from: $0) } }
             if self.window.isVisible { self.runJS("window.rescan && window.rescan()") }
         }
     }
@@ -370,6 +379,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "expired-\(Date().timeIntervalSince1970)", content: c, trigger: nil))
     }
     func rank(_ r: String) -> Int { ["high": 0, "medium": 1, "low": 2][r] ?? 3 }
+    /// One notification per new version; clicking it opens the download page
+    func notifyUpdate(_ u: NewVersion) {
+        guard u.url.hasPrefix("https://github.com/") else { return }
+        let c = UNMutableNotificationContent()
+        c.title = L("AI Access Auditor %@ is available", u.version.replacingOccurrences(of: "-", with: " "))
+        c.body = L("Open the download page to get it.")
+        c.userInfo = ["url": u.url]
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "update-\(u.version)", content: c, trigger: nil))
+    }
+    @objc func openUpdatePage() {
+        if let s = updateInfo?.url, s.hasPrefix("https://github.com/"), let url = URL(string: s) { NSWorkspace.shared.open(url) }
+    }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                 withCompletionHandler done: @escaping (UNNotificationPresentationOptions) -> Void) {
@@ -379,6 +400,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                                 withCompletionHandler done: @escaping () -> Void) {
         let info = response.notification.request.content.userInfo
         DispatchQueue.main.async {
+            if let s = info["url"] as? String, s.hasPrefix("https://github.com/"), let url = URL(string: s) { NSWorkspace.shared.open(url); return }
             if let id = info["id"] as? String { self.openFinding(id) } else { self.openView(info["view"] as? String ?? "new") }
         }
         done()
@@ -460,6 +482,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             }
         }
         menu.addItem(.separator())
+        if let u = updateInfo, u.enabled, u.available, let v = u.latest {
+            addItem(menu, L("Update available: %@…", v.replacingOccurrences(of: "-", with: " ")), #selector(openUpdatePage))
+            menu.addItem(.separator())
+        }
         addItem(menu, L("Open AI Access Auditor"), #selector(showWindow), "o")
         addItem(menu, L("Check Now"), #selector(checkForChanges), "r")
         addItem(menu, L("Decisions…"), #selector(menuOpenDecisions))
