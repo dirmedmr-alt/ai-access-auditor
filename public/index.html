@@ -288,6 +288,7 @@ const RISK_LABEL = { high: 'High risk', medium: 'Medium', low: 'Low' };
 const P = {
   overview: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
   list: '<path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/>',
+  privacy: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><circle cx="12" cy="11" r="2.2"/><path d="M12 13.2V16"/>',
   accounts: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
   hand: '<path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 0 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.9-6-2.4l-3.6-3.6a2 2 0 0 1 2.8-2.8L7 15"/>',
   history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/>',
@@ -401,6 +402,7 @@ function renderNav() {
   $('#nav').innerHTML =
     item('overview', 'Overview', icon('overview'), openHigh ? '!' + openHigh : '') +
     item('all', 'All grants', icon('list'), f.length) +
+    item('privacy', 'Privacy', icon('privacy'), (n => n ? (f.some(x => PRIVACY.includes(x.category) && x.risk === 'high' && !x.reviewedAt) ? '!' : '') + n : '')(f.filter(x => PRIVACY.includes(x.category) && !x.reviewedAt).length)) +
     (f.some(x => x.isNew) ? item('new', 'New', icon('info'), '!' + f.filter(x => x.isNew).length) : '') +
     `<div class="navh">Agents</div>` +
     Object.entries(agents).sort((a, b) => b[1] - a[1]).map(([a, n]) => item('agent', a, avatar(a), n, a)).join('') +
@@ -417,6 +419,7 @@ function setHead(title, sub, toolbar = '') {
 function renderMain() {
   if (view === 'overview') return renderOverview();
   if (view === 'accounts') return renderAccounts();
+  if (view === 'privacy') return renderPrivacy();
   if (view === 'history') return renderHistory();
   if (view === 'decisions') return renderDecisions();
   renderList();
@@ -469,6 +472,8 @@ function renderOverview() {
       ${gemHere || gemOn ? prot('hand', 'Ask before Gemini CLI acts', gemOn ? 'When Gemini would act without asking' : 'Gemini asks in its own window', `<label class="switch"><input type="checkbox" id="gemSw" ${gemOn ? 'checked' : ''}></label>`, gemOn) : ''}
       ${cdxHere || cdxOn ? prot('hand', 'Ask before Codex CLI acts', cdxOn ? 'You approve each action here' : 'Codex asks in its own window', `<label class="switch"><input type="checkbox" id="cdxSw" ${cdxOn ? 'checked' : ''}></label>`, cdxOn) : ''}
       ${!MACOS ? '' : prot('macOS privacy', 'macOS permissions', fda ? 'Screen, files, camera and more' : 'Needs Full Disk Access', fda ? '<span class="ok-pill yes">On</span>' : '<button class="btn" data-setup-step="1">Fix</button>', fda)}
+      ${(() => { const s = f.filter(x => x.category === 'Secret in history').length, d = f.filter(x => x.category === 'Data sharing').length;
+        return prot('privacy', 'Privacy', s || d ? `${s} logs with secrets · ${d} sharing data` : 'Nothing found', s || d ? '<button class="btn" data-go="privacy">Review</button>' : '<span class="ok-pill yes">Clear</span>', !(s || d)); })()}
       ${prot('Folder access', 'Watch all apps', scope === 'all' ? 'Every app, not just AI' : 'AI apps only', `<label class="switch"><input type="checkbox" id="scopeSw" ${scope === 'all' ? 'checked' : ''}></label>`, scope === 'all')}
     </div>
     <div class="split">
@@ -532,6 +537,22 @@ function renderBulk() {
     <button class="btn plain" data-bulk="clear">Clear</button></div>`);
 }
 
+// Privacy: secrets left in agents' session logs, data tools send home, and the AI services' training settings
+const PRIVACY = ['Secret in history', 'Data sharing'];
+function renderPrivacy() {
+  setHead('Privacy', 'Secrets left in agents\' session logs, and data your tools send to the companies that make them.');
+  const sec = (title, cat, empty) => {
+    const list = data.findings.filter(x => x.category === cat);
+    return `<div class="sec"><h3>${title}</h3></div><div class="card nock">${list.length ? list.map(x => row(x, 'category')).join('')
+      : `<div class="empty" style="padding:28px 20px"><div class="big">✓</div>${empty}</div>`}</div>`;
+  };
+  $('#body').innerHTML = sec('Secrets in session history', 'Secret in history', 'No keys or passwords found in agents\' session logs.')
+    + sec('Data sharing', 'Data sharing', 'None of your tools sends usage data or shares sessions.')
+    + `<div class="sec"><h3>Training on your conversations</h3></div><p class="detail" style="margin:-4px 0 10px">Whether the AI services use your chats to train their models. This can only be changed on their websites.</p>
+    <div class="card">${data.manual.filter(m => m.privacy).map(m => `
+    <a class="link" href="${esc(m.url)}" target="_blank" rel="noopener"><span class="ic">${icon('accounts')}</span>
+      <div><div class="ttl">${esc(m.name)}</div><div class="sub">${esc(new URL(m.url).host)}</div></div>${icon('ext', 'chev')}</a>`).join('')}</div>`;
+}
 function renderAccounts() {
   setHead('Online accounts', 'These grants live in your online accounts, so they can\'t be scanned from your Mac. Check each one.');
   $('#body').innerHTML = `<div class="card" style="margin-top:8px">${data.manual.map(m => `

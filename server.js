@@ -411,11 +411,11 @@ const MANUAL_CHECKS = [
   { name: 'Anthropic API keys', url: 'https://console.anthropic.com/settings/keys' },
   { name: 'OpenAI API keys', url: 'https://platform.openai.com/api-keys' },
   // whether your conversations are used to train AI models: only changeable on each service's website
-  { name: 'Claude: use of your chats for training', url: 'https://claude.ai/settings/data-privacy-controls' },
-  { name: 'ChatGPT: improve the model for everyone', url: 'https://chatgpt.com/#settings/DataControls' },
-  { name: 'GitHub Copilot: data use for training', url: 'https://github.com/settings/copilot' },
-  { name: 'Cursor: Privacy Mode', url: 'https://cursor.com/dashboard?tab=settings' },
-  { name: 'Google Gemini: Gemini Apps Activity', url: 'https://myactivity.google.com/product/gemini' },
+  { name: 'Claude: use of your chats for training', url: 'https://claude.ai/settings/data-privacy-controls', privacy: true },
+  { name: 'ChatGPT: improve the model for everyone', url: 'https://chatgpt.com/#settings/DataControls', privacy: true },
+  { name: 'GitHub Copilot: data use for training', url: 'https://github.com/settings/copilot', privacy: true },
+  { name: 'Cursor: Privacy Mode', url: 'https://cursor.com/dashboard?tab=settings', privacy: true },
+  { name: 'Google Gemini: Gemini Apps Activity', url: 'https://myactivity.google.com/product/gemini', privacy: true },
 ];
 
 function scanEnvKeys() {
