@@ -6,9 +6,9 @@ for a new version (switch it off in Setup).
 
 **Download:** [website](https://dirmedmr-alt.github.io/ai-access-auditor/) ·
 [latest release](https://github.com/dirmedmr-alt/ai-access-auditor/releases/latest)
-(free beta).
-- **Mac:** macOS 13 or later, Apple Silicon and Intel. Unsigned, so approve it once under
-  System Settings → Privacy & Security → Open Anyway.
+(free).
+- **Mac:** macOS 13 or later, Apple Silicon and Intel. Signed and notarized by Apple from 1.0.8 on
+  (the betas were unsigned: approve them once under System Settings → Privacy & Security → Open Anyway).
 - **Windows:** Windows 10 and 11, installers for x64 and ARM (ARM not tested yet). Unsigned, so SmartScreen may
   warn once: More info → Run anyway. Uploads aren't watched on Windows.
 - **Linux:** a `.deb` for Ubuntu, Debian and similar (x64 and arm64: `sudo apt install ./AI-Access-Auditor-*.deb`),
@@ -82,10 +82,11 @@ The server listens only on 127.0.0.1, checks a per-session token, and masks secr
 
 ## Releasing a download and the website
 
-    VERSION=1.0.5-beta ./build-linux.sh                                      # Linux files, built in Docker
+    VERSION=1.0.8 ./build-linux.sh                                           # Linux files, built in Docker
 
-    VERSION=1.0.5-beta ./release.sh                                          # local preview in site/downloads
-    VERSION=1.0.5-beta REPO=dirmedmr-alt/ai-access-auditor PUBLISH=1 ./release.sh   # upload to a GitHub Release
+    VERSION=1.0.8 ./release.sh                                               # local preview in site/downloads
+    SIGN_ID="Developer ID Application: <Name> (<TEAM>)" \
+      VERSION=1.0.8 REPO=dirmedmr-alt/ai-access-auditor PUBLISH=1 ./release.sh   # sign, notarize, upload
 
 This builds `dist/AI-Access-Auditor-<version>.dmg`:
 - It runs on Apple Silicon and Intel, on macOS 13 or later.
@@ -101,8 +102,12 @@ available on the account. The website itself
 is published from `site/` to GitHub Pages with `./publish-site.sh` (it pushes `site/` to the
 `gh-pages` branch, which Pages serves).
 
-The beta is unsigned, so users approve it once in System Settings → Privacy & Security → Open Anyway.
-The website explains this step. To remove the warning, join the Apple Developer Program, then sign the
-app with a Developer ID and notarize it.
+A version without `-beta` must be signed: `release.sh` refuses to publish it otherwise. With `SIGN_ID`
+it signs the app and the bundled Node.js with the hardened runtime (`macos/node.entitlements` lets Node
+compile JavaScript), sends the DMG to Apple's notary service, and staples the result. It needs, once, the
+Developer ID Application certificate in the keychain and the notary login saved with
+`xcrun notarytool store-credentials ai-access-auditor --apple-id <id> --team-id <team> --password <app-specific password>`.
+Betas (`-beta` versions) are signed ad-hoc, published as pre-releases, and users approve them once under
+System Settings → Privacy & Security → Open Anyway. The Windows installers aren't signed yet.
 
 Website screenshots come from invented demo data (`AUDIT_DEMO=1`), never from a real Mac.

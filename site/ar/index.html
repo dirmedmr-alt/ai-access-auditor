@@ -211,7 +211,7 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
 </div></nav>
 
 <header class="hero"><div class="wrap">
-  <span class="badge">نسخة تجريبية مجانية لأنظمة macOS وWindows وLinux</span>
+  <span class="badge">مجاني لأنظمة macOS وWindows وLinux</span>
   <h1>اعرف <em>كل</em> ما يستطيع وكلاء الذكاء الاصطناعي فعله، والتحكم فيه.</h1>
   <p class="lead">يكشف AI Access Auditor كل إذن ومجلد وتسجيل دخول وصلاحية لدى وكلاء الذكاء الاصطناعي، وينبّهك فور حدوث أي تغيير، ويتيح لك سحب أيٍّ منها بنقرة واحدة.</p>
   <div class="cta">
@@ -316,7 +316,7 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
   <h2>كل شيء يبقى على جهازك. كل شيء.</h2>
   <p class="sec-lead">لا ينبغي لأداة أمان أن تخلق خطرًا جديدًا. لا حساب ولا تتبّع في AI Access Auditor. الشيء الوحيد الذي يسأل عنه الإنترنت هو صدور إصدار جديد، مرة يوميًا، ويمكنك إيقاف ذلك.</p>
   <div class="pv">
-    <div class="card"><h3>بلا شبكة</h3><p>لا يتواصل التطبيق إلا مع نفسه على جهازك، ولا يُرفع أي شيء أبدًا. يراقب حركة التطبيقات الأخرى بعدّادات macOS نفسها، دون قراءة ما ترسله.</p></div>
+    <div class="card"><h3>لا يُرفع شيء</h3><p>ما يكتشفه لا يغادر جهازك أبدًا. يراقب حركة التطبيقات الأخرى بعدّادات macOS نفسها، دون قراءة ما ترسله.</p></div>
     <div class="card"><h3>الأسرار تبقى سرية</h3><p>تُخفى الرموز على الشاشة، ومن سلسلة المفاتيح لا يقرأ إلا الأسماء، وليس كلمات المرور أبدًا.</p></div>
     <div class="card"><h3>يسأل قبل أي تغيير</h3><p>لا يزيل أي صلاحية من تلقاء نفسه، إلا عند انتهاء مدة حددتها بنفسك.</p></div>
     <div class="card"><h3>قابل للتراجع</h3><p>تُحفظ نسخة احتياطية قبل كل تغيير، وبياناتك في مجلد واحد يمكنك حذفه.</p></div>
@@ -326,20 +326,19 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
 <section id="install"><div class="wrap">
   <p class="eyebrow">التثبيت</p>
   <h2>جاهز للعمل خلال دقيقة.</h2>
-  <p class="sec-lead">هذه النسخة التجريبية غير موثّقة من Apple بعد، لذا يطلب منك macOS تأكيد فتحها مرة واحدة.</p>
+  <p class="sec-lead">تطبيق Mac موقّع وموثّق من Apple، لذا يُفتح كأي تطبيق آخر.</p>
   <div class="steps">
     <div class="card step"><h3>نزّل ملف DMG وافتحه</h3><p>اسحب <b>AI Access Auditor</b> إلى مجلد <b>التطبيقات</b>.</p></div>
-    <div class="card step"><h3>افتحه مرة واحدة</h3><p>انقر مرتين على التطبيق في مجلد التطبيقات. سيقول macOS إنه لا يستطيع التحقق من المطوّر. انقر <b>تم</b>.</p></div>
-    <div class="card step"><h3>اسمح به في إعدادات النظام</h3><p>اذهب إلى <b>إعدادات النظام ← الخصوصية والأمن</b>، ومرّر للأسفل، وانقر <b>فتح على أي حال</b> بجانب AI Access Auditor. ثم أكّد بكلمة السر.</p></div>
+    <div class="card step"><h3>افتحه</h3><p>انقر مرتين على التطبيق في مجلد التطبيقات. في المرة الأولى يتحقق macOS من أنه تطبيق نُزّل من الإنترنت. انقر <b>فتح</b>.</p></div>
     <div class="card step"><h3>اتبع شاشة الترحيب</h3><p>ترشدك إلى «الوصول الكامل إلى القرص»، ونوافذ «سماح / رفض»، والفتح عند تسجيل الدخول. ويمكنك تغيير كل شيء لاحقًا.</p></div>
+    <div class="card step"><h3>ابقَ على آخر إصدار</h3><p>عند صدور إصدار جديد يخبرك التطبيق مرة واحدة، مع رابط لتنزيله. ثبّته بالطريقة نفسها فوق القديم.</p></div>
   </div>
-  <div class="note"><b>تفضّل الطرفية؟</b> بدلًا من الخطوتين 2 و3، يمكنك إزالة علامة التنزيل بهذا الأمر:
-    <span class="code">xattr -dr com.apple.quarantine "/Applications/AI Access Auditor.app"</span></div>
+  <div class="note"><b>كنت تستخدم نسخة تجريبية؟</b> ثبّت فوقها كالمعتاد. ولأن التطبيق صار موقّعًا من مطوّره، يطلب macOS مرة أخرى «الوصول الكامل إلى القرص»: فعّله مجددًا من شاشة الترحيب.</div>
 
   <h3 class="sub-h" id="windows">على Windows</h3>
   <div class="steps">
     <div class="card step"><h3>نزّل المثبّت وشغّله</h3><p>لمعظم أجهزة الكمبيوتر: <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.7-beta/AI-Access-Auditor-1.0.7-beta-windows-x64.exe" download>Windows ‏(x64)</a>. ولأجهزة ARM مثل الحواسيب المحمولة بمعالج Snapdragon: <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.7-beta/AI-Access-Auditor-1.0.7-beta-windows-arm64.exe" download>Windows على ARM</a> (لم يُختبر بعد). يُثبَّت لحسابك فقط، دون صلاحيات المسؤول.</p></div>
-    <div class="card step"><h3>إذا حذّرك Windows</h3><p>هذه النسخة التجريبية غير موقّعة بعد، لذا قد يعرض Windows رسالة <b>حمى Windows جهاز الكمبيوتر</b>. انقر <b>مزيد من المعلومات</b>، ثم <b>التشغيل على أي حال</b>، ثم اتبع شاشة الترحيب.</p></div>
+    <div class="card step"><h3>إذا حذّرك Windows</h3><p>نسخة Windows غير موقّعة بعد، لذا قد يعرض Windows رسالة <b>حمى Windows جهاز الكمبيوتر</b>. انقر <b>مزيد من المعلومات</b>، ثم <b>التشغيل على أي حال</b>، ثم اتبع شاشة الترحيب.</p></div>
   </div>
   <div class="note"><b>على Windows</b> يفحص التطبيق أيضًا برامج بدء التشغيل والمهام المجدولة وبيانات الدخول المحفوظة في «إدارة بيانات الاعتماد». ولا يراقب رفع البيانات بعد، لأن Windows لا يُظهر حجم ما يرسله كل برنامج إلا للمسؤولين. المجاميع الاختبارية: <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.7-beta/SHA256SUMS-windows.txt">SHA256SUMS-windows.txt</a></div>
 
@@ -356,8 +355,8 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
 <section id="faq" style="padding-top:20px"><div class="wrap">
   <p class="eyebrow">الأسئلة الشائعة</p>
   <h2>أسئلة وأجوبة</h2>
-  <details><summary>هل هو مجاني؟</summary><p>نعم، النسخة التجريبية مجانية للتنزيل والاستخدام.</p></details>
-  <details><summary>لماذا يحذّرني macOS عند فتحه؟</summary><p>تحتاج التطبيقات من خارج App Store إلى توقيع مطوّر من Apple وتوثيق كي تُفتح دون تحذير، وهذه النسخة التجريبية لا تملكهما بعد. توضّح خطوات قسم التثبيت كيف تفتحه بأمان.</p></details>
+  <details><summary>هل هو مجاني؟</summary><p>نعم، التطبيق مجاني للتنزيل والاستخدام.</p></details>
+  <details><summary>لماذا يحذّرني Windows عند التثبيت؟</summary><p>تحتاج برامج Windows إلى شهادة توقيع مدفوعة كي تُثبَّت دون تحذير، ونسخة Windows لا تملكها بعد. توضّح خطوات قسم التثبيت كيف تشغّلها. أما تطبيق Mac فموقّع وموثّق من Apple.</p></details>
   <details><summary>على أي أجهزة يعمل؟</summary><p>أجهزة Mac بنظام macOS 13 Ventura أو أحدث، Apple Silicon وIntel. وWindows 10 و11. وعلى Linux: ‏Ubuntu 22.04 أو Debian 12 أو أحدث والتوزيعات المشابهة، على x64 وARM. كل ما يحتاجه مضمّن، فلا حاجة لتثبيت أي شيء آخر.</p></details>
   <details><summary>هل يستطيع إيقاف الوكيل قبل أن يفعل شيئًا؟</summary><p>نعم، مع Claude Code وCodex CLI وGemini CLI. فعّل «اسأل قبل التنفيذ» لكل منها في «نظرة عامة»، فتوافق على الإجراءات قبل تنفيذها. مع Claude Code وCodex تحلّ النافذة محل سؤال الوكيل نفسه، ومع Gemini تتدخل عندما كان Gemini سيتصرف دون أن يسأل (وضع YOLO أو التعديل التلقائي). يطلب منك Codex الوثوق بالخطّاف الجديد مرة واحدة: اكتب <code>/hooks</code> داخل Codex. أما الوكلاء الآخرون فلا يمكن إيقافهم مؤقتًا من الخارج، لذا تُنبَّه خلال ثوانٍ من أي صلاحية جديدة ويمكنك إزالتها فورًا.</p></details>
   <details><summary>ما الفرق بينه وبين أدوات فحص MCP؟</summary><p>تفحص أدوات مثل Snyk Agent Scan خوادم MCP بعمق، مثلًا بالبحث عن تعليمات مخفية في وصف أدواتها. لا يقوم AI Access Auditor بهذا التحليل العميق، بل يغطي الصورة الأوسع: كل أنواع الصلاحيات لدى وكلائك، ونافذة قبل أن يتصرف Claude Code أو Codex أو Gemini، والإزالة بنقرة واحدة. والأداتان تكمّل إحداهما الأخرى.</p></details>
@@ -376,7 +375,7 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
 <div class="wrap" id="download">
   <div class="band">
     <h2>اعرف ما يستطيع وكلاؤك فعله.</h2>
-    <p>نسخة تجريبية مجانية لنظام macOS 13 أو أحدث ولنظامي Windows وLinux.</p>
+    <p>مجاني لنظام macOS 13 أو أحدث ولنظامي Windows وLinux.</p>
     <a class="btn" href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.7-beta/AI-Access-Auditor-1.0.7-beta.dmg" download>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
       تنزيل AI Access Auditor

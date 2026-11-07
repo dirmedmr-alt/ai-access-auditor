@@ -211,7 +211,7 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
 </div></nav>
 
 <header class="hero"><div class="wrap">
-  <span class="badge">Bêta gratuite pour macOS, Windows et Linux</span>
+  <span class="badge">Gratuit pour macOS, Windows et Linux</span>
   <h1>Voyez et contrôlez <em>tout</em> ce que vos agents IA peuvent faire.</h1>
   <p class="lead">AI Access Auditor trouve chaque permission, dossier, identifiant et privilège de vos agents IA, vous alerte dès que cela change et vous permet de tout retirer en un clic.</p>
   <div class="cta">
@@ -316,7 +316,7 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
   <h2>Tout reste sur votre Mac. Absolument tout.</h2>
   <p class="sec-lead">Un outil de sécurité ne devrait pas créer de nouveau risque. AI Access Auditor n’a ni compte ni pistage. La seule chose qu’il demande à Internet, une fois par jour, est si une nouvelle version est sortie, et vous pouvez le désactiver.</p>
   <div class="pv">
-    <div class="card"><h3>Pas de réseau</h3><p>L’app ne communique qu’avec elle-même, sur votre Mac. Rien n’est jamais envoyé. Elle surveille le trafic des autres apps avec les compteurs de macOS, sans lire ce qu’elles envoient.</p></div>
+    <div class="card"><h3>Rien n’est envoyé</h3><p>Ce qu’elle trouve ne quitte jamais votre Mac. Elle surveille le trafic des autres apps avec les compteurs de macOS, sans lire ce qu’elles envoient.</p></div>
     <div class="card"><h3>Les secrets restent secrets</h3><p>Les jetons sont masqués à l’écran. Dans le Trousseau, il ne lit que les noms, jamais les mots de passe.</p></div>
     <div class="card"><h3>Demande avant de modifier</h3><p>Il ne retire jamais un accès de lui-même, sauf pour les délais que vous avez fixés.</p></div>
     <div class="card"><h3>Réversible</h3><p>Chaque modification est d’abord sauvegardée. Vos données sont dans un seul dossier, que vous pouvez supprimer.</p></div>
@@ -326,20 +326,19 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
 <section id="install"><div class="wrap">
   <p class="eyebrow">Installation</p>
   <h2>Prêt en une minute.</h2>
-  <p class="sec-lead">Cette bêta n’est pas encore notariée par Apple, donc macOS vous demande une fois de confirmer son ouverture.</p>
+  <p class="sec-lead">L’app Mac est signée et notariée par Apple, elle s’ouvre donc comme n’importe quelle autre app.</p>
   <div class="steps">
     <div class="card step"><h3>Téléchargez et ouvrez le .dmg</h3><p>Glissez <b>AI Access Auditor</b> dans le dossier <b>Applications</b>.</p></div>
-    <div class="card step"><h3>Ouvrez-la une fois</h3><p>Double-cliquez sur l’app dans Applications. macOS dira qu’il ne peut pas vérifier le développeur. Cliquez sur <b>Terminé</b>.</p></div>
-    <div class="card step"><h3>Autorisez-la dans Réglages Système</h3><p>Allez dans <b>Réglages Système → Confidentialité et sécurité</b>, faites défiler vers le bas et cliquez sur <b>Ouvrir quand même</b> à côté d’AI Access Auditor. Confirmez avec votre mot de passe.</p></div>
+    <div class="card step"><h3>Ouvrez-la</h3><p>Double-cliquez sur l’app dans Applications. La première fois, macOS vérifie qu’il s’agit d’une app téléchargée sur Internet. Cliquez sur <b>Ouvrir</b>.</p></div>
     <div class="card step"><h3>Suivez l’écran d’accueil</h3><p>Il vous guide pour l’accès complet au disque, les fenêtres Autoriser / Refuser et l’ouverture à la connexion. Vous pourrez tout changer plus tard.</p></div>
+    <div class="card step"><h3>Restez à jour</h3><p>Quand une nouvelle version sort, l’app vous le signale une fois, avec un lien pour la télécharger. Installez-la de la même façon, par-dessus l’ancienne.</p></div>
   </div>
-  <div class="note"><b>Vous préférez le Terminal ?</b> Au lieu des étapes 2 et 3, vous pouvez retirer le marqueur de téléchargement avec :
-    <span class="code">xattr -dr com.apple.quarantine "/Applications/AI Access Auditor.app"</span></div>
+  <div class="note"><b>Vous aviez une bêta ?</b> Installez par-dessus comme d’habitude. Comme l’app est désormais signée par son développeur, macOS redemande une fois l’accès complet au disque : réactivez-le dans l’écran d’accueil.</div>
 
   <h3 class="sub-h" id="windows">Sous Windows</h3>
   <div class="steps">
     <div class="card step"><h3>Téléchargez et lancez le programme d’installation</h3><p>Pour la plupart des PC : <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.7-beta/AI-Access-Auditor-1.0.7-beta-windows-x64.exe" download>Windows (x64)</a>. Pour les PC ARM, comme les portables Snapdragon : <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.7-beta/AI-Access-Auditor-1.0.7-beta-windows-arm64.exe" download>Windows sur ARM</a> (pas encore testé). Il s’installe pour votre compte uniquement, sans droits d’administrateur.</p></div>
-    <div class="card step"><h3>Si Windows vous avertit</h3><p>Cette bêta n’est pas encore signée, Windows peut donc afficher <b>Windows a protégé votre ordinateur</b>. Cliquez sur <b>Informations complémentaires</b>, puis sur <b>Exécuter quand même</b>. Suivez ensuite l’écran d’accueil.</p></div>
+    <div class="card step"><h3>Si Windows vous avertit</h3><p>La version Windows n’est pas encore signée, Windows peut donc afficher <b>Windows a protégé votre ordinateur</b>. Cliquez sur <b>Informations complémentaires</b>, puis sur <b>Exécuter quand même</b>. Suivez ensuite l’écran d’accueil.</p></div>
   </div>
   <div class="note"><b>Sous Windows,</b> l’app vérifie aussi les programmes au démarrage, les tâches planifiées et les identifiants enregistrés dans le Gestionnaire d’identification. Elle ne surveille pas encore les envois de données, car Windows ne montre la quantité envoyée par chaque programme qu’aux administrateurs. Sommes de contrôle : <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.7-beta/SHA256SUMS-windows.txt">SHA256SUMS-windows.txt</a></div>
 
@@ -356,8 +355,8 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
 <section id="faq" style="padding-top:20px"><div class="wrap">
   <p class="eyebrow">FAQ</p>
   <h2>Questions</h2>
-  <details><summary>Est-ce gratuit ?</summary><p>Oui. La bêta est gratuite à télécharger et à utiliser.</p></details>
-  <details><summary>Pourquoi macOS m’avertit-il à l’ouverture ?</summary><p>Les apps hors App Store ont besoin d’une signature Apple Developer et d’une notarisation pour s’ouvrir sans avertissement. Cette bêta ne les a pas encore. Les étapes de la section Installation expliquent comment l’ouvrir en toute sécurité.</p></details>
+  <details><summary>Est-ce gratuit ?</summary><p>Oui. L’app est gratuite à télécharger et à utiliser.</p></details>
+  <details><summary>Pourquoi Windows m’avertit-il à l’installation ?</summary><p>Les programmes Windows ont besoin d’un certificat de signature payant pour s’installer sans avertissement, et la version Windows n’en a pas encore. Les étapes de la section Installation expliquent comment la lancer. L’app Mac est signée et notariée par Apple.</p></details>
   <details><summary>Sur quels ordinateurs fonctionne-t-il ?</summary><p>Les Mac sous macOS 13 Ventura ou plus récent, Apple Silicon et Intel. Windows 10 et 11. Sous Linux : Ubuntu 22.04, Debian 12 ou plus récent et les distributions similaires, en x64 et ARM. Tout le nécessaire est inclus, il n’y a rien d’autre à installer.</p></details>
   <details><summary>Peut-il arrêter un agent avant qu’il agisse ?</summary><p>Pour Claude Code, Codex CLI et Gemini CLI, oui. Activez « Demander avant d’agir » pour chacun dans la Vue d’ensemble, et vous approuvez les actions avant qu’elles s’exécutent. Avec Claude Code et Codex, la fenêtre remplace la demande de l’agent. Avec Gemini, elle intervient quand Gemini agirait sans demander (mode YOLO ou modification automatique). Codex vous demande une fois de faire confiance au nouveau hook : tapez <code>/hooks</code> dans Codex. Les autres agents ne peuvent pas être mis en pause de l’extérieur ; pour eux, vous êtes alerté en quelques secondes de tout nouvel accès et pouvez le retirer aussitôt.</p></details>
   <details><summary>En quoi diffère-t-il des scanners MCP ?</summary><p>Les scanners MCP comme Snyk Agent Scan examinent en profondeur les serveurs MCP, par exemple en cherchant des instructions cachées dans la description de leurs outils. AI Access Auditor ne fait pas cette analyse approfondie. Il couvre plutôt l’ensemble : tous les types d’accès de vos agents, une fenêtre avant que Claude Code, Codex ou Gemini agisse, et le retrait en un clic. Les deux se complètent bien.</p></details>
@@ -376,7 +375,7 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
 <div class="wrap" id="download">
   <div class="band">
     <h2>Sachez ce que vos agents peuvent faire.</h2>
-    <p>Bêta gratuite pour macOS 13 ou plus récent, Windows et Linux.</p>
+    <p>Gratuit pour macOS 13 ou plus récent, Windows et Linux.</p>
     <a class="btn" href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.7-beta/AI-Access-Auditor-1.0.7-beta.dmg" download>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
       Télécharger AI Access Auditor

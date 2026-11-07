@@ -1,11 +1,26 @@
 #!/bin/bash
-# Builds a downloadable, self-contained beta:
+# Builds a downloadable, self-contained release:
 #   - universal app (Apple Silicon + Intel) with Node.js bundled, so users don't need to install anything
 #   - packed as dist/AI-Access-Auditor-<version>.dmg, plus its SHA-256
-# Unsigned (ad-hoc) for now: users approve it once via System Settings → Privacy & Security → Open Anyway.
+# Betas are signed ad-hoc: users approve them once via System Settings → Privacy & Security → Open Anyway.
+# Releases (a version without "-beta") are signed with a Developer ID and notarized by Apple, so they open
+# without a warning. They need, once:
+#   - the "Developer ID Application" certificate in the login keychain (Xcode → Settings → Accounts → Manage Certificates)
+#   - xcrun notarytool store-credentials ai-access-auditor --apple-id <id> --team-id <team> --password <app-specific password>
+# then: SIGN_ID="Developer ID Application: <Name> (<TEAM>)" VERSION=1.0.8 REPO=... PUBLISH=1 ./release.sh
 set -euo pipefail
 cd "$(dirname "$0")"
 VERSION="${VERSION:-1.0.0-beta}"
+SIGN_ID="${SIGN_ID:--}"                       # "-" = ad-hoc
+NOTARY_PROFILE="${NOTARY_PROFILE:-ai-access-auditor}"
+case "$VERSION" in *-*) BETA=1 ;; *) BETA= ;; esac
+if [ -z "$BETA" ] && [ "$SIGN_ID" = "-" ] && [ "${PUBLISH:-}" = "1" ]; then
+  echo "$VERSION is not a beta, so it must be signed and notarized: set SIGN_ID (see the top of this script)." >&2; exit 1
+fi
+if [ "$SIGN_ID" != "-" ]; then
+  security find-identity -v -p codesigning | grep -qF "$SIGN_ID" || { echo "Signing identity not found in the keychain: $SIGN_ID" >&2; exit 1; }
+  xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null || { echo "Notary credentials \"$NOTARY_PROFILE\" not found (see the top of this script)." >&2; exit 1; }
+fi
 NODE_VERSION="v22.12.0"
 CACHE="${NODE_CACHE:-$HOME/Library/Caches/ai-access-auditor-build}"
 REL="dist/release"
@@ -41,8 +56,15 @@ cp "$CACHE/node-$NODE_VERSION-LICENSE" "$APP/Contents/Resources/runtime/NODE-LIC
 plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
 plutil -replace LSMinimumSystemVersion -string "13.0" "$APP/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$(date +%Y%m%d%H%M)" "$APP/Contents/Info.plist"
-# Sign the app ad-hoc. Not --deep: the bundled node keeps the Node.js project's own signature.
-codesign --force -s - "$APP"
+if [ "$SIGN_ID" = "-" ]; then
+  # Ad-hoc. Not --deep: the bundled node keeps the Node.js project's own signature.
+  codesign --force -s - "$APP"
+else
+  # Inside out, with the hardened runtime and a secure timestamp, as notarization requires
+  codesign --force --options runtime --timestamp --entitlements macos/node.entitlements -s "$SIGN_ID" "$APP/Contents/Resources/runtime/node"
+  codesign --force --options runtime --timestamp -s "$SIGN_ID" "$APP"
+  codesign --verify --strict --verbose=2 "$APP"
+fi
 
 # 3. Disk image with the usual "drag to Applications" layout
 STAGE=$(mktemp -d)
@@ -51,6 +73,14 @@ ln -s /Applications "$STAGE/Applications"
 rm -f "$DMG"
 hdiutil create -volname "AI Access Auditor" -srcfolder "$STAGE" -ov -format ULFO "$DMG" >/dev/null
 rm -rf "$STAGE"
+if [ "$SIGN_ID" != "-" ]; then
+  # Apple checks the app for malware (usually a few minutes), then the ticket is attached so it opens offline too
+  codesign --force --timestamp -s "$SIGN_ID" "$DMG"
+  xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait | tee /dev/stderr | grep -q "status: Accepted" \
+    || { echo "Notarization failed. Details: xcrun notarytool log <submission id> --keychain-profile $NOTARY_PROFILE" >&2; exit 1; }
+  xcrun stapler staple "$DMG"
+  spctl -a -t open --context context:primary-signature -v "$DMG"
+fi
 shasum -a 256 "$DMG" | tee "$DMG.sha256"
 echo "Built: $DMG ($(du -h "$DMG" | cut -f1))"
 
@@ -71,7 +101,7 @@ sed -i '' -E \
   -e "s|href=\"[^\"]*AI-Access-Auditor-[0-9A-Za-z.-]+\.dmg\"|href=\"$URL\"|g" \
   -e "s|(<span id=\"sha\">)[0-9a-f]+|\1$SHA|" \
   -e "s|· [0-9]+ MB</span>|· $SIZE_MB MB</span>|" \
-  -e "s/Version [0-9]+\.[0-9]+\.[0-9]+ beta/Version ${VERSION/-/ }/g" \
+  -e "s/Version [0-9]+\.[0-9]+\.[0-9]+( beta)?/Version ${VERSION/-/ }/g" \
   site/index.html
 # The Linux files (built by ./build-linux.sh) are linked from the Install section
 sed -i '' -E \
@@ -80,9 +110,12 @@ sed -i '' -E \
   site/index.html
 node i18n/build-site.js   # French and Arabic pages get the same link, size and checksum
 if [ "${PUBLISH:-}" = "1" ] && [ -n "${REPO:-}" ]; then
-  gh release create "v$VERSION" "$DMG" "$DMG.sha256" --repo "$REPO" --prerelease \
+  PLATFORMS="macOS 13 or later (Apple Silicon and Intel), Windows 10 and 11 (installers for x64 and arm64), and Linux (AppImage for x64, .deb for x64 and arm64)"
+  if [ -n "$BETA" ]; then NOTES="Unsigned beta for $PLATFORMS."
+  else NOTES="For $PLATFORMS. The Mac app is signed and notarized by Apple. The Windows installers aren't signed yet."; fi
+  gh release create "v$VERSION" "$DMG" "$DMG.sha256" --repo "$REPO" ${BETA:+--prerelease} \
     --title "AI Access Auditor $VERSION" \
-    --notes "Unsigned beta for macOS 13 or later (Apple Silicon and Intel), Windows 10 and 11 (installers for x64 and arm64), and Linux (AppImage for x64, .deb for x64 and arm64). Mac SHA-256: $SHA. Linux and Windows checksums: SHA256SUMS-linux.txt, SHA256SUMS-windows.txt. Install steps: https://dirmedmr-alt.github.io/ai-access-auditor/#install"
+    --notes "$NOTES Mac SHA-256: $SHA. Linux and Windows checksums: SHA256SUMS-linux.txt, SHA256SUMS-windows.txt. Install steps: https://dirmedmr-alt.github.io/ai-access-auditor/#install"
   LINUX=(desktop/dist/AI-Access-Auditor-$VERSION-x86_64.AppImage desktop/dist/AI-Access-Auditor-$VERSION-amd64.deb desktop/dist/AI-Access-Auditor-$VERSION-arm64.deb desktop/dist/SHA256SUMS-linux.txt)
   if ls "${LINUX[@]}" >/dev/null 2>&1; then gh release upload "v$VERSION" "${LINUX[@]}" --repo "$REPO" --clobber
   else echo "Linux files for $VERSION not found: run VERSION=$VERSION ./build-linux.sh, then upload desktop/dist/* to the release."; fi
