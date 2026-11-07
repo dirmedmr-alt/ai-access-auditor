@@ -181,7 +181,7 @@ function claudeSettingsFindings(file, scopeLabel, agent = 'Claude Code') {
     agent, category: 'MCP server', title: 'enableAllProjectMcpServers', detail: `Auto-approves every MCP server in project .mcp.json files (${scopeLabel})`,
     risk: 'high', source: file, action: { kind: 'setFalse', file, path: [], key: 'enableAllProjectMcpServers' },
   });
-  const otherHooks = Object.entries(j.hooks || {}).filter(([, list]) => !JSON.stringify(list).includes(GATE_MARK) || (list || []).length > 1).map(([k]) => k);
+  const otherHooks = Object.entries(j.hooks || {}).filter(([, list]) => (list || []).some(e => !isOurHook(e))).map(([k]) => k);
   if (otherHooks.length) out.push({
     agent, category: 'Hooks', title: `Hooks: ${otherHooks.join(', ')}`, detail: `Shell commands run automatically on agent events (${scopeLabel})`,
     risk: 'medium', source: file, action: { kind: 'none', hint: 'Review the "hooks" section in this file manually.' },
@@ -2516,13 +2516,17 @@ function nodeBin() {
 const nodeCmd = () => process.env.AUDIT_NODE_CMD || `"${nodeBin()}"`;
 const GEMINI_SETTINGS = h('.gemini', 'settings.json');
 // our hook entry, whatever data folder it was installed from
-function isOurHook(e) { const t = JSON.stringify(e); return t.includes(GATE_MARK) || t.includes(GATE_SCRIPT) || t.includes('"ai-access-auditor"') || t.includes('AI Access Auditor'); }
+// (paths compared with forward slashes: on Windows the file may hold either kind)
+const slashes = s => s.replace(/\\+/g, '/');
+function isOurHook(e) { const t = slashes(JSON.stringify(e)); return t.includes(GATE_MARK) || t.includes(slashes(GATE_SCRIPT)) || t.includes('"ai-access-auditor"') || t.includes('AI Access Auditor'); }
+// the hook script as written in hook commands: forward slashes on Windows too, since Claude Code may run hooks through Git Bash
+const gateArg = () => WIN ? slashes(GATE_SCRIPT) : GATE_SCRIPT;
 function gateStatus() {
   const j = readJson(h('.claude', 'settings.json')) || {};
   const g = readJson(GEMINI_SETTINGS) || {};
   const c = readJson(CODEX_HOOKS) || {};
   const has = cmd => BIN_DIRS.some(d => exists(path.join(d, cmd)));
-  return { installed: JSON.stringify(j.hooks || {}).includes(GATE_MARK), gemini: Object.values(g.hooks || {}).some(list => (list || []).some(isOurHook)),
+  return { installed: Object.values(j.hooks || {}).some(list => (list || []).some(isOurHook)), gemini: Object.values(g.hooks || {}).some(list => (list || []).some(isOurHook)),
     geminiInstalled: exists(h('.gemini')) || has('gemini'),
     codex: Object.values(c.hooks || {}).some(list => (list || []).some(isOurHook)), codexInstalled: exists(h('.codex')) || has('codex') };
 }
@@ -2536,8 +2540,8 @@ function gateInstall(on, agent = 'Claude Code') {
   if (!j) throw new Error('Could not read ~/.claude/settings.json (is it valid JSON?)');
   const bk = backup(file);
   j.hooks = j.hooks || {};
-  const list = (j.hooks.PermissionRequest || []).filter(e => !JSON.stringify(e).includes(GATE_MARK));
-  if (on) list.push({ matcher: '*', hooks: [{ type: 'command', command: `${nodeCmd()} "${GATE_SCRIPT}"`, timeout: 300 }] });
+  const list = (j.hooks.PermissionRequest || []).filter(e => !isOurHook(e));
+  if (on) list.push({ matcher: '*', hooks: [{ type: 'command', command: `${nodeCmd()} "${gateArg()}"`, timeout: 300 }] });
   if (list.length) j.hooks.PermissionRequest = list; else delete j.hooks.PermissionRequest;
   if (!Object.keys(j.hooks).length) delete j.hooks;
   writeJsonAtomic(file, j);
@@ -2555,7 +2559,7 @@ function codexGateInstall(on) {
   if (!j) throw new Error('Could not read ~/.codex/hooks.json (is it valid JSON?)');
   const bk = backup(file);
   j.hooks = j.hooks || {};
-  const hook = (statusMessage) => ({ type: 'command', command: `${nodeCmd()} "${GATE_SCRIPT}" --agent=codex`, timeout: 300, statusMessage });
+  const hook = (statusMessage) => ({ type: 'command', command: `${nodeCmd()} "${gateArg()}" --agent=codex`, timeout: 300, statusMessage });
   for (const [ev, matcher, msg] of [['PermissionRequest', '*', 'Asking you in AI Access Auditor'], ['PreToolUse', '^(Bash|apply_patch|mcp__.*)$', 'Checking with AI Access Auditor']]) {
     const list = (j.hooks[ev] || []).filter(e => !isOurHook(e));
     if (on) list.push({ matcher, hooks: [hook(msg)] });
@@ -2579,7 +2583,7 @@ function geminiGateInstall(on) {
   j.hooks = j.hooks || {};
   const list = (j.hooks.BeforeTool || []).filter(e => !isOurHook(e));
   if (on) list.push({ matcher: 'run_shell_command|write_file|replace|web_fetch|mcp_.*', hooks: [{
-    name: 'ai-access-auditor', type: 'command', command: `${nodeCmd()} "${GATE_SCRIPT}"`, timeout: 300000,
+    name: 'ai-access-auditor', type: 'command', command: `${nodeCmd()} "${gateArg()}"`, timeout: 300000,
     description: 'Asks you in AI Access Auditor before Gemini acts on its own (YOLO / auto-edit)' }] });
   if (list.length) j.hooks.BeforeTool = list; else delete j.hooks.BeforeTool;
   if (!Object.keys(j.hooks).length) delete j.hooks;
@@ -2690,4 +2694,4 @@ if (require.main === module) {
     console.log(`AI Access Auditor running at http://localhost:${server.address().port}`);
   });
 }
-module.exports = { scanAll, _test: { historyFiles, refreshHistory, scanHistory, startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason } };
+module.exports = { scanAll, _test: { gateInstall, gateStatus, historyFiles, refreshHistory, scanHistory, startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason } };
