@@ -1,0 +1,29 @@
+name: Missing agent or setting
+description: An AI agent, permission or setting the app doesn't find yet
+labels: [enhancement]
+body:
+  - type: input
+    id: agent
+    attributes:
+      label: Agent or tool
+      placeholder: "Windsurf, Cline, Zed, Copilot CLI..."
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What should the app find?
+      description: The permission, setting or kind of access that's missing, and why it matters.
+    validations:
+      required: true
+  - type: textarea
+    id: where
+    attributes:
+      label: Where is it stored?
+      description: Optional. The file or setting where the agent keeps it, if you know. Replace any secrets with "xxx".
+      placeholder: "~/.codeium/windsurf/mcp_config.json, key \"mcpServers\""
+  - type: input
+    id: docs
+    attributes:
+      label: Link to the agent's documentation
+      description: Optional, but it helps a lot.

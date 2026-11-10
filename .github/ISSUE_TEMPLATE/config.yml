@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Install help and FAQ
+    url: https://dirmedmr-alt.github.io/ai-access-auditor/#faq
+    about: Installing on Mac, Windows or Linux, warnings, Full Disk Access.
