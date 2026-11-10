@@ -73,11 +73,16 @@ prompt. Uploads aren't watched on Windows.
   - Codex: approval policy, sandbox and trusted projects
   - Gemini CLI: auto-accept, allowed tools and trusted folders
   - Cursor CLI: allow rules
-  - Copilot CLI: trusted folders
+  - Copilot CLI: trusted folders, allow-all mode, allowed URLs, and the "always allow" answers it saved per project
+  - Windsurf: Cascade's command allow list
+  - Kiro: trusted commands, and the allow rules in `permissions.yaml` (Kiro 1.0)
+  - Zed: its agent's tool permissions, and the older "always allow" switch
+  - Continue: tools its CLI (`cn`) may use without asking, and MCP servers in `config.yaml`
+  - Cline: the CLI's auto-approve settings, and MCP tools set to run without asking (Cline, Roo Code)
   - VS Code, Cursor and Windsurf: Copilot auto-approve settings
   - OpenCode: permissions
   - Aider and Goose: auto modes
-  - MCP servers in Copilot CLI, Amazon Q, Kiro, OpenCode, Continue and Claude Desktop extensions
+  - MCP servers in Copilot CLI, Amazon Q, Kiro, OpenCode, Continue, Cline CLI and Claude Desktop extensions
 - **Agents running right now** with approvals off (`--dangerously-skip-permissions`, `--yolo`, `--full-auto`, `-y`, and so on) or as root. These can be stopped from the popup
 - **Secrets in agents' session history:** keys, tokens and private keys left in the session logs agents keep on disk (only masked previews are shown), with one click to remove them from the log
 - **Data sharing:** agents' usage statistics and telemetry, sessions shared publicly, and editors' usage data, with one click to turn each off; plus links to each AI service's training settings

@@ -290,10 +290,17 @@ function scanOtherMcp() {
     ['Cline', appData('Code', 'User', 'globalStorage', 'saoudrizwan.claude-dev', 'settings', 'cline_mcp_settings.json'), ['mcpServers']],
     ['Roo Code', appData('Code', 'User', 'globalStorage', 'rooveterinaryinc.roo-cline', 'settings', 'mcp_settings.json'), ['mcpServers']],
     ['Cursor', appData('Cursor', 'User', 'globalStorage', 'saoudrizwan.claude-dev', 'settings', 'cline_mcp_settings.json'), ['mcpServers']],
+    ['Cline', h('.cline', 'data', 'settings', 'cline_mcp_settings.json'), ['mcpServers']],
   ];
   for (const [agent, f, p] of targets) {
     const servers = getAt(readJson(f), p) || {};
-    for (const [name, cfg] of Object.entries(servers)) out.push(mcpFinding(agent, name, cfg || {}, f, p, ''));
+    for (const [name, cfg] of Object.entries(servers)) {
+      out.push(mcpFinding(agent, name, cfg || {}, f, p, ''));
+      // tools of this server that run without asking
+      for (const key of ['alwaysAllow', 'autoApprove']) if (Array.isArray(cfg && cfg[key])) for (const t of cfg[key])
+        out.push({ agent, category: 'Tool permission', title: `${name}: ${t}`, detail: `MCP tool that runs without asking (${key})`,
+          risk: RISKY_TOOL_RE.test(String(t)) ? 'high' : 'medium', source: f, action: { kind: 'removeArrayItem', file: f, path: [...p, name, key], value: t } });
+    }
   }
   // Codex CLI (~/.codex/config.toml). Each item is removed by cutting its exact lines/section out of the file.
   const codex = h('.codex', 'config.toml');
@@ -1180,6 +1187,110 @@ function scanMoreAgents() {
   if (exists(goose) && /^\s*GOOSE_MODE\s*:\s*['"]?auto/m.test(fs.readFileSync(goose, 'utf8')))
     add('Goose', 'Permission mode', 'GOOSE_MODE: auto', 'Acts without asking for approval', 'high', goose, none('Change GOOSE_MODE in ~/.config/goose/config.yaml.'));
 
+  // Windsurf (Cascade) and Kiro 0.x: command lists in the editor's own settings.json. Matching is by prefix,
+  // so "*" or a bare shell or interpreter means any command runs without asking.
+  const anyCmd = c => /^\s*(\*|bash|sh|zsh|fish|pwsh|powershell|cmd|python3?|node|ruby|perl|deno|bun|npx|eval)(\s+\*)?\s*$/i.test(c);
+  for (const [agent, f, key, what] of [
+    ['Windsurf', appData('Windsurf', 'User', 'settings.json'), 'windsurf.cascadeCommandsAllowList', 'Cascade runs commands starting with this without asking'],
+    ['Kiro', appData('Kiro', 'User', 'settings.json'), 'kiroAgent.trustedCommands', 'Kiro runs this command without asking'],
+  ]) {
+    const r = readJsonc(f);
+    if (!r || !Array.isArray(r.j[key])) continue;
+    const manual = none(`Edit ${f.replace(HOME, '~')} (it has comments, so it's safer to change by hand).`);
+    for (const c of r.j[key]) add(agent, 'Tool permission', `terminal: ${c}`, anyCmd(String(c)) ? `${what}: this covers any command` : what,
+      anyCmd(String(c)) ? 'high' : ruleRisk(`Bash(${String(c).replace(/\s*\*$/, '')})`), f,
+      r.strict ? { kind: 'removeArrayItem', file: f, path: [key], value: c } : manual);
+  }
+
+  // Kiro 1.0: permissions.yaml rules (user-wide; per-project copies live in ~/.kiro/workspace-roots/<id>/)
+  const kiroFiles = [[h('.kiro', 'settings', 'permissions.yaml'), 'all projects']];
+  try { for (const d of fs.readdirSync(h('.kiro', 'workspace-roots'))) kiroFiles.push([h('.kiro', 'workspace-roots', d, 'permissions.yaml'), 'one project']); } catch {}
+  for (const [file, scopeLabel] of kiroFiles) for (const r of yamlListItems(file, 'rules')) {
+    if (r.fields.effect !== 'allow') continue;
+    const cap = String(r.fields.capability || ''), match = [].concat(r.fields.match || []);
+    const all = !match.length || match.some(m => String(m).trim() === '*');
+    const risk = cap === 'all' || cap === 'builtin' ? 'high'
+      : cap === 'shell' ? (all || match.some(m => anyCmd(String(m))) ? 'high' : match.map(m => ruleRisk(`Bash(${String(m).replace(/\s*\*$/, '')})`)).sort()[0])
+      : /^(fs_write|filesystem|mcp|power|subagent)$/.test(cap) ? (all ? 'high' : 'medium') : 'low';
+    add('Kiro', cap === 'all' ? 'Permission mode' : 'Tool permission', `${cap}: allow${match.length ? ` (${match.join(', ')})` : ''}`,
+      cap === 'all' ? `Kiro acts without asking for anything (${scopeLabel})` : `Kiro does this without asking (${scopeLabel})`, risk, file,
+      { kind: 'removeTomlBlock', file, block: r.text });
+  }
+
+  // Zed's own agent: tool_permissions (Zed 0.224+) or the older always_allow_tool_actions switch
+  const zf = h('.config', 'zed', 'settings.json'), zr = readJsonc(zf);
+  if (zr) {
+    const act = a => (zr.strict ? a : none(`Edit ${zf.replace(HOME, '~')} (it has comments, so it's safer to change by hand).`));
+    const ag = zr.j.agent || {};
+    if (ag.always_allow_tool_actions === true) add('Zed', 'Permission mode', 'agent.always_allow_tool_actions = true', 'Zed\'s agent uses every tool without asking, including the terminal',
+      'high', zf, act({ kind: 'setFalse', file: zf, path: ['agent'], key: 'always_allow_tool_actions' }));
+    const tp = ag.tool_permissions || {};
+    if (tp.default === 'allow') add('Zed', 'Permission mode', 'tool_permissions.default: allow', 'Zed\'s agent uses tools without asking, unless a rule says otherwise',
+      'high', zf, act({ kind: 'deleteKey', file: zf, path: ['agent', 'tool_permissions'], key: 'default', value: 'allow' }));
+    for (const [tool, cfg] of Object.entries(tp.tools || {})) {
+      if (!cfg || typeof cfg !== 'object') continue;
+      const big = /terminal|^mcp:/.test(tool) ? 'high' : /edit|write|delete|move|create/.test(tool) ? 'medium' : 'low';
+      if (cfg.default === 'allow') add('Zed', 'Tool permission', `${tool}: allow`, 'Zed\'s agent uses this tool without asking', big, zf,
+        act({ kind: 'deleteKey', file: zf, path: ['agent', 'tool_permissions', 'tools', tool], key: 'default', value: 'allow' }));
+      for (const pat of Array.isArray(cfg.always_allow) ? cfg.always_allow : []) {
+        const shown = typeof pat === 'string' ? pat : (pat && pat.pattern) || JSON.stringify(pat);
+        const broad = /^\^?\.\*\$?$|^\*$/.test(shown);
+        add('Zed', 'Tool permission', `${tool}: ${shown}`, 'Allowed without asking when the input matches this pattern', broad ? big : big === 'high' ? 'medium' : 'low', zf,
+          act({ kind: 'removeArrayItem', file: zf, path: ['agent', 'tool_permissions', 'tools', tool, 'always_allow'], value: pat }));
+      }
+    }
+  }
+
+  // Continue: config.yaml MCP servers (detect only) and the CLI's saved "don't ask again" answers
+  for (const m of yamlListItems(h('.continue', 'config.yaml'), 'mcpServers')) {
+    const cfg = { command: m.fields.command, args: [].concat(m.fields.args || []), url: m.fields.url };
+    add('Continue', 'MCP server', String(m.fields.name || m.fields.command || 'server'), [cfg.url || cfg.command, ...maskArgs(cfg.args)].filter(Boolean).join(' '),
+      /\benv\s*:/.test(m.text) ? 'high' : mcpRisk(cfg), h('.continue', 'config.yaml'), none('Remove it from ~/.continue/config.yaml.'));
+  }
+  const cperm = h('.continue', 'permissions.yaml');
+  for (const it of yamlScalarList(cperm, 'allow')) add('Continue', 'Tool permission', it.value, 'Continue\'s CLI (cn) uses this without asking',
+    it.value === '*' ? 'high' : ruleRisk(it.value), cperm, { kind: 'removeTomlBlock', file: cperm, block: it.text });
+
+  // Copilot CLI: newer versions keep trusted folders as trustedFolders, settings in settings.json,
+  // and the "always allow" answers per project in permissions-config.json
+  const cpj = readJson(h('.copilot', 'config.json')) || {};
+  (Array.isArray(cpj.trustedFolders) ? cpj.trustedFolders : []).forEach(d => add('Copilot CLI', 'Trusted folder', String(d).replace(HOME, '~'), 'Trusted folder: Copilot can read and change files here',
+    d === HOME || d === '/' ? 'high' : 'low', h('.copilot', 'config.json'), { kind: 'removeArrayItem', file: h('.copilot', 'config.json'), path: ['trustedFolders'], value: d }));
+  const csf = h('.copilot', 'settings.json'), csr = readJsonc(csf);
+  if (csr) {
+    const mode = csr.j.defaultPermissionMode;
+    if (mode === 'allow-all') add('Copilot CLI', 'Permission mode', 'defaultPermissionMode: allow-all', 'Every Copilot session starts allowed to use all tools, paths and URLs without asking',
+      'high', csf, csr.strict ? { kind: 'deleteKey', file: csf, path: [], key: 'defaultPermissionMode', value: mode } : none('Edit ~/.copilot/settings.json.'));
+    (Array.isArray(csr.j.allowedUrls) ? csr.j.allowedUrls : []).forEach(u => add('Copilot CLI', 'Network access', String(u), 'Copilot fetches from here without asking',
+      String(u).trim() === '*' ? 'medium' : 'low', csf, csr.strict ? { kind: 'removeArrayItem', file: csf, path: ['allowedUrls'], value: u } : none('Edit ~/.copilot/settings.json.')));
+  }
+  const cpc = h('.copilot', 'permissions-config.json');
+  for (const [loc, v] of Object.entries((readJson(cpc) || {}).locations || {})) {
+    const where = String(loc).replace(HOME, '~');
+    (Array.isArray(v && v.allowed_directories) ? v.allowed_directories : []).forEach(d => add('Copilot CLI', 'Folder access', String(d).replace(HOME, '~'),
+      `Copilot can use this folder without asking (when working in ${where})`, d === HOME || d === '/' ? 'high' : 'low', cpc,
+      { kind: 'removeArrayItem', file: cpc, path: ['locations', loc, 'allowed_directories'], value: d }));
+    const appr = v && v.tool_approvals;
+    for (const a of Array.isArray(appr) ? appr : []) {
+      const ids = [].concat(a && (a.commandIdentifiers || a.tools || a.toolName || a.name || a.server) || []);
+      const kind = String(a && a.kind || 'tool');
+      const shown = ids.length ? `${kind}: ${ids.join(', ')}` : kind;
+      const risk = kind === 'commands' ? (ids.some(i => /^\*|^(bash|sh|zsh|node|python3?)(:|$)/.test(String(i))) || !ids.length ? 'high'
+        : ids.map(i => ruleRisk(`Bash(${String(i).replace(/:\*?$/, '').replace(/:/g, ' ')})`)).sort()[0]) : kind === 'write' || kind === 'mcp' ? 'medium' : 'low';
+      add('Copilot CLI', 'Tool permission', shown, `Copilot does this without asking (when working in ${where})`, risk, cpc,
+        { kind: 'removeArrayItem', file: cpc, path: ['locations', loc, 'tool_approvals'], value: a });
+    }
+  }
+
+  // Cline CLI: auto-approve settings (the VS Code extension keeps them in VS Code's own database, which isn't read)
+  const clg = h('.cline', 'data', 'globalState.json'), aas = (readJson(clg) || {}).autoApprovalSettings;
+  if (aas && aas.enabled !== false && aas.actions) {
+    const on = Object.entries(aas.actions).filter(([, v]) => v === true).map(([k]) => k);
+    if (on.length) add('Cline', 'Permission mode', `Auto-approve: ${on.join(', ')}`, 'Cline does these without asking',
+      on.some(k => /executeAllCommands|useBrowser|useMcp/.test(k)) ? 'high' : on.some(k => /edit|execute/i.test(k)) ? 'medium' : 'low', clg,
+      none('Turn these off in Cline\'s auto-approve menu.'));
+  }
+
   // Claude Desktop extensions (each one is an MCP server with its own access)
   const extDir = appData('Claude', 'Claude Extensions');
   let exts = [];
@@ -1190,6 +1301,41 @@ function scanMoreAgents() {
       mcpRisk({ command: mf.name, args: [JSON.stringify(mf.server || {})] }), path.join(extDir, e), none('Remove it in Claude Desktop → Settings → Extensions.'));
   }
   return out;
+}
+
+// Small YAML readers, for the simple files agents write (not general YAML). yamlListItems returns the items of a
+// top-level list ("key:" followed by "- a: b" blocks) with their exact text; yamlScalarList the "- value" lines.
+function yamlSection(file, key) {
+  let text = '';
+  try { text = fs.readFileSync(file, 'utf8'); } catch { return ''; }
+  const m = text.match(new RegExp(`^${key}:[ \\t]*\\n((?:[ \\t]+.*\\n?|[ \\t]*\\n)*)`, 'm'));
+  return m ? m[1] : '';
+}
+function yamlScalar(v) {
+  v = String(v).trim();
+  if (/^\[.*\]$/.test(v)) return v.slice(1, -1).split(',').map(x => yamlScalar(x)).filter(x => x !== '');
+  return v.replace(/^(["'])(.*)\1$/, '$2');
+}
+function yamlListItems(file, key) {
+  const sec = yamlSection(file, key);
+  const ind = (sec.match(/^([ \t]*)- /m) || [])[1];
+  if (ind === undefined) return [];
+  // split only at this list's own indent, so nested lists (match:, args:) stay inside their item
+  const parts = sec.split(new RegExp(`^(?=${ind}- )`, 'm')).filter(p => p.startsWith(ind + '- '));
+  return parts.map(text => {
+    const fields = {}; let listKey = null;
+    for (const line of text.replace(/^([ \t]*)- /, '$1  ').split('\n')) {
+      const kv = line.match(/^\s*([A-Za-z_][\w-]*)\s*:\s*(.*?)\s*$/), li = line.match(/^\s*-\s+(.*?)\s*$/);
+      if (kv) { listKey = kv[2] === '' ? kv[1] : null; fields[kv[1]] = kv[2] === '' ? [] : yamlScalar(kv[2]); }
+      else if (li && listKey) fields[listKey].push(yamlScalar(li[1]));
+    }
+    return { text, fields };
+  });
+}
+function yamlScalarList(file, key) {
+  const sec = yamlSection(file, key), ind = (sec.match(/^([ \t]*)- /m) || [])[1];
+  if (ind === undefined) return [];
+  return [...sec.matchAll(new RegExp(`^${ind}-[ \\t]+(.+?)[ \\t]*$\\n?`, 'gm'))].map(m => ({ value: yamlScalar(m[1]), text: m[0] }));
 }
 
 // Gemini CLI policy files and a small reader for the [[rule]] blocks Gemini writes (flat key = value lines)
@@ -2158,7 +2304,10 @@ function doRevoke(f, reason) {
     const text = exists(a.file) ? fs.readFileSync(a.file, 'utf8') : '';
     if (!text.includes(a.block)) throw new Error('That rule is no longer in the file. Rescan.');
     const bk = backup(a.file);
-    fs.writeFileSync(a.file, text.replace(a.block, ''));
+    let after = text.replace(a.block, '');
+    // YAML: a list left with no items becomes [] rather than an empty value
+    if (/\.ya?ml$/i.test(a.file)) after = after.replace(/^([A-Za-z_][\w-]*):[ \t]*$(?=\n(?![ \t]+\S)|(?![\s\S]))/gm, '$1: []');
+    fs.writeFileSync(a.file, after);
     log(`REVOKE [${f.agent}] ${f.category}: ${f.title}  file=${a.file}  backup=${bk}${why}`);
     return { message: `Revoked "${f.title}". ${f.agent} will ask again (restart any running ${f.agent} sessions). Backup saved.`, backup: bk };
   }
