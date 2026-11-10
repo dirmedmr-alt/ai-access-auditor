@@ -201,6 +201,7 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
   nav .links{gap:6px}
 }
 @media (max-width:380px){.brand span{display:none}}
+.pv-note{margin:22px 0 0;font-size:14px;color:var(--mut)}
 </style>
 </head>
 <body>
@@ -333,6 +334,7 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
     <div class="card"><h3>يسأل قبل أي تغيير</h3><p>لا يزيل أي صلاحية من تلقاء نفسه، إلا عند انتهاء مدة حددتها بنفسك.</p></div>
     <div class="card"><h3>قابل للتراجع</h3><p>تُحفظ نسخة احتياطية قبل كل تغيير، وبياناتك في مجلد واحد يمكنك حذفه.</p></div>
   </div>
+  <p class="pv-note">يحصي هذا الموقع الزيارات باستخدام GoatCounter، وهو عدّاد مفتوح المصدر لا يستخدم ملفات تعريف الارتباط ولا يجمع أي بيانات شخصية. أما التطبيق نفسه فلا يرسل شيئًا.</p>
 </div></section>
 
 <section id="install"><div class="wrap">
@@ -422,6 +424,14 @@ document.querySelectorAll('.langs a').forEach(function (a) {
     a.href = a.getAttribute('href') + location.hash;
   });
 });
+// Visit counter (GoatCounter: no cookies, no personal data). Downloads are counted by file, without the version.
+document.addEventListener('click', function (e) {
+  var a = e.target.closest && e.target.closest('a[href*="/releases/download/"]');
+  if (!a || !window.goatcounter || !window.goatcounter.count) return;
+  var file = a.href.split('/').pop().replace(/-[0-9]+\.[0-9]+\.[0-9]+(-beta)?/, '');
+  window.goatcounter.count({ path: 'download/' + file, title: 'Download ' + file, event: true });
+});
 </script>
+<script data-goatcounter="https://ai-access-auditor.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
 </body>
 </html>

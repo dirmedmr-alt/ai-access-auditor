@@ -279,4 +279,8 @@ module.exports = [
   ['Not affiliated with Anthropic, OpenAI, Google, GitHub, Cursor or any other company named on this page.',
    'Sans lien avec Anthropic, OpenAI, Google, GitHub, Cursor ni aucune autre entreprise citée sur cette page.',
    'لا علاقة له بـ Anthropic أو OpenAI أو Google أو GitHub أو Cursor أو أي شركة أخرى مذكورة في هذه الصفحة.'],
+  // ---------- website visit counter ----------
+  ['This website counts visits with GoatCounter, an open-source counter that uses no cookies and collects no personal data. The app itself sends nothing.',
+   'Ce site compte les visites avec GoatCounter, un compteur open source sans cookies qui ne collecte aucune donnée personnelle. L’app elle-même n’envoie rien.',
+   'يحصي هذا الموقع الزيارات باستخدام GoatCounter، وهو عدّاد مفتوح المصدر لا يستخدم ملفات تعريف الارتباط ولا يجمع أي بيانات شخصية. أما التطبيق نفسه فلا يرسل شيئًا.'],
 ];

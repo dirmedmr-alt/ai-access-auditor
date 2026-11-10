@@ -200,6 +200,7 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
   nav .links{gap:6px}
 }
 @media (max-width:380px){.brand span{display:none}}
+.pv-note{margin:22px 0 0;font-size:14px;color:var(--mut)}
 </style>
 </head>
 <body>
@@ -332,6 +333,7 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
     <div class="card"><h3>Asks before changing</h3><p>It never removes access on its own, except for time limits you set yourself.</p></div>
     <div class="card"><h3>Reversible</h3><p>Every change is backed up first. Your data is in one folder you can delete.</p></div>
   </div>
+  <p class="pv-note">This website counts visits with GoatCounter, an open-source counter that uses no cookies and collects no personal data. The app itself sends nothing.</p>
 </div></section>
 
 <section id="install"><div class="wrap">
@@ -421,6 +423,14 @@ document.querySelectorAll('.langs a').forEach(function (a) {
     a.href = a.getAttribute('href') + location.hash;
   });
 });
+// Visit counter (GoatCounter: no cookies, no personal data). Downloads are counted by file, without the version.
+document.addEventListener('click', function (e) {
+  var a = e.target.closest && e.target.closest('a[href*="/releases/download/"]');
+  if (!a || !window.goatcounter || !window.goatcounter.count) return;
+  var file = a.href.split('/').pop().replace(/-[0-9]+\.[0-9]+\.[0-9]+(-beta)?/, '');
+  window.goatcounter.count({ path: 'download/' + file, title: 'Download ' + file, event: true });
+});
 </script>
+<script data-goatcounter="https://ai-access-auditor.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
 </body>
 </html>
