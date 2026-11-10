@@ -11,10 +11,9 @@ Claude Code, Codex, Gemini CLI, Cursor, OpenCode and other agents collect permis
 commands, MCP servers with tokens, trusted folders, saved logins, API keys left in their logs. AI Access Auditor
 finds all of it, explains each item in one line, and lets you remove it with one click, with undo.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="site/assets/overview-dark.png">
-  <img src="site/assets/overview-light.png" alt="AI Access Auditor overview: safety score, new access, protection switches and top risks" width="820">
-</picture>
+<img src="site/assets/demo.gif" alt="Demo: open the riskiest grant, revoke it, then undo it from History" width="820">
+
+<sub>Demo with invented data: revoke a risky permission, then undo it from History.</sub>
 
 ## Install
 
@@ -35,6 +34,11 @@ finds all of it, explains each item in one line, and lets you remove it with one
 - **Takes access back:** revoke one grant or many at once, now or after a time limit. Every change is backed up first and can be undone.
 - **Watches for changes:** a popup the moment an agent gains new access. Keep it, keep it for a while, or remove it.
 - **Asks before agents act:** an optional popup before Claude Code, Codex or Gemini CLI runs a tool, through their own hook systems.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="site/assets/overview-dark.png">
+  <img src="site/assets/overview-light.png" alt="AI Access Auditor overview: safety score, new access, protection switches and top risks" width="820">
+</picture>
 
 <p>
   <img src="site/assets/popup-gate.png" alt="Popup asking before Claude Code runs a command" width="400">
