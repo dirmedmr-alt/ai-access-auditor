@@ -437,7 +437,7 @@ function renderOverview() {
   const s = score();
   const tone = s >= 80 ? ['var(--low)', 'Looking good', 'Only a few grants are left to review.'] : s >= 50 ? ['var(--med)', 'Worth a look', 'Some agents have more access than they might need.'] : ['var(--high)', 'Needs attention', 'Agents have broad access you haven\'t reviewed yet.'];
   const C = 2 * Math.PI * 50;
-  setHead('Overview', `${f.length} grants across ${new Set(f.map(x => x.agent)).size} agents`);
+  setHead('Overview', `${f.length} grants across ${new Set(f.map(x => x.agent)).size} agents`, f.length ? '<button class="btn" data-export title="Save every grant as a page you can share or print">Export report</button>' : '');
   const top = open.slice().sort((a, b) => RANK[a.risk] - RANK[b.risk]).slice(0, 6);
   const cats = {};
   f.forEach(x => { cats[x.category] ||= { high: 0, medium: 0, low: 0, n: 0 }; cats[x.category][x.risk]++; cats[x.category].n++; });
@@ -755,6 +755,13 @@ let themeLoaded = false, langPref = 'auto', update = null;
 let updatesPref = 'on';
 let setupStep = 0, setupShownOnce = false, nativeInfo = { native: false, login: false, inApplications: false };
 const isNative = () => !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.native);
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-export]');
+  if (!b) return;
+  b.disabled = true;
+  try { toast((await api('export', {})).message, 7000); } catch (err) { toast('Couldn\'t export: ' + err.message); }
+  b.disabled = false;
+});
 const nativeCmd = (cmd, extra = {}) => { if (isNative()) window.webkit.messageHandlers.native.postMessage({ cmd, ...extra }); };
 window.nativeState = st => { nativeInfo = st; renderSetup(); };
 function openSetup(step = 0) { setupStep = step; $('#setup').classList.add('open'); nativeCmd('getState'); renderSetup(); }

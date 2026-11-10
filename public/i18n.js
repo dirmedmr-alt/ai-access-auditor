@@ -20,6 +20,10 @@
     ['Decisions', 'Décisions', 'القرارات'],
     ['Online accounts', 'Comptes en ligne', 'الحسابات على الإنترنت'],
     ['History & undo', 'Historique et annulation', 'السجل والتراجع'],
+    ['Export report', 'Exporter un rapport', 'تصدير تقرير'],
+    ['Save every grant as a page you can share or print', 'Enregistrer tous les accès dans une page à partager ou imprimer', 'حفظ كل الصلاحيات في صفحة يمكنك مشاركتها أو طباعتها'],
+    ['Report saved in Downloads and opened in your browser.', 'Rapport enregistré dans Téléchargements et ouvert dans votre navigateur.', 'حُفظ التقرير في مجلد التنزيلات وفُتح في متصفحك.'],
+    ['Report saved in the app\'s data folder and opened in your browser.', 'Rapport enregistré dans le dossier de données de l’app et ouvert dans votre navigateur.', 'حُفظ التقرير في مجلد بيانات التطبيق وفُتح في متصفحك.'],
     ['Rescan (⌘R)', 'Analyser à nouveau (⌘R)', 'إعادة الفحص (⌘R)'],
 
     // ---------- risk & status ----------
@@ -338,6 +342,7 @@
     [/^(\d+) logs with secrets · (\d+) sharing data$/, ['$1 journaux avec des secrets · $2 partagent des données', 'سجلات بها مفاتيح سرية: $1 · تشارك البيانات: $2']],
     [/^Version (.+) is available$/, ['La version $1 est disponible', 'الإصدار \u2068$1\u2069 متاح']],
     [/^You have (.+)\. Download it and install it over this one\.$/, ['Vous avez la $1. Téléchargez-la et installez-la par-dessus celle-ci.', 'لديك الإصدار \u2068$1\u2069. نزّله وثبّته فوق هذا الإصدار.']],
+    [/^Couldn't export: (.+)$/, [`Impossible d’exporter${nb}: $1`, 'تعذّر التصدير: $1']],
     [/^Revoked automatically (.+)$/, ['Retiré automatiquement le $1', 'يُسحب تلقائيًا في $1']],
     [/^Step (\d) of (\d)$/, ['Étape $1 sur $2', 'الخطوة $1 من $2']],
     [/^✓ (.+)$/, [m => '✓ ' + W(m[1]), m => '✓ ' + W(m[1])]],

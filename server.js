@@ -2411,6 +2411,50 @@ function openApp(findingId) {
   return { message: f.action.hint };
 }
 
+// ---------- report ----------
+// A self-contained HTML page with every grant, saved in Downloads and opened in the browser (Print → Save as
+// PDF makes a PDF). Secrets are already masked in the findings; home folder paths are shown as ~.
+function exportReport() {
+  const r = publicScan(), f = r.findings, now = new Date();
+  const e = x => String(x == null ? '' : x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const home = x => String(x || '').split(HOME).join('~');
+  const open = f.filter(x => !x.reviewedAt);
+  const score = Math.round(100 * Math.exp(-open.reduce((s, x) => s + ({ high: 12, medium: 4, low: 1 }[x.risk] || 0), 0) / 80));
+  const n = k => f.filter(x => x.risk === k).length, order = { high: 0, medium: 1, low: 2 };
+  const agents = [...new Set(f.map(x => x.agent))].sort((a, b) => f.filter(x => x.agent === b).length - f.filter(x => x.agent === a).length);
+  const rows = a => f.filter(x => x.agent === a).sort((x, y) => order[x.risk] - order[y.risk] || x.category.localeCompare(y.category)).map(x => `
+    <tr><td><span class="r ${e(x.risk)}">${e(x.risk)}</span></td><td>${e(x.category)}</td><td><b>${e(home(x.title))}</b><div class="d">${e(home(x.detail))}</div></td>
+    <td class="src">${e(home(x.source))}</td><td>${x.reviewedAt ? 'Reviewed' : x.isNew ? 'New' : 'To review'}</td></tr>`).join('');
+  const stamp = now.toISOString().slice(0, 16).replace('T', ' ');
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Access Auditor report, ${e(stamp)}</title><style>
+body{font:14px/1.45 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#1b1b1a;background:#fff;margin:0;padding:32px}
+main{max-width:1100px;margin:0 auto}h1{font-size:26px;margin:0 0 4px}h2{font-size:18px;margin:32px 0 8px}.m{color:#62625e}
+.sum{display:flex;gap:12px;flex-wrap:wrap;margin:20px 0}.k{border:1px solid #e3e3df;border-radius:10px;padding:10px 16px;min-width:110px}.k b{display:block;font-size:24px}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;vertical-align:top;padding:8px;border-bottom:1px solid #ececea}th{font-size:12px;color:#62625e;text-transform:uppercase;letter-spacing:.04em}
+.d{color:#62625e;font-size:13px;word-break:break-word}.src{font-size:12px;color:#62625e;word-break:break-all;max-width:260px}
+.r{font-size:12px;font-weight:600;padding:2px 8px;border-radius:99px;text-transform:capitalize}.high{background:#fde8e5;color:#b42d1f}.medium{background:#fbf0dc;color:#8f5a08}.low{background:#e3f3e8;color:#1f6b39}
+@media print{body{padding:0}h2{break-after:avoid}tr{break-inside:avoid}}
+</style></head><body><main>
+<h1>AI Access Auditor report</h1>
+<p class="m">${e(stamp)} · ${e(({ mac: 'macOS', win: 'Windows', windows: 'Windows', linux: 'Linux' })[r.os || OS_NAME] || r.os || OS_NAME)}${APP_VERSION ? ` · app ${e(APP_VERSION)}` : ''} · secrets are masked</p>
+<div class="sum"><div class="k"><b>${score}</b>safety score</div><div class="k"><b>${f.length}</b>grants</div><div class="k"><b>${n('high')}</b>high risk</div>
+<div class="k"><b>${n('medium')}</b>medium</div><div class="k"><b>${n('low')}</b>low</div><div class="k"><b>${f.length - open.length}</b>reviewed</div><div class="k"><b>${agents.length}</b>agents</div></div>
+${agents.map(a => `<h2>${e(a)} <span class="m">(${f.filter(x => x.agent === a).length})</span></h2>
+<table><thead><tr><th>Risk</th><th>Type</th><th>Grant</th><th>Stored in</th><th>Status</th></tr></thead><tbody>${rows(a)}</tbody></table>`).join('')}
+<p class="m" style="margin-top:32px">Made by AI Access Auditor, https://dirmedmr-alt.github.io/ai-access-auditor/</p>
+</main></body></html>`;
+  const dir = exists(h('Downloads')) ? h('Downloads') : DATA_DIR;
+  const file = path.join(dir, `AI-Access-Auditor-report-${now.toISOString().slice(0, 16).replace(/[T:]/g, '-')}.html`);
+  saveFile(file, html);
+  log(`EXPORT report  file=${file}`);
+  if (!DEMO) try {
+    const [cmd, args] = MAC ? ['open', [file]] : WIN ? ['explorer.exe', [file]] : ['xdg-open', [file]];
+    require('child_process').spawn(cmd, args, { detached: true, stdio: 'ignore' }).unref();
+  } catch {}
+  return { message: dir === DATA_DIR ? 'Report saved in the app\'s data folder and opened in your browser.' : 'Report saved in Downloads and opened in your browser.', file };
+}
+
 function listBackups() {
   return fs.readdirSync(BACKUP_DIR).filter(n => !n.endsWith('.meta.json')).sort().reverse().slice(0, 100).map(n => {
     const meta = readJson(path.join(BACKUP_DIR, n + '.meta.json')) || {};
@@ -2814,6 +2858,7 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/review') return send(res, 200, markReviewed(body.id, body.on));
     if (url.pathname === '/api/uploads/trust') return send(res, 200, trustUploader(body.id));
     if (url.pathname === '/api/uploads/untrust') return send(res, 200, untrustUploader(String(body.key || '')));
+    if (url.pathname === '/api/export') return send(res, 200, exportReport());
     if (url.pathname === '/api/restore') return send(res, 200, restore(body.name));
     send(res, 404, { error: 'unknown endpoint' });
   } catch (e) { send(res, 400, { error: e.message }); }
