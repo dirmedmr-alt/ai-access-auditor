@@ -83,6 +83,27 @@ h1 em{font-style:normal;background:linear-gradient(120deg,var(--acc),#8e5bd6);-w
 .shot{margin:56px auto 0;max-width:1060px;border-radius:14px;overflow:hidden;border:1px solid var(--line);box-shadow:var(--shadow);background:var(--card)}
 .shot .chrome{height:30px;display:flex;align-items:center;gap:7px;padding:0 12px;background:var(--bg2);border-bottom:1px solid var(--line)}
 .shot .chrome i{width:11px;height:11px;border-radius:50%;background:#ff5f57}.shot .chrome i:nth-child(2){background:#febc2e}.shot .chrome i:nth-child(3){background:#28c840}
+/* hero: blue band, text on one side and the app on the other, like the link-preview card */
+.hero{padding:72px 0 80px;text-align:start;color:#fff;background:linear-gradient(135deg,#1b2c73 0%,#2f6bf0 100%);overflow:hidden}
+.hero .wrap{display:grid;grid-template-columns:minmax(0,.95fr) minmax(0,1.05fr);gap:56px;align-items:center}
+.hero .badge{color:#fff;background:rgba(255,255,255,.16)}
+.hero h1{font-size:clamp(36px,4.4vw,56px);margin:0 0 18px;color:#fff}
+.hero h1 em{background:linear-gradient(120deg,#cfe0ff,#e3d2ff);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero .lead{color:rgba(255,255,255,.86);margin:0 0 30px;font-size:clamp(17px,1.6vw,19px)}
+.hero .cta{justify-content:flex-start}
+.hero .btn{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.38);color:#fff}
+.hero .btn.primary{background:#fff;border-color:#fff;color:#1b2c73;box-shadow:0 10px 28px rgba(0,0,0,.25)}
+.hero .req{color:rgba(255,255,255,.72)}
+.hero .shot{margin:0;margin-inline-end:-180px;max-width:none;border:0;box-shadow:0 30px 80px rgba(0,0,0,.35)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .hero{background:linear-gradient(135deg,#0f1a4d 0%,#1f4fc4 100%)}}
+:root[data-theme="dark"] .hero{background:linear-gradient(135deg,#0f1a4d 0%,#1f4fc4 100%)}
+@media (max-width:920px){
+  .hero{text-align:center;padding:52px 0 0}
+  .hero .wrap{grid-template-columns:1fr;gap:40px}
+  .hero h1,.hero .lead{margin-inline:auto}
+  .hero .cta{justify-content:center}
+  .hero .shot{margin-inline-end:0;border-radius:14px 14px 0 0}
+}
 .only-dark{display:none}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .only-light{display:none}:root:not([data-theme="light"]) .only-dark{display:block}}
 :root[data-theme="dark"] .only-light{display:none}:root[data-theme="dark"] .only-dark{display:block}
@@ -200,6 +221,7 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
   nav .wrap{gap:12px}
   nav .links{gap:6px}
 }
+@media (max-width:460px){nav .btn.primary.small{display:none}}
 @media (max-width:380px){.brand span{display:none}}
 .pv-note{margin:22px 0 0;font-size:14px;color:var(--mut)}
 </style>
@@ -224,6 +246,7 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
 </div></nav>
 
 <header class="hero"><div class="wrap">
+  <div class="hero-text">
   <span class="badge">Gratuit pour macOS, Windows et Linux</span>
   <h1>Voyez et contrôlez <em>tout</em> ce que vos agents IA peuvent faire.</h1>
   <p class="lead">AI Access Auditor trouve chaque permission, dossier, identifiant et privilège de vos agents IA, vous alerte dès que cela change et vous permet de tout retirer en un clic.</p>
@@ -236,6 +259,7 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
     <a class="btn" href="#linux">Télécharger pour Linux</a>
   </div>
   <p class="req">macOS 13 Ventura ou plus récent · Windows 10 et 11 · Linux : Ubuntu 22.04, Debian 12 ou plus récent, et similaires · Rien d’autre à installer</p>
+  </div>
   <div class="shot">
     <div class="chrome"><i></i><i></i><i></i></div>
     <img class="only-light" src="../assets/overview-light.png" alt="Vue d’ensemble d’AI Access Auditor : un score de sécurité, les accès à haut risque, les nouveaux accès et l’état de la protection" width="2360" height="1560">
