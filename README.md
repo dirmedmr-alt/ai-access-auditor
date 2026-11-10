@@ -1,32 +1,62 @@
 # AI Access Auditor
 
-An app for macOS, Windows and Linux that finds every access and privilege you've given to AI agents, asks before
-they act, and lets you take any of it back. Everything stays on your computer: no account, no tracking. The only connection it makes is a daily check
-for a new version (switch it off in Setup).
+**See everything your AI coding agents can access on your computer, and take any of it back.**
 
-**Download:** [website](https://dirmedmr-alt.github.io/ai-access-auditor/) ·
-[latest release](https://github.com/dirmedmr-alt/ai-access-auditor/releases/latest)
-(free).
-- **Mac:** macOS 13 or later, Apple Silicon and Intel. Signed and notarized by Apple from 1.0.8 on
-  (the betas were unsigned: approve them once under System Settings → Privacy & Security → Open Anyway).
-- **Windows:** Windows 10 and 11, installers for x64 and ARM (ARM not tested yet). Unsigned, so SmartScreen may
-  warn once: More info → Run anyway. Uploads aren't watched on Windows.
-- **Linux:** a `.deb` for Ubuntu, Debian and similar (x64 and arm64: `sudo apt install ./AI-Access-Auditor-*.deb`),
-  or an AppImage for other x64 distributions (needs `libfuse2t64` on Ubuntu 22.04 or later; on 22.04 the package is `libfuse2`).
+[![Latest release](https://img.shields.io/github/v/release/dirmedmr-alt/ai-access-auditor?label=release)](https://github.com/dirmedmr-alt/ai-access-auditor/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/dirmedmr-alt/ai-access-auditor/total)](https://github.com/dirmedmr-alt/ai-access-auditor/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+![macOS | Windows | Linux](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)
+
+Claude Code, Codex, Gemini CLI, Cursor, OpenCode and other agents collect permissions over time: auto-approved
+commands, MCP servers with tokens, trusted folders, saved logins, API keys left in their logs. AI Access Auditor
+finds all of it, explains each item in one line, and lets you remove it with one click, with undo.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="site/assets/overview-dark.png">
+  <img src="site/assets/overview-light.png" alt="AI Access Auditor overview: safety score, new access, protection switches and top risks" width="820">
+</picture>
+
+## Install
+
+**[Download from the website](https://dirmedmr-alt.github.io/ai-access-auditor/)** (free), or from the
+[latest release](https://github.com/dirmedmr-alt/ai-access-auditor/releases/latest).
+
+| | |
+|---|---|
+| **Mac** | macOS 13 or later, Apple Silicon and Intel. Signed and notarized by Apple. Or with Homebrew: `brew tap dirmedmr-alt/tap && brew trust dirmedmr-alt/tap && brew install --cask ai-access-auditor` |
+| **Windows** | Windows 10 and 11, x64 and ARM installers. Not signed yet, so SmartScreen may warn once: More info → Run anyway. |
+| **Linux** | `.deb` for Ubuntu and Debian (x64 and arm64): `sudo apt install ./AI-Access-Auditor-*.deb`. AppImage for other x64 distributions (needs `libfuse2t64` on Ubuntu 22.04+, `libfuse2` on 22.04). |
+
+## What it does
+
+- **Finds every grant:** tool and command permissions, MCP servers, trusted folders, hooks, saved logins,
+  API keys in your shell and environment, startup entries, and secrets left in agents' session logs (shown masked).
+- **Explains and scores them:** a safety score, and a one-line explanation of each risk.
+- **Takes access back:** revoke one grant or many at once, now or after a time limit. Every change is backed up first and can be undone.
+- **Watches for changes:** a popup the moment an agent gains new access. Keep it, keep it for a while, or remove it.
+- **Asks before agents act:** an optional popup before Claude Code, Codex or Gemini CLI runs a tool, through their own hook systems.
+
+<p>
+  <img src="site/assets/popup-gate.png" alt="Popup asking before Claude Code runs a command" width="400">
+  <img src="site/assets/popup-new-access.png" alt="Popup showing new access gained by an agent" width="400">
+</p>
+
+## Privacy
+
+Everything stays on your computer: no account, no telemetry. The only network request is a daily check for a
+new version on GitHub, which you can turn off in Setup. The local server listens only on 127.0.0.1, checks a
+per-session token, and masks secrets in its output.
+
+## Full details
 
 On Linux the app lives in the tray instead of the menu bar. It finds the same agent access, and in place of
 the Mac-only parts it checks systemd and autostart jobs, logins saved in GNOME Keyring or KWallet (by name only),
 and membership of the `docker` group. On Windows it checks startup entries (registry and Startup folder),
 scheduled tasks, logins in Credential Manager, API keys in the user environment, and admin rights without a UAC
-prompt. The Linux and Windows app is in `desktop/` (Electron); see `build-linux.sh` and `appveyor.yml`.
+prompt. Uploads aren't watched on Windows.
 
-**Build it yourself:** `./build-app.sh`, then open `dist/AI Access Auditor.app`. You can drag it into
-/Applications. It needs Node.js (`brew install node`) and doesn't use a browser.
+### What it scans
 
-    npm start        # browser version: http://localhost:4517
-    npm run scan     # print the findings in the terminal
-
-**What it scans:**
 - **Claude Code:** tool permissions, permission modes, trusted folders, MCP servers and hooks
 - **Claude Desktop:** folder grants, browser control, scheduled tasks and permission bypass
 - **MCP servers** in Cursor, VS Code, Windsurf, Gemini CLI, Zed, Codex, Cline and Roo Code
@@ -51,13 +81,16 @@ prompt. The Linux and Windows app is in `desktop/` (Electron); see `build-linux.
 - **API keys** exported in your shell startup files
 - **Optional "watch all apps":** macOS privacy permissions and background jobs for every app, not just AI apps
 
-**Menu bar & alerts:** the Mac app stays in the menu bar after you close its window. Every 5 minutes
+### Menu bar and alerts
+
+The Mac app stays in the menu bar after you close its window. Every 5 minutes
 it checks for new access. When an agent gains something new, the shield turns red, a notification shows
 what was added, and the grant is labeled "New" in the app. "Open at Login" in the shield menu starts it
 quietly when you log in. Grants that exist on the first run become your starting list, so you're only
 alerted about changes after that.
 
-**Live protection (LuLu-style):**
+### Live protection
+
 - **New access pops up right away.** The app watches the agents' config files. When anything gains access, a floating window asks whether to **Keep** it (forever, or for 1 hour, 1 day or 7 days) or **Remove** it.
 - **Ask before agents act** (switches on the Overview; one hook script, `gate.js`, for all three):
   - **Claude Code:** a `PermissionRequest` hook in `~/.claude/settings.json`. The popup replaces Claude Code's prompt; Allow can be "just this once" or "always".
@@ -70,15 +103,23 @@ alerted about changes after that.
 - **Agent skills, sign-ins and "always allow" rules:** skills in every agent's skills folder; logins saved as plain text (`~/.codex/auth.json`, `~/.gemini/oauth_creds.json`) or in the Keychain; Gemini's saved policy rules. All revocable, with a backup.
 - macOS privacy prompts (Screen Recording, Accessibility and so on) come from the system itself, so the app can only report them afterwards.
 
-**Actions:**
+### Actions
+
 - **Revoke:** backs up the file first. You can also tick several grants and revoke them together.
 - **Revoke automatically:** after 1 hour, 1 day, 7 days or 30 days.
 - **Mark as reviewed:** for grants you want to keep.
 - **Restore:** on the History tab.
 
-Install the app with `./build-app.sh --install`. Every action is logged in `~/.ai-access-audit/`.
+Every action is logged in `~/.ai-access-audit/`.
 
-The server listens only on 127.0.0.1, checks a per-session token, and masks secrets in its output.
+## Build it yourself
+
+`./build-app.sh`, then open `dist/AI Access Auditor.app`, or `./build-app.sh --install` to put it in
+/Applications. It needs Node.js (`brew install node`) and doesn't use a browser. The Linux and Windows app is
+in `desktop/` (Electron); see `build-linux.sh` and `appveyor.yml`.
+
+    npm start        # browser version: http://localhost:4517
+    npm run scan     # print the findings in the terminal
 
 ## Releasing a download and the website
 
