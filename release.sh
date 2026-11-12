@@ -76,7 +76,10 @@ rm -rf "$STAGE"
 if [ "$SIGN_ID" != "-" ]; then
   # Apple checks the app for malware (usually a few minutes), then the ticket is attached so it opens offline too
   codesign --force --timestamp -s "$SIGN_ID" "$DMG"
-  xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait | tee /dev/stderr | grep -q "status: Accepted" \
+  # keep the whole reply (grep -q would stop reading early, and with pipefail that looks like a failure)
+  NOTARY_OUT=$(xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait 2>&1) || true
+  echo "$NOTARY_OUT"
+  grep -q "status: Accepted" <<<"$NOTARY_OUT" \
     || { echo "Notarization failed. Details: xcrun notarytool log <submission id> --keychain-profile $NOTARY_PROFILE" >&2; exit 1; }
   xcrun stapler staple "$DMG"
   spctl -a -t open --context context:primary-signature -v "$DMG"
