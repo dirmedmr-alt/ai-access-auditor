@@ -342,6 +342,7 @@
     [/^(\d+) logs with secrets · (\d+) sharing data$/, ['$1 journaux avec des secrets · $2 partagent des données', 'سجلات بها مفاتيح سرية: $1 · تشارك البيانات: $2']],
     [/^Version (.+) is available$/, ['La version $1 est disponible', 'الإصدار \u2068$1\u2069 متاح']],
     [/^You have (.+)\. Download it and install it over this one\.$/, ['Vous avez la $1. Téléchargez-la et installez-la par-dessus celle-ci.', 'لديك الإصدار \u2068$1\u2069. نزّله وثبّته فوق هذا الإصدار.']],
+    [/^This is version (.+)\.$/, ['Ceci est la version $1.', 'هذا هو الإصدار \u2068$1\u2069.']],
     [/^Couldn't export: (.+)$/, [`Impossible d’exporter${nb}: $1`, 'تعذّر التصدير: $1']],
     [/^Revoked automatically (.+)$/, ['Retiré automatiquement le $1', 'يُسحب تلقائيًا في $1']],
     [/^Step (\d) of (\d)$/, ['Étape $1 sur $2', 'الخطوة $1 من $2']],

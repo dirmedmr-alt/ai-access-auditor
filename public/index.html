@@ -808,7 +808,7 @@ function renderSetup() {
         <div class="seg" style="margin-inline-start:auto;align-self:center">${[['auto', 'Auto'], ['en', 'English'], ['fr', 'Français'], ['ar', 'العربية']].map(([v, l]) => `<button data-lang-pick="${v}" class="${langPref === v ? 'on' : ''}" lang="${v === 'auto' ? '' : v}">${l}</button>`).join('')}</div></div>
       <div class="srow"><span class="ic low">${icon('macOS privacy')}</span><div><b>Watch all apps, not just AI</b><p>${MACOS ? 'Also cover camera, screen, files and background jobs for every other app.' : 'Also cover background jobs for every other app.'}</p></div>
         <label class="switch"><input type="checkbox" data-setsw="scope" ${scope === 'all' ? 'checked' : ''}></label></div>
-      <div class="srow"><span class="ic low">${icon('refresh')}</span><div><b>Check for updates</b><p>Once a day, asks GitHub whether a new version is out. Nothing about your computer is sent.</p></div>
+      <div class="srow"><span class="ic low">${icon('refresh')}</span><div><b>Check for updates</b><p>Once a day, asks GitHub whether a new version is out. Nothing about your computer is sent.</p>${update && update.current ? `<p>This is version ${esc(update.current.replace('-', ' '))}.</p>` : ''}</div>
         <label class="switch"><input type="checkbox" data-setsw="updates" ${updatesPref !== 'off' ? 'checked' : ''}></label></div>`,
     () => `${big('Trusted folder')}<div class="stepno">All set</div>
       <h2>You're protected</h2>
