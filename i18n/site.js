@@ -283,4 +283,8 @@ module.exports = [
   ['This website counts visits with GoatCounter, an open-source counter that uses no cookies and collects no personal data. The app itself sends nothing.',
    'Ce site compte les visites avec GoatCounter, un compteur open source sans cookies qui ne collecte aucune donnée personnelle. L’app elle-même n’envoie rien.',
    'يحصي هذا الموقع الزيارات باستخدام GoatCounter، وهو عدّاد مفتوح المصدر لا يستخدم ملفات تعريف الارتباط ولا يجمع أي بيانات شخصية. أما التطبيق نفسه فلا يرسل شيئًا.'],
+  // ---------- GitHub links ----------
+  ['Source code on GitHub', 'Code source sur GitHub', 'الشيفرة المصدرية على GitHub'],
+  ['Free and open source (MIT) · View the code on GitHub', 'Gratuit et open source (MIT) · Voir le code sur GitHub', 'مجاني ومفتوح المصدر (MIT) · اطّلع على الشيفرة في GitHub'],
+  ['>All versions</a>', '>Toutes les versions</a>', '>كل الإصدارات</a>'],
 ];

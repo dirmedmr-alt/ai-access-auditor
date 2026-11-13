@@ -222,6 +222,9 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
 }
 @media (max-width:460px){nav .btn.primary.small{display:none}}
 @media (max-width:380px){.brand span{display:none}}
+ nav .gh{display:inline-flex;align-items:center;color:var(--mut)} nav .gh svg{width:20px;height:20px} nav .gh:hover{color:var(--fg)}
+.hero .src{margin:14px 0 0;font-size:14px}.hero .src a{display:inline-flex;align-items:center;gap:8px;color:#fff;opacity:.9}.hero .src a:hover{opacity:1}.hero .src svg{width:16px;height:16px}
+@media (max-width:460px){nav .gh{display:none}}
 .pv-note{margin:22px 0 0;font-size:14px;color:var(--mut)}
 </style>
 </head>
@@ -234,6 +237,7 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
     <a href="#privacy">Privacy</a>
     <a href="#install">Install</a>
     <a href="#faq">FAQ</a>
+    <a class="gh" href="https://github.com/dirmedmr-alt/ai-access-auditor" title="Source code on GitHub" aria-label="Source code on GitHub"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
     <div class="theme" role="group" aria-label="Appearance">
       <button data-t="light" title="Light" aria-label="Light"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
       <button data-t="system" title="Match my device" aria-label="Match my device"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg></button>
@@ -250,14 +254,15 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
   <h1>See and control <em>everything</em> your AI agents can do.</h1>
   <p class="lead">AI Access Auditor finds every permission, folder, login and privilege your AI agents have, pops up the moment that changes, and lets you take any of it back with one click.</p>
   <div class="cta">
-    <a class="btn primary" href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.9/AI-Access-Auditor-1.0.9.dmg" download>
+    <a class="btn primary" href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.10/AI-Access-Auditor-1.0.10.dmg" download>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
-      <span>Download for Mac<span class="sub">Version 1.0.9 · 71 MB</span></span>
+      <span>Download for Mac<span class="sub">Version 1.0.10 · 71 MB</span></span>
     </a>
     <a class="btn" href="#windows">Download for Windows</a>
     <a class="btn" href="#linux">Download for Linux</a>
   </div>
   <p class="req">macOS 13 Ventura or later · Windows 10 and 11 · Linux: Ubuntu 22.04, Debian 12 or later, and similar · Nothing else to install</p>
+  <p class="src"><a href="https://github.com/dirmedmr-alt/ai-access-auditor"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg><span>Free and open source (MIT) · View the code on GitHub</span></a></p>
   </div>
   <div class="shot">
     <div class="chrome"><i></i><i></i><i></i></div>
@@ -374,19 +379,19 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
 
   <h3 class="sub-h" id="windows">On Windows</h3>
   <div class="steps">
-    <div class="card step"><h3>Download and run the installer</h3><p>For most PCs: <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.9/AI-Access-Auditor-1.0.9-windows-x64.exe" download>Windows (x64)</a>. For ARM PCs, such as Snapdragon laptops: <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.9/AI-Access-Auditor-1.0.9-windows-arm64.exe" download>Windows on ARM</a> (not tested yet). It installs for your account only, without administrator rights.</p></div>
+    <div class="card step"><h3>Download and run the installer</h3><p>For most PCs: <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.10/AI-Access-Auditor-1.0.10-windows-x64.exe" download>Windows (x64)</a>. For ARM PCs, such as Snapdragon laptops: <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.10/AI-Access-Auditor-1.0.10-windows-arm64.exe" download>Windows on ARM</a> (not tested yet). It installs for your account only, without administrator rights.</p></div>
     <div class="card step"><h3>If Windows warns you</h3><p>The Windows version isn't signed yet, so Windows may say <b>Windows protected your PC</b>. Click <b>More info</b>, then <b>Run anyway</b>. Then follow the welcome screen.</p></div>
   </div>
-  <div class="note"><b>On Windows,</b> the app also checks startup entries, scheduled tasks and logins saved in Credential Manager. It doesn't watch uploads yet, because Windows only shows how much each program sends to administrators. Checksums: <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.9/SHA256SUMS-windows.txt">SHA256SUMS-windows.txt</a></div>
+  <div class="note"><b>On Windows,</b> the app also checks startup entries, scheduled tasks and logins saved in Credential Manager. It doesn't watch uploads yet, because Windows only shows how much each program sends to administrators. Checksums: <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.10/SHA256SUMS-windows.txt">SHA256SUMS-windows.txt</a></div>
 
   <h3 class="sub-h" id="linux">On Linux</h3>
   <div class="steps">
-    <div class="card step"><h3>Ubuntu, Debian, Mint, Pop!_OS</h3><p>Download the .deb for your computer: <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.9/AI-Access-Auditor-1.0.9-amd64.deb" download>Intel or AMD (x64)</a> or <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.9/AI-Access-Auditor-1.0.9-arm64.deb" download>ARM (arm64)</a>. Then install it from the Terminal:
+    <div class="card step"><h3>Ubuntu, Debian, Mint, Pop!_OS</h3><p>Download the .deb for your computer: <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.10/AI-Access-Auditor-1.0.10-amd64.deb" download>Intel or AMD (x64)</a> or <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.10/AI-Access-Auditor-1.0.10-arm64.deb" download>ARM (arm64)</a>. Then install it from the Terminal:
       <span class="code">sudo apt install ./AI-Access-Auditor-*.deb</span></p></div>
-    <div class="card step"><h3>Other distributions (x64)</h3><p>Download the <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.9/AI-Access-Auditor-1.0.9-x86_64.AppImage" download>AppImage</a>, make it executable and open it:
+    <div class="card step"><h3>Other distributions (x64)</h3><p>Download the <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.10/AI-Access-Auditor-1.0.10-x86_64.AppImage" download>AppImage</a>, make it executable and open it:
       <span class="code">chmod +x AI-Access-Auditor-*.AppImage</span>On Ubuntu 22.04 or later, AppImages also need <b>libfuse2</b>: <span class="code">sudo apt install libfuse2t64</span>(on 22.04 the package is called libfuse2).</p></div>
   </div>
-  <div class="note"><b>The tray icon:</b> the app keeps watching after you close its window, from an icon in the top bar or taskbar. On GNOME desktops other than Ubuntu's, that icon needs the <b>AppIndicator</b> extension. Without it, open the app again from the app menu. Checksums: <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.9/SHA256SUMS-linux.txt">SHA256SUMS-linux.txt</a></div>
+  <div class="note"><b>The tray icon:</b> the app keeps watching after you close its window, from an icon in the top bar or taskbar. On GNOME desktops other than Ubuntu's, that icon needs the <b>AppIndicator</b> extension. Without it, open the app again from the app menu. Checksums: <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.10/SHA256SUMS-linux.txt">SHA256SUMS-linux.txt</a></div>
 </div></section>
 
 <section id="faq" style="padding-top:20px"><div class="wrap">
@@ -413,18 +418,19 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
   <div class="band">
     <h2>Know what your agents can do.</h2>
     <p>Free for macOS 13 or later, Windows and Linux.</p>
-    <a class="btn" href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.9/AI-Access-Auditor-1.0.9.dmg" download>
+    <a class="btn" href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.10/AI-Access-Auditor-1.0.10.dmg" download>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
       Download AI Access Auditor
     </a>
     <a class="btn ghost-light" href="#windows">Windows</a>
     <a class="btn ghost-light" href="#linux">Linux</a>
-    <div class="sum">SHA-256: <span id="sha">de22c4e5563083a5d1a29c7e07b7c63fb91231036575c672fdee1ba2d686120f</span></div>
+    <div class="sum">SHA-256: <span id="sha">59bb968b7d5d094c3b1821f5fa8c22e71f9440920b90a2527fff253f46b12833</span></div>
   </div>
 </div>
 
 <footer><div class="wrap">
-  <span>© 2026 AI Access Auditor · Version 1.0.9</span>
+  <span><a href="https://github.com/dirmedmr-alt/ai-access-auditor">Source code on GitHub</a> · <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases">All versions</a></span>
+  <span>© 2026 AI Access Auditor · Version 1.0.10</span>
   <span>Not affiliated with Anthropic, OpenAI, Google, GitHub, Cursor or any other company named on this page.</span>
 </div></footer>
 
