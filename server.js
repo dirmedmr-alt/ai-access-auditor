@@ -470,6 +470,20 @@ const SECRET_PATTERNS = [
   ['Private key', /-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----[\s\S]{20,8000}?-----END (?:[A-Z]+ )?PRIVATE KEY-----/g],
 ];
 const REDACTED = '[removed by AI Access Auditor]';
+// Where each kind of key is cancelled. Removing a key from a log only cleans the file: the key keeps working
+// until it is cancelled with the service that issued it.
+const KEY_REVOKE = {
+  'Anthropic API key': ['Anthropic', 'https://console.anthropic.com/settings/keys'],
+  'OpenAI API key': ['OpenAI', 'https://platform.openai.com/api-keys'],
+  'GitHub token': ['GitHub', 'https://github.com/settings/tokens'],
+  'AWS access key': ['AWS', 'https://console.aws.amazon.com/iam/home#/security_credentials'],
+  'Google API key': ['Google Cloud', 'https://console.cloud.google.com/apis/credentials'],
+  'Slack token': ['Slack', 'https://api.slack.com/apps'],
+  'Stripe secret key': ['Stripe', 'https://dashboard.stripe.com/apikeys'],
+  'npm token': ['npm', 'https://docs.npmjs.com/revoking-access-tokens'],
+  'Hugging Face token': ['Hugging Face', 'https://huggingface.co/settings/tokens'],
+  'Private key': ['GitHub SSH keys', 'https://github.com/settings/keys'],
+};
 // documentation examples and placeholders aren't secrets ("AKIAIOSFODNN7EXAMPLE", "ghp_xxxxxxxx…")
 const realSecret = m => !/EXAMPLE|example|xxxxxxxx|XXXXXXXX|your[_-]?(api[_-]?)?key|1234567890abcdef/i.test(m) && new Set(m.replace(/^[a-z]+[_-]/i, '')).size >= 10;
 const HISTORY_ROOTS = [
@@ -563,6 +577,7 @@ function scanHistory() {
       title: `${n}${n >= 50 ? '+' : ''} secret${n === 1 ? '' : 's'} in ${fixable ? `a ${agent} session` : `${agent}'s session history`}`,
       detail: `${kinds.join(', ')}: ${c.hits.slice(0, 3).map(x => x.preview).join(', ')}${n > 3 ? ', …' : ''} · last used ${new Date(c.mtime).toLocaleDateString()} · ${file.replace(HOME, '~')}`,
       risk: 'high', source: file,
+      keys: kinds.filter(k => KEY_REVOKE[k]).map(k => ({ kind: k, label: KEY_REVOKE[k][0], url: KEY_REVOKE[k][1] })),
       action: fixable ? { kind: 'redactSecrets', file }
         : { kind: 'none', hint: `Delete the sessions that contain these in ${agent}, and replace the keys with the services they belong to.` },
     });
@@ -1460,6 +1475,51 @@ function scanInstalledAgents() {
   return out;
 }
 
+// Agents that were uninstalled but left their settings, logins and history behind. Uninstalling a tool
+// rarely removes its folder in your home, so the logins and "always allow" rules in it stay usable.
+// Nothing is deleted from here: the logins and permissions inside are listed (and revocable) on their own.
+const LEFTOVERS = [
+  // name, data folder, commands, Mac app names, editor extension id prefixes
+  ['Claude Code', h('.claude'), ['claude'], ['Claude'], ['anthropic.claude-code']],
+  ['Codex CLI', h('.codex'), ['codex'], ['Codex', 'ChatGPT'], ['openai.chatgpt']],
+  ['Gemini CLI', h('.gemini'), ['gemini'], ['Gemini'], ['google.geminicodeassist']],
+  ['OpenCode', h('.local', 'share', 'opencode'), ['opencode'], ['OpenCode'], ['sst-dev.opencode']],
+  ['Copilot CLI', h('.copilot'), ['copilot'], [], []],
+  ['Cursor', h('.cursor'), ['cursor-agent', 'cursor'], ['Cursor'], []],
+  ['Windsurf', h('.codeium', 'windsurf'), ['windsurf'], ['Windsurf'], ['codeium.']],
+  ['Kiro', h('.kiro'), ['kiro-cli', 'kiro'], ['Kiro'], []],
+  ['Goose', h('.config', 'goose'), ['goose'], ['Goose'], []],
+  ['Cline', h('.cline'), ['cline'], [], ['saoudrizwan.claude-dev']],
+];
+function scanLeftovers() {
+  const out = [];
+  if (DEMO) return out;
+  const pathDirs = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
+  const dirs = [...new Set([...BIN_DIRS, ...pathDirs])];
+  const appNames = new Set((WIN ? windowsApps() : LINUX ? linuxApps() : []).map(a => a.name.toLowerCase()));
+  const extDirs = ['.vscode', '.cursor', '.windsurf', '.vscode-insiders', '.kiro'].map(d => h(d, 'extensions'));
+  const exts = extDirs.flatMap(d => { try { return fs.readdirSync(d).map(n => n.toLowerCase()); } catch { return []; } });
+  for (const [name, dir, cmds, apps, extIds] of LEFTOVERS) {
+    if (!exists(dir)) continue;
+    const installed = cmds.some(c => dirs.some(d => binFile(d, c)))
+      || (name === 'Claude Code' && exists(h('.claude', 'local', 'claude')))
+      || apps.some(a => MAC ? ['/Applications', h('Applications')].some(d => exists(path.join(d, a + '.app'))) : appNames.has(a.toLowerCase()))
+      || extIds.some(id => exts.some(e => e.startsWith(id)));
+    if (installed) continue;
+    // what is still in there, in plain words
+    const has = [];
+    if (['auth.json', '.credentials.json', 'oauth_creds.json', 'gemini-credentials.json', 'hosts.yml', path.join('data', 'settings', 'providers.json')].some(n => exists(path.join(dir, n)))) has.push('a saved login');
+    if (['settings.json', 'config.toml', 'config.json', 'config.yaml', 'mcp.json', 'cli-config.json'].some(n => exists(path.join(dir, n))) || exists(path.join(dir, 'settings'))) has.push('settings and permissions');
+    if (['projects', 'sessions', 'tmp', 'storage', 'history', 'session-state'].some(n => exists(path.join(dir, n))) || exists(path.join(dir, 'opencode.db'))) has.push('conversation history');
+    if (!has.length) continue;
+    const where = dir.replace(HOME, '~');
+    out.push({ agent: name, category: 'Left behind', title: `${name} isn't installed, but its data is still here`,
+      detail: `${where}: ${has.join(', ')}`, risk: has.includes('a saved login') ? 'medium' : 'low', source: dir,
+      action: { kind: 'none', hint: `If you removed ${name} for good, delete ${where}${MAC ? ' (move it to the Trash)' : ''}. Its logins and permissions are also listed one by one, so you can remove just those.` } });
+  }
+  return out;
+}
+
 // Agent skills: folders of instructions (and often scripts) an agent loads and follows on its own
 const SKILL_ROOTS = [
   ['Claude Code', h('.claude', 'skills')], ['Codex CLI', h('.codex', 'skills')], ['Gemini CLI', h('.gemini', 'skills')],
@@ -2045,7 +2105,7 @@ function scanAll() {
   const tcc = scanTcc();
   const timing = process.env.AUDIT_TIMING ? {} : null; // how long each check takes (tests)
   const findings = [scanClaudeCode, scanClaudeDesktop, scanOtherMcp, () => tcc.findings, scanEnvKeys, scanKeychain, scanBackgroundAgents,
-    scanEditorExtensions, scanBrowserExtensions, scanLocalServers, scanMoreAgents, scanInstalledAgents, scanSkills, scanProcesses, scanUploads, scanInherited,
+    scanEditorExtensions, scanBrowserExtensions, scanLocalServers, scanMoreAgents, scanInstalledAgents, scanLeftovers, scanSkills, scanProcesses, scanUploads, scanInherited,
     scanHistory, scanDataSharing]
     .flatMap(fn => { const t0 = Date.now(), r = fn(); if (timing) timing[fn.name || 'tcc'] = Date.now() - t0; return r; });
   if (timing) console.log('timing (ms):', JSON.stringify(timing));
@@ -2903,4 +2963,4 @@ if (require.main === module) {
     console.log(`AI Access Auditor running at http://localhost:${server.address().port}`);
   });
 }
-module.exports = { scanAll, _test: { saveFile, gateInstall, gateStatus, historyFiles, refreshHistory, scanHistory, startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason } };
+module.exports = { scanAll, _test: { saveFile, scanLeftovers, gateInstall, gateStatus, historyFiles, refreshHistory, scanHistory, startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason } };

@@ -198,6 +198,7 @@ html.native .insp-in{padding-top:34px}
 /* misc */
 .empty{text-align:center;color:var(--mut);padding:60px 20px}
 .empty .big{font-size:34px;margin-bottom:6px}
+.keylinks{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 4px}
 .note{display:flex;gap:12px;align-items:flex-start;background:var(--acc-soft);border-radius:var(--r);padding:12px 14px;margin-top:14px}
 .note svg{width:18px;height:18px;color:var(--acc);flex:none;margin-top:1px}
 .note p{margin:2px 0 8px;color:var(--mut)}
@@ -310,6 +311,7 @@ const P = {
   'macOS privacy': '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   'Running agent': '<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/>',
   'AI tool install': '<path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>',
+  'Left behind': '<path d="M3 7h18M8 7V4h8v3M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/>',
   'AI agent installed': '<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/><path d="M8 9l2 2-2 2M12 13h4"/>',
   'Data upload': '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/>',
   'Agent skill': '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/>',
@@ -338,6 +340,7 @@ const EXPLAIN = {
   'macOS privacy': ['A system permission from macOS', 'macOS lets this app use a protected part of your Mac. Any agent running inside the app gets the same access.'],
   'Running agent': ['Running right now with safety off', 'This agent is running at this moment with its approval prompts switched off, or as administrator. It can change files and run commands without asking. Stop it if you didn\'t start it this way on purpose.'],
   'AI tool install': ['An AI tool is being installed right now', 'Someone ran the setup for an MCP server, agent skill or agent plugin on this Mac. Once it finishes, it usually gives your agents new abilities. Stop it if you didn\'t start it on purpose. If you keep it, you\'ll be asked about the access it adds.'],
+  'Left behind': ['Left behind after uninstalling', 'Uninstalling an agent usually leaves its folder in your home: saved logins, "always allow" rules and past conversations. A login left here can still be used by any program. If you don\'t use this agent any more, delete the folder.'],
   'AI agent installed': ['An AI agent is installed', 'This AI tool is on your Mac. On its own that is no risk, but anything it can do (logins, folders, permissions) is listed under its name. If you no longer use it, uninstall it.'],
   'Data upload': ['Sending data from your Mac', 'This program is sending data from your Mac to another computer on the internet. Programs that AI agents start (scripts, commands, MCP servers) are flagged from 64 KB, any other app from 20 MB. Check the files it has open. If you didn\'t expect it, stop it.'],
   'Agent skill': ['Instructions the agent follows on its own', 'A skill is a folder of instructions, and often scripts, that the agent loads whenever it decides the skill fits the task. Scripts in it run with the same access as the agent.'],
@@ -619,6 +622,8 @@ function renderInspector() {
     <h2>${esc(f.title)}</h2>
     <p class="lead">${avatar(f.agent)} ${esc(f.agent)} · <span class="badge ${f.risk}">${RISK_LABEL[f.risk]}</span></p>
     <div class="explain ${f.risk}"><b>${esc(head)}</b>${esc(text)}</div>
+    ${f.keys && f.keys.length ? `<div class="explain high"><b>The keys still work</b>Removing them from the log only cleans the file. Anyone or anything that saw them can still use them until you cancel them with the service and create new ones.</div>
+    <div class="keylinks">${f.keys.map(k => `<a class="btn" href="${esc(k.url)}" target="_blank" rel="noopener">Cancel at ${esc(k.label)}</a>`).join('')}</div>` : ''}
     <dl class="kv">
       <div><dt>Type</dt><dd>${esc(f.category)}</dd></div>
       <div><dt>Details</dt><dd>${esc(f.detail)}</dd></div>

@@ -84,7 +84,8 @@ prompt. Uploads aren't watched on Windows.
   - Aider and Goose: auto modes
   - MCP servers in Copilot CLI, Amazon Q, Kiro, OpenCode, Continue, Cline CLI and Claude Desktop extensions
 - **Agents running right now** with approvals off (`--dangerously-skip-permissions`, `--yolo`, `--full-auto`, `-y`, and so on) or as root. These can be stopped from the popup
-- **Secrets in agents' session history:** keys, tokens and private keys left in the session logs agents keep on disk (only masked previews are shown), with one click to remove them from the log
+- **Secrets in agents' session history:** keys, tokens and private keys left in the session logs agents keep on disk (only masked previews are shown), with one click to remove them from the log, and a link to cancel each key with the service that issued it (removing it from the log doesn't stop it from working)
+- **Left behind after uninstalling:** agents you removed whose folder still holds saved logins, permissions or past conversations
 - **Data sharing:** agents' usage statistics and telemetry, sessions shared publicly, and editors' usage data, with one click to turn each off; plus links to each AI service's training settings
 - **Privileges every agent inherits from you:** passwordless sudo, loaded SSH keys, and GitHub, AWS, gcloud, Azure, Kubernetes, Docker and npm logins
 - **API keys** exported in your shell startup files
