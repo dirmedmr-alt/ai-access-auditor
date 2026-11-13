@@ -47,6 +47,8 @@ function psh(script, timeout = 20000) {
 }
 const TOKEN = crypto.randomBytes(16).toString('hex');
 fs.mkdirSync(BACKUP_DIR, { recursive: true });
+// backups can hold tokens from settings files: keep the data folder private to this user
+if (!WIN) for (const d of [DATA_DIR, BACKUP_DIR]) try { fs.chmodSync(d, 0o700); } catch {}
 
 const h = (...p) => path.join(HOME, ...p);
 const SECRET_RE = /(key|token|secret|password|passwd|auth|bearer|credential|pat)/i;
@@ -2258,16 +2260,20 @@ function backupCommand(label, cmd, args) {
   return name;
 }
 // The app's own state files: written to a temporary file first, so a full disk never leaves them empty
-function saveFile(file, text) {
-  const tmp = file + '.ai-audit-tmp';
-  try { fs.writeFileSync(tmp, text); fs.renameSync(tmp, file); }
+// Replaces a file in one step (a crash or a full disk never leaves it half written). If the file is a symlink,
+// as with settings kept in a dotfiles folder, the real file is replaced, so the link and the agent stay in sync.
+// The new file keeps the old one's permissions; a new file is private to this user.
+function realTarget(file) { try { return fs.realpathSync(file); } catch { return file; } }
+function replaceFile(file, text) {
+  const target = realTarget(file);
+  let mode = 0o600;
+  try { mode = fs.statSync(target).mode & 0o777; } catch {}
+  const tmp = target + '.ai-audit-tmp';
+  try { fs.writeFileSync(tmp, text, { mode }); fs.chmodSync(tmp, mode); fs.renameSync(tmp, target); }
   catch (e) { try { fs.unlinkSync(tmp); } catch {} throw e; }
 }
-function writeJsonAtomic(file, obj) {
-  const tmp = file + '.ai-audit-tmp';
-  fs.writeFileSync(tmp, JSON.stringify(obj, null, 2) + '\n', { mode: fs.statSync(file).mode });
-  fs.renameSync(tmp, file);
-}
+function saveFile(file, text) { replaceFile(file, text); }
+function writeJsonAtomic(file, obj) { replaceFile(file, JSON.stringify(obj, null, 2) + '\n'); }
 
 function clearExpiry(findingId) {
   const ex = readJson(EXPIRY_FILE) || {};
@@ -2322,9 +2328,7 @@ function doRevoke(f, reason) {
     if (Date.now() - st.mtimeMs < 120e3) throw new Error('This session is still being written to. Try again a couple of minutes after it ends.');
     let text = fs.readFileSync(a.file, 'utf8'), n = 0;
     for (const [, re] of SECRET_PATTERNS) text = text.replace(re, m => (realSecret(m) ? (n++, REDACTED) : m));
-    const tmp = a.file + '.ai-audit-tmp';
-    fs.writeFileSync(tmp, text, { mode: st.mode });
-    fs.renameSync(tmp, a.file);
+    replaceFile(a.file, text);
     if (historyCache) delete historyCache[a.file];
     log(`REDACT ${n} secret${n === 1 ? '' : 's'} [${f.agent}] in ${a.file}${why}`);
     return { message: `Removed ${n} secret${n === 1 ? '' : 's'} from the session log. The rest of the conversation is unchanged. Replace ${n === 1 ? 'that key' : 'those keys'} with the service too, since the agent may have sent ${n === 1 ? 'it' : 'them'} to its AI provider.` };
@@ -2367,7 +2371,7 @@ function doRevoke(f, reason) {
     let after = text.replace(a.block, '');
     // YAML: a list left with no items becomes [] rather than an empty value
     if (/\.ya?ml$/i.test(a.file)) after = after.replace(/^([A-Za-z_][\w-]*):[ \t]*$(?=\n(?![ \t]+\S)|(?![\s\S]))/gm, '$1: []');
-    fs.writeFileSync(a.file, after);
+    replaceFile(a.file, after);
     log(`REVOKE [${f.agent}] ${f.category}: ${f.title}  file=${a.file}  backup=${bk}${why}`);
     return { message: `Revoked "${f.title}". ${f.agent} will ask again (restart any running ${f.agent} sessions). Backup saved.`, backup: bk };
   }
@@ -2539,7 +2543,7 @@ function restore(name) {
     return { message: `Restored ${meta.original.replace(HOME, '~')}` };
   }
   if (exists(meta.original)) backup(meta.original);
-  fs.copyFileSync(path.join(BACKUP_DIR, name), meta.original);
+  fs.copyFileSync(path.join(BACKUP_DIR, name), realTarget(meta.original));
   if (MAC && meta.original.startsWith(h('Library', 'LaunchAgents'))) sh('launchctl', ['bootstrap', `gui/${process.getuid()}`, meta.original], 5000);
   if (LINUX && meta.original.startsWith(h('.config', 'systemd', 'user') + '/')) {
     sh('systemctl', ['--user', 'daemon-reload'], 15000);
@@ -2852,8 +2856,8 @@ function geminiGateInstall(on) {
 }
 
 // ---------- HTTP ----------
-function send(res, code, body, type = 'application/json') {
-  res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY' });
+function send(res, code, body, type = 'application/json', extra = {}) {
+  res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY', 'X-Content-Type-Options': 'nosniff', ...extra });
   res.end(typeof body === 'string' ? body : JSON.stringify(body));
 }
 function readBody(req) {
@@ -2870,8 +2874,14 @@ const server = http.createServer(async (req, res) => {
   if (!['127.0.0.1', 'localhost'].includes(host)) return send(res, 403, { error: 'forbidden host' });
   const url = new URL(req.url, 'http://localhost');
   if (url.pathname === '/' || url.pathname === '/index.html') {
-    const html = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8').replace('__TOKEN__', TOKEN).replace('<html lang="en">', `<html lang="en" data-os="${OS_NAME}">`);
-    return send(res, 200, html, 'text/html; charset=utf-8');
+    // a fresh nonce per page load: only the app's own inline script may run, never one injected through a config file
+    const nonce = crypto.randomBytes(16).toString('base64');
+    const html = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8').replace('__TOKEN__', TOKEN).replace('<html lang="en">', `<html lang="en" data-os="${OS_NAME}">`)
+      .replace(/<script(?=[ >])/g, `<script nonce="${nonce}"`);
+    return send(res, 200, html, 'text/html; charset=utf-8', {
+      'Content-Security-Policy': `default-src 'none'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; `
+        + `base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+      'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff' });
   }
   if (url.pathname === '/i18n.js') return send(res, 200, fs.readFileSync(path.join(__dirname, 'public', 'i18n.js'), 'utf8'), 'text/javascript; charset=utf-8');
   if (!url.pathname.startsWith('/api/')) return send(res, 404, { error: 'not found' });

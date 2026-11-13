@@ -542,18 +542,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     // MARK: web view plumbing
     // Open links (account pages, System Settings) outside the app window
+    /// Only web pages and System Settings panes leave the app; anything else (file:, other apps' schemes) is ignored.
+    static func canOpenOutside(_ url: URL) -> Bool {
+        let s = (url.scheme ?? "").lowercased()
+        return s == "https" || s == "http" || s == "x-apple.systempreferences"
+    }
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         if let url = action.request.url, let scheme = url.scheme,
            scheme != "about", !(scheme == "http" && url.host == "127.0.0.1") {
-            NSWorkspace.shared.open(url)
+            if Self.canOpenOutside(url) { NSWorkspace.shared.open(url) }
             decisionHandler(.cancel); return
         }
         decisionHandler(.allow)
     }
     func webView(_ webView: WKWebView, createWebViewWith c: WKWebViewConfiguration,
                  for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-        if let url = action.request.url { NSWorkspace.shared.open(url) }
+        if let url = action.request.url, Self.canOpenOutside(url) { NSWorkspace.shared.open(url) }
         return nil
     }
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
