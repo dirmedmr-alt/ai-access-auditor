@@ -51,6 +51,10 @@ Everything stays on your computer: no account, no telemetry. The only network re
 new version on GitHub, which you can turn off in Setup. The local server listens only on 127.0.0.1, checks a
 per-session token, and masks secrets in its output.
 
+## Security
+
+Read the [security review](docs/security-review.md). To report a problem privately, see [SECURITY.md](SECURITY.md).
+
 ## Full details
 
 On Linux the app lives in the tray instead of the menu bar. It finds the same agent access, and in place of
