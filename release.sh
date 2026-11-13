@@ -10,6 +10,7 @@
 # then: SIGN_ID="Developer ID Application: <Name> (<TEAM>)" VERSION=1.0.8 REPO=... PUBLISH=1 ./release.sh
 set -euo pipefail
 cd "$(dirname "$0")"
+node --test test/ >/dev/null || { echo "Tests failed: run  node --test test/  to see which. Nothing was built."; exit 1; }
 VERSION="${VERSION:-1.0.0-beta}"
 SIGN_ID="${SIGN_ID:--}"                       # "-" = ad-hoc
 NOTARY_PROFILE="${NOTARY_PROFILE:-ai-access-auditor}"

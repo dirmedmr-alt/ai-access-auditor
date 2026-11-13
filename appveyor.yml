@@ -13,6 +13,7 @@ install:
   - node --version
 build_script:
   - node .github/scripts/check-windows.js
+  - node --test test/
   - node desktop/gen-strings.js --check
   - cd desktop
   - npm ci --no-audit --no-fund

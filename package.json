@@ -3,6 +3,6 @@
   "version": "1.0.0",
   "description": "Find and revoke access you've granted to AI agents",
   "main": "server.js",
-  "scripts": { "start": "node server.js", "scan": "node server.js --scan", "build:app": "./build-app.sh" },
+  "scripts": { "start": "node server.js", "scan": "node server.js --scan", "test": "node --test test/", "build:app": "./build-app.sh" },
   "license": "MIT"
 }
