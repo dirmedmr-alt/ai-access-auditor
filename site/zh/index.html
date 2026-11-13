@@ -228,6 +228,11 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
  nav .gh{display:inline-flex;align-items:center;color:var(--mut)} nav .gh svg{width:20px;height:20px} nav .gh:hover{color:var(--fg)}
 .hero .src{margin:14px 0 0;font-size:14px}.hero .src a{display:inline-flex;align-items:center;gap:8px;color:#fff;opacity:.9}.hero .src a:hover{opacity:1}.hero .src svg{width:16px;height:16px}
 @media (max-width:460px){nav .gh{display:none}}
+.demo{padding-top:64px;padding-bottom:20px}.demo .eyebrow,.demo h2{text-align:center}
+.video{max-width:960px;margin:28px auto 0;border-radius:16px;overflow:hidden;box-shadow:var(--shadow);background:#1b2c73}
+.video video{display:block;width:100%;height:auto;aspect-ratio:1280/800}
+.vnote{text-align:center;color:var(--faint);font-size:13px;margin:12px 0 0}
+#teams .grid{margin-bottom:28px}.teams-cta{text-align:center;margin:0}
 .pv-note{margin:22px 0 0;font-size:14px;color:var(--mut)}
 </style>
 </head>
@@ -280,6 +285,13 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
     <span>Claude Code</span><span>Claude Desktop</span><span>Codex CLI</span><span>Gemini CLI</span><span>Cursor</span><span>GitHub Copilot</span><span>Windsurf</span><span>Cline</span><span>Roo Code</span><span>OpenCode</span><span>Aider</span><span>Goose</span><span>Amazon Q</span><span>Kiro</span><span>Continue</span><span>Zed</span>
   </div>
 </div></div>
+
+<section id="demo" class="demo"><div class="wrap">
+  <p class="eyebrow">实际演示</p>
+  <h2>一分钟，从头看到尾。</h2>
+  <div class="video"><video controls preload="none" playsinline poster="../assets/demo-en.jpg"><source src="../assets/demo-en.mp4" type="video/mp4"></video></div>
+  <p class="vnote">演示使用虚构的数据。视频为英文讲解，请打开声音收听。</p>
+</div></section>
 
 <section id="features"><div class="wrap">
   <p class="eyebrow">为什么需要它</p>
@@ -397,6 +409,19 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
   <div class="note"><b>托盘图标：</b>关闭窗口后，应用会通过顶部栏或任务栏中的图标继续监视。在 Ubuntu 以外的 GNOME 桌面上，该图标需要 <b>AppIndicator</b> 扩展。没有它的话，请从应用菜单再次打开应用。校验和：<a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.11/SHA256SUMS-linux.txt">SHA256SUMS-linux.txt</a></div>
 </div></section>
 
+<section id="teams"><div class="wrap">
+  <p class="eyebrow">团队版</p>
+  <h2>每位开发者的电脑上都有 AI 代理？</h2>
+  <p class="sec-lead">面向企业的版本正在规划中：查看整个团队中 AI 代理能做什么，而不收集任何人的密钥。告诉我们你的需求，抢先体验。</p>
+  <div class="grid">
+    <div class="card"><h3>集中仪表板</h3><p>每位开发者的代理及其权限集中在一处。只有摘要：不含密钥，也不含文件。</p></div>
+    <div class="card"><h3>公司策略</h3><p>设置诸如“禁止 Bash(*)”或“只允许经批准的 MCP 服务器”之类的规则，一旦被违反就会收到提醒。</p></div>
+    <div class="card"><h3>轻松部署与报告</h3><p>通过你的设备管理工具部署，并导出权限报告用于安全审查。</p></div>
+  </div>
+  <p class="teams-cta"><a class="btn primary" href="https://github.com/dirmedmr-alt/ai-access-auditor/issues/new?template=teams.yml">申请抢先体验</a></p>
+  <p class="vnote">会在 GitHub 上打开一个简短的表单。应用本身仍然免费且开源。</p>
+</div></section>
+
 <section id="faq" style="padding-top:20px"><div class="wrap">
   <p class="eyebrow">常见问题</p>
   <h2>常见问题</h2>
@@ -454,6 +479,14 @@ document.querySelectorAll('.langs a').forEach(function (a) {
   a.addEventListener('click', function () {
     try { localStorage.setItem('lang', a.getAttribute('hreflang')); } catch (e) {}
     a.href = a.getAttribute('href') + location.hash;
+  });
+});
+// Video plays are counted too, per language
+document.querySelectorAll('.video video').forEach(function (v) {
+  v.addEventListener('play', function () {
+    if (v.dataset.counted || !window.goatcounter || !window.goatcounter.count) return;
+    v.dataset.counted = '1';
+    window.goatcounter.count({ path: 'video-play-' + document.documentElement.lang, title: 'Video play', event: true });
   });
 });
 // Visit counter (GoatCounter: no cookies, no personal data). Downloads are counted by file, without the version.

@@ -227,6 +227,11 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
  nav .gh{display:inline-flex;align-items:center;color:var(--mut)} nav .gh svg{width:20px;height:20px} nav .gh:hover{color:var(--fg)}
 .hero .src{margin:14px 0 0;font-size:14px}.hero .src a{display:inline-flex;align-items:center;gap:8px;color:#fff;opacity:.9}.hero .src a:hover{opacity:1}.hero .src svg{width:16px;height:16px}
 @media (max-width:460px){nav .gh{display:none}}
+.demo{padding-top:64px;padding-bottom:20px}.demo .eyebrow,.demo h2{text-align:center}
+.video{max-width:960px;margin:28px auto 0;border-radius:16px;overflow:hidden;box-shadow:var(--shadow);background:#1b2c73}
+.video video{display:block;width:100%;height:auto;aspect-ratio:1280/800}
+.vnote{text-align:center;color:var(--faint);font-size:13px;margin:12px 0 0}
+#teams .grid{margin-bottom:28px}.teams-cta{text-align:center;margin:0}
 .pv-note{margin:22px 0 0;font-size:14px;color:var(--mut)}
 </style>
 </head>
@@ -279,6 +284,13 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
     <span>Claude Code</span><span>Claude Desktop</span><span>Codex CLI</span><span>Gemini CLI</span><span>Cursor</span><span>GitHub Copilot</span><span>Windsurf</span><span>Cline</span><span>Roo Code</span><span>OpenCode</span><span>Aider</span><span>Goose</span><span>Amazon Q</span><span>Kiro</span><span>Continue</span><span>Zed</span>
   </div>
 </div></div>
+
+<section id="demo" class="demo"><div class="wrap">
+  <p class="eyebrow">See it in action</p>
+  <h2>One minute, start to finish.</h2>
+  <div class="video"><video controls preload="none" playsinline poster="assets/demo-en.jpg"><source src="assets/demo-en.mp4" type="video/mp4"></video></div>
+  <p class="vnote">Demo with invented data. Turn the sound on for the narration.</p>
+</div></section>
 
 <section id="features"><div class="wrap">
   <p class="eyebrow">Why it exists</p>
@@ -396,6 +408,19 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
   <div class="note"><b>The tray icon:</b> the app keeps watching after you close its window, from an icon in the top bar or taskbar. On GNOME desktops other than Ubuntu's, that icon needs the <b>AppIndicator</b> extension. Without it, open the app again from the app menu. Checksums: <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.11/SHA256SUMS-linux.txt">SHA256SUMS-linux.txt</a></div>
 </div></section>
 
+<section id="teams"><div class="wrap">
+  <p class="eyebrow">For teams</p>
+  <h2>AI agents on every developer's laptop?</h2>
+  <p class="sec-lead">A version for companies is planned: see what AI agents can do across your whole team, without collecting anyone's secrets. Tell us what you need and get early access.</p>
+  <div class="grid">
+    <div class="card"><h3>Central dashboard</h3><p>Every developer's agents and their access in one place. Summaries only: no secrets, no files.</p></div>
+    <div class="card"><h3>Company policies</h3><p>Set rules such as "no Bash(*)" or "only approved MCP servers", and get alerted when one is broken.</p></div>
+    <div class="card"><h3>Easy rollout and reports</h3><p>Deploy with your device management tools, and export access reports for security reviews.</p></div>
+  </div>
+  <p class="teams-cta"><a class="btn primary" href="https://github.com/dirmedmr-alt/ai-access-auditor/issues/new?template=teams.yml">Request early access</a></p>
+  <p class="vnote">Opens a short form on GitHub. The app itself stays free and open source.</p>
+</div></section>
+
 <section id="faq" style="padding-top:20px"><div class="wrap">
   <p class="eyebrow">FAQ</p>
   <h2>Questions</h2>
@@ -453,6 +478,14 @@ document.querySelectorAll('.langs a').forEach(function (a) {
   a.addEventListener('click', function () {
     try { localStorage.setItem('lang', a.getAttribute('hreflang')); } catch (e) {}
     a.href = a.getAttribute('href') + location.hash;
+  });
+});
+// Video plays are counted too, per language
+document.querySelectorAll('.video video').forEach(function (v) {
+  v.addEventListener('play', function () {
+    if (v.dataset.counted || !window.goatcounter || !window.goatcounter.count) return;
+    v.dataset.counted = '1';
+    window.goatcounter.count({ path: 'video-play-' + document.documentElement.lang, title: 'Video play', event: true });
   });
 });
 // Visit counter (GoatCounter: no cookies, no personal data). Downloads are counted by file, without the version.

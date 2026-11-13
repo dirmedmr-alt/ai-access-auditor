@@ -1,0 +1,48 @@
+name: Teams early access
+description: Interested in AI Access Auditor for your company or team
+title: "Teams early access: "
+labels: [teams]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for your interest. A version for companies is planned: a central view of what AI agents can do across a team, with policies and reports, without collecting anyone's secrets.
+        This form is public. Please don't include secrets or internal details. A work email is optional.
+  - type: dropdown
+    id: size
+    attributes:
+      label: How many developers use AI agents in your team?
+      options: ["1–10", "11–50", "51–200", "201–1000", "More than 1000"]
+    validations:
+      required: true
+  - type: checkboxes
+    id: agents
+    attributes:
+      label: Which agents do they use?
+      options:
+        - label: Claude Code
+        - label: Codex CLI
+        - label: Gemini CLI
+        - label: Cursor
+        - label: GitHub Copilot
+        - label: Windsurf, Kiro, Cline or others
+  - type: checkboxes
+    id: needs
+    attributes:
+      label: What would you need?
+      options:
+        - label: A central dashboard of every developer's agents and their access
+        - label: Company policies (for example "no Bash(*)", approved MCP servers only)
+        - label: Deployment with device management (Jamf, Intune, others)
+        - label: Access reports for security reviews or compliance
+        - label: Support
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else?
+      description: What problem should it solve for you?
+  - type: input
+    id: contact
+    attributes:
+      label: Contact (optional)
+      description: An email or link if you'd like to be contacted. It will be public.

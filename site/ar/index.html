@@ -228,6 +228,11 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
  nav .gh{display:inline-flex;align-items:center;color:var(--mut)} nav .gh svg{width:20px;height:20px} nav .gh:hover{color:var(--fg)}
 .hero .src{margin:14px 0 0;font-size:14px}.hero .src a{display:inline-flex;align-items:center;gap:8px;color:#fff;opacity:.9}.hero .src a:hover{opacity:1}.hero .src svg{width:16px;height:16px}
 @media (max-width:460px){nav .gh{display:none}}
+.demo{padding-top:64px;padding-bottom:20px}.demo .eyebrow,.demo h2{text-align:center}
+.video{max-width:960px;margin:28px auto 0;border-radius:16px;overflow:hidden;box-shadow:var(--shadow);background:#1b2c73}
+.video video{display:block;width:100%;height:auto;aspect-ratio:1280/800}
+.vnote{text-align:center;color:var(--faint);font-size:13px;margin:12px 0 0}
+#teams .grid{margin-bottom:28px}.teams-cta{text-align:center;margin:0}
 .pv-note{margin:22px 0 0;font-size:14px;color:var(--mut)}
 </style>
 </head>
@@ -280,6 +285,13 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
     <span>Claude Code</span><span>Claude Desktop</span><span>Codex CLI</span><span>Gemini CLI</span><span>Cursor</span><span>GitHub Copilot</span><span>Windsurf</span><span>Cline</span><span>Roo Code</span><span>OpenCode</span><span>Aider</span><span>Goose</span><span>Amazon Q</span><span>Kiro</span><span>Continue</span><span>Zed</span>
   </div>
 </div></div>
+
+<section id="demo" class="demo"><div class="wrap">
+  <p class="eyebrow">شاهده أثناء العمل</p>
+  <h2>دقيقة واحدة من البداية إلى النهاية.</h2>
+  <div class="video"><video controls preload="none" playsinline poster="../assets/demo-en.jpg"><source src="../assets/demo-en.mp4" type="video/mp4"></video></div>
+  <p class="vnote">عرض ببيانات مختلَقة. الشرح الصوتي بالإنجليزية، شغّل الصوت لسماعه.</p>
+</div></section>
 
 <section id="features"><div class="wrap">
   <p class="eyebrow">لماذا وُجد</p>
@@ -397,6 +409,19 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
   <div class="note"><b>أيقونة منطقة الإشعارات:</b> يواصل التطبيق المراقبة بعد إغلاق نافذته، من أيقونة في الشريط العلوي أو شريط المهام. وفي أسطح مكتب GNOME غير الخاصة بـUbuntu تحتاج هذه الأيقونة إلى إضافة <b>AppIndicator</b>، وبدونها افتح التطبيق مجددًا من قائمة التطبيقات. المجاميع الاختبارية: <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.11/SHA256SUMS-linux.txt">SHA256SUMS-linux.txt</a></div>
 </div></section>
 
+<section id="teams"><div class="wrap">
+  <p class="eyebrow">للفِرق</p>
+  <h2>وكلاء ذكاء اصطناعي على حاسوب كل مطوّر؟</h2>
+  <p class="sec-lead">نخطط لإصدار للشركات: اعرف ما يستطيع وكلاء الذكاء الاصطناعي فعله في فريقك كله، دون جمع أسرار أحد. أخبرنا بما تحتاجه واحصل على وصول مبكر.</p>
+  <div class="grid">
+    <div class="card"><h3>لوحة تحكم مركزية</h3><p>وكلاء كل مطوّر وصلاحياتهم في مكان واحد. ملخصات فقط: لا أسرار ولا ملفات.</p></div>
+    <div class="card"><h3>سياسات الشركة</h3><p>ضع قواعد مثل «لا Bash(*)» أو «خوادم MCP المعتمدة فقط»، وتلقَّ تنبيهًا عند مخالفة إحداها.</p></div>
+    <div class="card"><h3>نشر سهل وتقارير</h3><p>انشره بأدوات إدارة الأجهزة لديك، وصدّر تقارير الصلاحيات لمراجعات الأمان.</p></div>
+  </div>
+  <p class="teams-cta"><a class="btn primary" href="https://github.com/dirmedmr-alt/ai-access-auditor/issues/new?template=teams.yml">اطلب وصولًا مبكرًا</a></p>
+  <p class="vnote">يفتح نموذجًا قصيرًا على GitHub. يبقى التطبيق نفسه مجانيًا ومفتوح المصدر.</p>
+</div></section>
+
 <section id="faq" style="padding-top:20px"><div class="wrap">
   <p class="eyebrow">الأسئلة الشائعة</p>
   <h2>أسئلة وأجوبة</h2>
@@ -454,6 +479,14 @@ document.querySelectorAll('.langs a').forEach(function (a) {
   a.addEventListener('click', function () {
     try { localStorage.setItem('lang', a.getAttribute('hreflang')); } catch (e) {}
     a.href = a.getAttribute('href') + location.hash;
+  });
+});
+// Video plays are counted too, per language
+document.querySelectorAll('.video video').forEach(function (v) {
+  v.addEventListener('play', function () {
+    if (v.dataset.counted || !window.goatcounter || !window.goatcounter.count) return;
+    v.dataset.counted = '1';
+    window.goatcounter.count({ path: 'video-play-' + document.documentElement.lang, title: 'Video play', event: true });
   });
 });
 // Visit counter (GoatCounter: no cookies, no personal data). Downloads are counted by file, without the version.
