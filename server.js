@@ -565,7 +565,7 @@ function refreshHistory(budgetMs) {
 }
 function scanHistory() {
   const out = [];
-  if (DEMO) return out;
+  // demo mode too: every folder it reads is inside the (fake) home folder
   const files = refreshHistory(process.argv.includes('--scan') ? 1e9 : 400);
   for (const { file, agent, fixable } of files) {
     const c = historyCache[file];
