@@ -2193,7 +2193,9 @@ function checkForUpdate(force = false) {
       res.on('data', c => { if (d.length < 2e6) d += c; }).on('end', () => {
         try {
           const rel = JSON.parse(d).find(r => !r.draft && /^v\d+\.\d+\.\d+/.test(r.tag_name || ''));
-          if (rel) Object.assign(u, { latest: rel.tag_name.replace(/^v/, ''), url: rel.html_url });
+          // the link shown to the user must be one of this project's release pages, nothing else
+          const okUrl = typeof rel?.html_url === 'string' && rel.html_url.startsWith('https://github.com/dirmedmr-alt/ai-access-auditor/releases/');
+          if (rel && okUrl) Object.assign(u, { latest: rel.tag_name.replace(/^v/, ''), url: rel.html_url });
           u.checkedAt = new Date().toISOString();
           saveFile(UPDATE_FILE, JSON.stringify(u, null, 2));
           if (rel && newerThan(u.latest, APP_VERSION)) { changedFlag = true; flushEvents(); }
