@@ -2900,7 +2900,7 @@ const server = http.createServer(async (req, res) => {
       if (body.scope !== undefined) next.scope = body.scope === 'all' ? 'all' : 'ai';
       if (body.onboarded !== undefined) next.onboarded = !!body.onboarded;
       if (body.theme !== undefined) next.theme = ['light', 'dark'].includes(body.theme) ? body.theme : 'system';
-      if (body.lang !== undefined) next.lang = ['en', 'fr', 'ar'].includes(body.lang) ? body.lang : 'auto';
+      if (body.lang !== undefined) next.lang = ['en', 'fr', 'ar', 'zh'].includes(body.lang) ? body.lang : 'auto';
       if (body.updates !== undefined) next.updates = body.updates === 'off' ? 'off' : 'on';
       saveFile(SETTINGS_FILE, JSON.stringify(next, null, 2));
       if (body.scope === 'all' && cur.scope !== 'all') { const known = readJson(KNOWN_FILE) || []; writeIds(KNOWN_FILE, [...known, ...scanAll().findings.map(f => f.id)]); } // widening the view isn't "new access"
