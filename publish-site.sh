@@ -8,6 +8,7 @@ if [ -n "$(git status --porcelain -- site i18n)" ]; then
   git status --short -- site i18n
   exit 1
 fi
+git branch -D gh-pages-new >/dev/null 2>&1 || true   # a leftover from an interrupted run would publish old content
 git subtree split --prefix site -b gh-pages-new >/dev/null
 git push -f origin gh-pages-new:gh-pages
 git branch -D gh-pages-new >/dev/null
