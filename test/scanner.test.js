@@ -1,5 +1,5 @@
 // Tests for the scanner, revoke/restore, secrets, the local server and translations.
-// Run: node --test test/     (no dependencies; each case runs in its own process with an invented home folder)
+// Run: npm test     (no dependencies; each case runs in its own process with an invented home folder)
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');

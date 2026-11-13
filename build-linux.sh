@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 VERSION="${VERSION:-$(node -p "require('./desktop/package.json').version")}"
 node desktop/gen-strings.js --check
-node --test test/ >/dev/null || { echo "Tests failed: run  node --test test/  to see which."; exit 1; }
+node --test test/scanner.test.js >/dev/null || { echo "Tests failed: run  node --test test/scanner.test.js  to see which."; exit 1; }
 (cd desktop && npm version --no-git-tag-version --allow-same-version "$VERSION" >/dev/null)
 docker build -q -t ai-access-auditor-linux-build -f desktop/build.Dockerfile desktop >/dev/null
 docker run --rm -v "$PWD":/src -v ai-access-auditor-node-modules:/src/desktop/node_modules -v ai-access-auditor-build-cache:/root/.cache \
