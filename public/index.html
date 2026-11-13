@@ -537,7 +537,7 @@ function renderBulk() {
   $('#body').insertAdjacentHTML('beforeend', `<div class="bulk"><b>${picked.size} selected</b>
     ${rev ? `<button class="btn danger" data-bulk="revoke">Revoke ${rev}</button>` : ''}
     <button class="btn" data-bulk="review">Mark reviewed</button>
-    <button class="btn plain" data-bulk="clear">Clear</button></div>`);
+    <button class="btn plain" data-bulk="clear">Clear selection</button></div>`);
 }
 
 // Privacy: secrets left in agents' session logs, data tools send home, and the AI services' training settings
@@ -810,7 +810,7 @@ function renderSetup() {
       <div class="srow"><span class="ic low">${icon('auto')}</span><div><b>Appearance</b><p>Match the Mac, or always light or dark.</p></div>
         <div class="seg" style="margin-inline-start:auto;align-self:center">${['system', 'light', 'dark'].map(t => `<button data-theme-pick="${t}" class="${theme === t ? 'on' : ''}">${t === 'system' ? 'Auto' : t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div></div>
       <div class="srow"><span class="ic low">${icon('Browser extension')}</span><div><b>Language</b><p>Auto follows your Mac's language.</p></div>
-        <div class="seg" style="margin-inline-start:auto;align-self:center">${[['auto', 'Auto'], ['en', 'English'], ['fr', 'Français'], ['ar', 'العربية']].map(([v, l]) => `<button data-lang-pick="${v}" class="${langPref === v ? 'on' : ''}" lang="${v === 'auto' ? '' : v}">${l}</button>`).join('')}</div></div>
+        <div class="seg" style="margin-inline-start:auto;align-self:center">${[['auto', 'Auto'], ['en', 'English'], ['fr', 'Français'], ['ar', 'العربية'], ['zh', '中文']].map(([v, l]) => `<button data-lang-pick="${v}" class="${langPref === v ? 'on' : ''}" lang="${v === 'auto' ? '' : v}">${l}</button>`).join('')}</div></div>
       <div class="srow"><span class="ic low">${icon('macOS privacy')}</span><div><b>Watch all apps, not just AI</b><p>${MACOS ? 'Also cover camera, screen, files and background jobs for every other app.' : 'Also cover background jobs for every other app.'}</p></div>
         <label class="switch"><input type="checkbox" data-setsw="scope" ${scope === 'all' ? 'checked' : ''}></label></div>
       <div class="srow"><span class="ic low">${icon('refresh')}</span><div><b>Check for updates</b><p>Once a day, asks GitHub whether a new version is out. Nothing about your computer is sent.</p>${update && update.current ? `<p>This is version ${esc(update.current.replace('-', ' '))}.</p>` : ''}</div>

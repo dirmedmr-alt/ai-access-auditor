@@ -1,418 +1,527 @@
 {
  "%@ wants to %@": [
   "%@ veut %@",
-  "يريد %@ %@"
+  "يريد %@ %@",
+  "%@ 想要%@"
  ],
  "run a command": [
   "exécuter une commande",
-  "تشغيل أمر"
+  "تشغيل أمر",
+  "运行一条命令"
  ],
  "change a file": [
   "modifier un fichier",
-  "تغيير ملف"
+  "تغيير ملف",
+  "修改一个文件"
  ],
  "change files": [
   "modifier des fichiers",
-  "تغيير ملفات"
+  "تغيير ملفات",
+  "修改文件"
  ],
  "write a file": [
   "écrire un fichier",
-  "كتابة ملف"
+  "كتابة ملف",
+  "写入一个文件"
  ],
  "read a file": [
   "lire un fichier",
-  "قراءة ملف"
+  "قراءة ملف",
+  "读取一个文件"
  ],
  "open a web page": [
   "ouvrir une page web",
-  "فتح صفحة ويب"
+  "فتح صفحة ويب",
+  "打开一个网页"
  ],
  "search the web": [
   "chercher sur le web",
-  "البحث في الويب"
+  "البحث في الويب",
+  "搜索网络"
  ],
  "Tool: %@": [
   "Outil : %@",
-  "الأداة: %@"
+  "الأداة: %@",
+  "工具：%@"
  ],
  "Tool: %@ · in %@": [
   "Outil : %@ · dans %@",
-  "الأداة: %@ · في %@"
+  "الأداة: %@ · في %@",
+  "工具：%@ · 位于 %@"
  ],
  "%@ is paused until you decide. You can take back this decision later under Decisions.": [
   "%@ est en pause jusqu’à votre décision. Vous pourrez revenir sur ce choix dans Décisions.",
-  "%@ متوقف حتى تقرر. يمكنك التراجع عن هذا القرار لاحقًا من «القرارات»."
+  "%@ متوقف حتى تقرر. يمكنك التراجع عن هذا القرار لاحقًا من «القرارات».",
+  "%@ 已暂停，等待你的决定。之后可以在“决定”中收回这个决定。"
  ],
  "Just this once": [
   "Juste cette fois",
-  "هذه المرة فقط"
+  "هذه المرة فقط",
+  "仅此一次"
  ],
  "Always (don't ask again)": [
   "Toujours (ne plus demander)",
-  "دائمًا (لا تسأل مجددًا)"
+  "دائمًا (لا تسأل مجددًا)",
+  "始终（不再询问）"
  ],
  "Allow": [
   "Autoriser",
-  "سماح"
+  "سماح",
+  "允许"
  ],
  "Deny": [
   "Refuser",
-  "رفض"
+  "رفض",
+  "拒绝"
  ],
  " HIGH RISK ": [
   " RISQUE ÉLEVÉ ",
-  " خطورة عالية "
+  " خطورة عالية ",
+  " 高风险 "
  ],
  " MEDIUM RISK ": [
   " RISQUE MOYEN ",
-  " خطورة متوسطة "
+  " خطورة متوسطة ",
+  " 中风险 "
  ],
  " LOW RISK ": [
   " RISQUE FAIBLE ",
-  " خطورة منخفضة "
+  " خطورة منخفضة ",
+  " 低风险 "
  ],
  "New AI agent on this Mac: %@": [
   "Nouvel agent IA sur ce Mac : %@",
-  "وكيل ذكاء اصطناعي جديد على هذا الجهاز: %@"
+  "وكيل ذكاء اصطناعي جديد على هذا الجهاز: %@",
+  "这台 Mac 上的新 AI 代理：%@"
  ],
  "%@ got new access": [
   "%@ a obtenu un nouvel accès",
-  "حصل %@ على صلاحية جديدة"
+  "حصل %@ على صلاحية جديدة",
+  "%@ 获得了新权限"
  ],
  "\"Stop it\" ends the program now. \"Always\" lets this app send data without asking again (undo it under Decisions).": [
   "« L’arrêter » ferme le programme maintenant. « Toujours » laisse cette app envoyer des données sans redemander (annulable dans Décisions).",
-  "«إيقافه» يُنهي البرنامج الآن. «دائمًا» يسمح لهذا التطبيق بإرسال البيانات دون سؤال مجددًا (يمكن التراجع من «القرارات»)."
+  "«إيقافه» يُنهي البرنامج الآن. «دائمًا» يسمح لهذا التطبيق بإرسال البيانات دون سؤال مجددًا (يمكن التراجع من «القرارات»).",
+  "“停止”会立即结束该程序。“始终”让此应用以后不经询问发送数据（可在“决定”中撤销）。"
  ],
  "\"Stop it\" ends the process now. \"Let it run\" can also be limited to 1 hour, 1 day or 7 days.": [
   "« L’arrêter » met fin au processus maintenant. « Le laisser tourner » peut aussi être limité à 1 heure, 1 jour ou 7 jours.",
-  "«إيقافه» يُنهي العملية الآن. ويمكن تحديد «تركه يعمل» بساعة أو يوم أو 7 أيام."
+  "«إيقافه» يُنهي العملية الآن. ويمكن تحديد «تركه يعمل» بساعة أو يوم أو 7 أيام.",
+  "“停止”会立即结束该进程。“让它运行”也可以限制为 1 小时、1 天或 7 天。"
  ],
  "Remove takes the access away now (a backup is saved, so you can undo it).": [
   "Retirer supprime l’accès maintenant (une sauvegarde est faite, vous pourrez annuler).",
-  "«إزالة» تسحب الصلاحية الآن (تُحفظ نسخة احتياطية، فيمكنك التراجع)."
+  "«إزالة» تسحب الصلاحية الآن (تُحفظ نسخة احتياطية، فيمكنك التراجع).",
+  "“移除”会立即收回该权限（会保存备份，因此可以撤销）。"
  ],
  "This one has to be removed by hand. Choose \"Review\" to see how.": [
   "Celui-ci doit être retiré à la main. Choisissez « Examiner » pour voir comment.",
-  "يجب إزالة هذا يدويًا. اختر «مراجعة» لمعرفة الطريقة."
+  "يجب إزالة هذا يدويًا. اختر «مراجعة» لمعرفة الطريقة.",
+  "此项需要手动移除。选择“查看”了解方法。"
  ],
  "Allow this time": [
   "Autoriser cette fois",
-  "السماح هذه المرة"
+  "السماح هذه المرة",
+  "本次允许"
  ],
  "Always for this app": [
   "Toujours pour cette app",
-  "دائمًا لهذا التطبيق"
+  "دائمًا لهذا التطبيق",
+  "对此应用始终允许"
  ],
  "Until it ends": [
   "Jusqu’à ce qu’il se termine",
-  "حتى ينتهي"
+  "حتى ينتهي",
+  "直到结束"
  ],
  "For 1 hour": [
   "Pendant 1 heure",
-  "لمدة ساعة"
+  "لمدة ساعة",
+  "1 小时"
  ],
  "For 1 day": [
   "Pendant 1 jour",
-  "لمدة يوم"
+  "لمدة يوم",
+  "1 天"
  ],
  "For 7 days": [
   "Pendant 7 jours",
-  "لمدة 7 أيام"
+  "لمدة 7 أيام",
+  "7 天"
  ],
  "Keep it": [
   "Le garder",
-  "إبقاؤها"
+  "إبقاؤها",
+  "保留"
  ],
  "Keep for 1 hour": [
   "Garder 1 heure",
-  "إبقاؤها ساعة"
+  "إبقاؤها ساعة",
+  "保留 1 小时"
  ],
  "Keep for 1 day": [
   "Garder 1 jour",
-  "إبقاؤها يومًا"
+  "إبقاؤها يومًا",
+  "保留 1 天"
  ],
  "Keep for 7 days": [
   "Garder 7 jours",
-  "إبقاؤها 7 أيام"
+  "إبقاؤها 7 أيام",
+  "保留 7 天"
  ],
  "Let it run": [
   "Le laisser tourner",
-  "تركه يعمل"
+  "تركه يعمل",
+  "让它运行"
  ],
  "Keep": [
   "Garder",
-  "إبقاء"
+  "إبقاء",
+  "保留"
  ],
  "Stop it": [
   "L’arrêter",
-  "إيقافه"
+  "إيقافه",
+  "停止"
  ],
  "Remove": [
   "Retirer",
-  "إزالة"
+  "إزالة",
+  "移除"
  ],
  "Review": [
   "Examiner",
-  "مراجعة"
+  "مراجعة",
+  "查看"
  ],
  "Couldn't remove %@": [
   "Impossible de retirer %@",
-  "تعذّرت إزالة %@"
+  "تعذّرت إزالة %@",
+  "无法移除 %@"
  ],
  "Open AI Access Auditor to try again.": [
   "Ouvrez AI Access Auditor pour réessayer.",
-  "افتح AI Access Auditor للمحاولة مجددًا."
+  "افتح AI Access Auditor للمحاولة مجددًا.",
+  "打开 AI Access Auditor 重试。"
  ],
  "AI agent installed": [
   "Agent IA installé",
-  "وكيل ذكاء اصطناعي مثبّت"
+  "وكيل ذكاء اصطناعي مثبّت",
+  "已安装 AI 代理"
  ],
  "\"Ask before it acts\" adds a small hook (a backup is saved) so %@ asks you here before it runs commands or changes files. You can turn it off any time on the Overview.": [
   "« Demander avant d’agir » ajoute un petit hook (une sauvegarde est faite) pour que %@ vous demande ici avant d’exécuter des commandes ou de modifier des fichiers. Vous pouvez le désactiver à tout moment dans la Vue d’ensemble.",
-  "«اسأل قبل التنفيذ» يضيف خطّافًا صغيرًا (تُحفظ نسخة احتياطية) ليسألك %@ هنا قبل تشغيل الأوامر أو تغيير الملفات. يمكنك إيقافه في أي وقت من «نظرة عامة»."
+  "«اسأل قبل التنفيذ» يضيف خطّافًا صغيرًا (تُحفظ نسخة احتياطية) ليسألك %@ هنا قبل تشغيل الأوامر أو تغيير الملفات. يمكنك إيقافه في أي وقت من «نظرة عامة».",
+  "“行动前先询问”会添加一个小钩子（会保存备份），让 %@ 在运行命令或修改文件前先在这里询问你。随时可以在概览中关闭。"
  ],
  "Ask before it acts": [
   "Demander avant d’agir",
-  "اسأل قبل التنفيذ"
+  "اسأل قبل التنفيذ",
+  "行动前先询问"
  ],
  "Not now": [
   "Plus tard",
-  "ليس الآن"
+  "ليس الآن",
+  "暂不"
  ],
  "Couldn't turn it on": [
   "Impossible de l’activer",
-  "تعذّر تفعيله"
+  "تعذّر تفعيله",
+  "无法开启"
  ],
  "%@ will ask you here": [
   "%@ vous demandera ici",
-  "سيسألك %@ هنا"
+  "سيسألك %@ هنا",
+  "%@ 会在这里询问你"
  ],
  "Open AI Access Auditor and use the switch on the Overview.": [
   "Ouvrez AI Access Auditor et utilisez l’interrupteur dans la Vue d’ensemble.",
-  "افتح AI Access Auditor واستخدم المفتاح في «نظرة عامة»."
+  "افتح AI Access Auditor واستخدم المفتاح في «نظرة عامة».",
+  "打开 AI Access Auditor，使用概览中的开关。"
  ],
  "Ask before Claude Code acts?": [
   "Demander avant que Claude Code agisse ?",
-  "اسأل قبل أن يتصرف Claude Code؟"
+  "اسأل قبل أن يتصرف Claude Code؟",
+  "在 Claude Code 行动前先询问？"
  ],
  "Whenever Claude Code is about to ask for permission, this app pops up instead so you can Allow or Deny. This adds a hook to ~/.claude/settings.json (a backup is saved). If this app isn't running, Claude Code just asks the usual way.": [
   "Quand Claude Code s’apprête à demander une permission, cette app s’ouvre à la place pour Autoriser ou Refuser. Cela ajoute un hook à ~/.claude/settings.json (une sauvegarde est faite). Si cette app n’est pas ouverte, Claude Code demande comme d’habitude.",
-  "كلما كان Claude Code على وشك طلب إذن، يظهر هذا التطبيق بدلًا من ذلك لتختار «سماح» أو «رفض». يضيف هذا خطّافًا إلى ‎~/.claude/settings.json (تُحفظ نسخة احتياطية). إذا لم يكن هذا التطبيق يعمل، يسأل Claude Code بالطريقة المعتادة."
+  "كلما كان Claude Code على وشك طلب إذن، يظهر هذا التطبيق بدلًا من ذلك لتختار «سماح» أو «رفض». يضيف هذا خطّافًا إلى ‎~/.claude/settings.json (تُحفظ نسخة احتياطية). إذا لم يكن هذا التطبيق يعمل، يسأل Claude Code بالطريقة المعتادة.",
+  "每当 Claude Code 即将请求权限时，本应用会改为弹出窗口，让你选择允许或拒绝。这会在 ~/.claude/settings.json 中添加一个钩子（会保存备份）。如果本应用没有运行，Claude Code 会按平常的方式询问。"
  ],
  "Turn On": [
   "Activer",
-  "تفعيل"
+  "تفعيل",
+  "开启"
  ],
  "Cancel": [
   "Annuler",
-  "إلغاء"
+  "إلغاء",
+  "取消"
  ],
  "Confirm": [
   "Confirmer",
-  "تأكيد"
+  "تأكيد",
+  "确认"
  ],
  "Couldn't change the Claude Code gate": [
   "Impossible de modifier la protection de Claude Code",
-  "تعذّر تغيير حماية Claude Code"
+  "تعذّر تغيير حماية Claude Code",
+  "无法更改 Claude Code 询问设置"
  ],
  "%@ gained access": [
   "%@ a obtenu un accès",
-  "حصل %@ على صلاحية"
+  "حصل %@ على صلاحية",
+  "%@ 获得了权限"
  ],
  "High risk": [
   "Risque élevé",
-  "خطورة عالية"
+  "خطورة عالية",
+  "高风险"
  ],
  "Medium": [
   "Moyen",
-  "متوسطة"
+  "متوسطة",
+  "中"
  ],
  "Low": [
   "Faible",
-  "منخفضة"
+  "منخفضة",
+  "低"
  ],
  "%d more new AI grants": [
   "%d autres nouveaux accès IA",
-  "%d صلاحيات ذكاء اصطناعي جديدة أخرى"
+  "%d صلاحيات ذكاء اصطناعي جديدة أخرى",
+  "另有 %d 项新的 AI 授权"
  ],
  "Open AI Access Auditor to review them.": [
   "Ouvrez AI Access Auditor pour les vérifier.",
-  "افتح AI Access Auditor لمراجعتها."
+  "افتح AI Access Auditor لمراجعتها.",
+  "打开 AI Access Auditor 进行审核。"
  ],
  "Access expired and was removed": [
   "Un accès a expiré et a été retiré",
-  "انتهت صلاحية وصول وأُزيلت"
+  "انتهت صلاحية وصول وأُزيلت",
+  "权限已过期并被移除"
  ],
  "%d grants expired and were removed": [
   "%d accès ont expiré et ont été retirés",
-  "انتهت %d صلاحيات وأُزيلت"
+  "انتهت %d صلاحيات وأُزيلت",
+  "%d 项授权已过期并被移除"
  ],
  "Tool permission": [
   "Permission d’outil",
-  "إذن أداة"
+  "إذن أداة",
+  "工具权限"
  ],
  "Folder access": [
   "Accès à un dossier",
-  "وصول إلى مجلد"
+  "وصول إلى مجلد",
+  "文件夹访问"
  ],
  "Trusted folder": [
   "Dossier de confiance",
-  "مجلد موثوق"
+  "مجلد موثوق",
+  "受信任的文件夹"
  ],
  "Permission mode": [
   "Mode d’autorisation",
-  "وضع الأذونات"
+  "وضع الأذونات",
+  "权限模式"
  ],
  "MCP server": [
   "Serveur MCP",
-  "خادم MCP"
+  "خادم MCP",
+  "MCP 服务器"
  ],
  "Capability": [
   "Fonctionnalité",
-  "ميزة"
+  "ميزة",
+  "功能"
  ],
  "Hooks": [
   "Hooks",
-  "خطّافات (Hooks)"
+  "خطّافات (Hooks)",
+  "钩子"
  ],
  "macOS privacy": [
   "Confidentialité macOS",
-  "خصوصية macOS"
+  "خصوصية macOS",
+  "macOS 隐私"
  ],
  "Running agent": [
   "Agent en cours d’exécution",
-  "وكيل قيد التشغيل"
+  "وكيل قيد التشغيل",
+  "运行中的代理"
  ],
  "AI tool install": [
   "Installation d’outil IA",
-  "تثبيت أداة ذكاء اصطناعي"
+  "تثبيت أداة ذكاء اصطناعي",
+  "AI 工具安装"
  ],
  "Data upload": [
   "Envoi de données",
-  "إرسال بيانات"
+  "إرسال بيانات",
+  "数据上传"
  ],
  "Agent skill": [
   "Compétence d’agent",
-  "مهارة وكيل"
+  "مهارة وكيل",
+  "代理技能"
  ],
  "Inherited credential": [
   "Identifiant hérité",
-  "صلاحية دخول موروثة"
+  "صلاحية دخول موروثة",
+  "继承的凭据"
  ],
  "Admin rights": [
   "Droits d’administrateur",
-  "صلاحيات المسؤول"
+  "صلاحيات المسؤول",
+  "管理员权限"
  ],
  "Saved login": [
   "Connexion enregistrée",
-  "تسجيل دخول محفوظ"
+  "تسجيل دخول محفوظ",
+  "已保存的登录"
  ],
  "Background agent": [
   "Agent en arrière-plan",
-  "وكيل في الخلفية"
+  "وكيل في الخلفية",
+  "后台代理"
  ],
  "Editor extension": [
   "Extension d’éditeur",
-  "إضافة محرر"
+  "إضافة محرر",
+  "编辑器扩展"
  ],
  "Browser extension": [
   "Extension de navigateur",
-  "إضافة متصفح"
+  "إضافة متصفح",
+  "浏览器扩展"
  ],
  "Network exposure": [
   "Exposition réseau",
-  "مكشوف على الشبكة"
+  "مكشوف على الشبكة",
+  "网络暴露"
  ],
  "Exposed secret": [
   "Secret exposé",
-  "مفتاح سري مكشوف"
+  "مفتاح سري مكشوف",
+  "暴露的密钥"
  ],
  "AI Access Auditor %@ is available": [
   "AI Access Auditor %@ est disponible",
-  "AI Access Auditor %@ متاح"
+  "AI Access Auditor %@ متاح",
+  "AI Access Auditor %@ 已推出"
  ],
  "Open the download page to get it.": [
   "Ouvrez la page de téléchargement pour l’obtenir.",
-  "افتح صفحة التنزيل للحصول عليه."
+  "افتح صفحة التنزيل للحصول عليه.",
+  "打开下载页面获取。"
  ],
  "Update available: %@…": [
   "Mise à jour disponible : %@…",
-  "تحديث متاح: %@…"
+  "تحديث متاح: %@…",
+  "有可用更新：%@…"
  ],
  "Secret in history": [
   "Secret dans l’historique",
-  "مفتاح سري في السجل"
+  "مفتاح سري في السجل",
+  "历史中的密钥"
  ],
  "Data sharing": [
   "Partage de données",
-  "مشاركة البيانات"
+  "مشاركة البيانات",
+  "数据共享"
  ],
  "%d new AI access grants": [
   "%d nouveaux accès IA",
-  "%d صلاحيات ذكاء اصطناعي جديدة"
+  "%d صلاحيات ذكاء اصطناعي جديدة",
+  "%d 项新的 AI 权限"
  ],
  "1 new AI access grant": [
   "1 nouvel accès IA",
-  "صلاحية ذكاء اصطناعي جديدة واحدة"
+  "صلاحية ذكاء اصطناعي جديدة واحدة",
+  "1 项新的 AI 权限"
  ],
  "No new AI access": [
   "Aucun nouvel accès IA",
-  "لا صلاحيات ذكاء اصطناعي جديدة"
+  "لا صلاحيات ذكاء اصطناعي جديدة",
+  "没有新的 AI 权限"
  ],
  "Checking…": [
   "Vérification…",
-  "جارٍ التحقق…"
+  "جارٍ التحقق…",
+  "正在检查…"
  ],
  "%d new grants since you last looked": [
   "%d nouveaux accès depuis votre dernière visite",
-  "%d صلاحيات جديدة منذ آخر مرة نظرت فيها"
+  "%d صلاحيات جديدة منذ آخر مرة نظرت فيها",
+  "自上次查看以来新增 %d 项授权"
  ],
  "1 new grant since you last looked": [
   "1 nouvel accès depuis votre dernière visite",
-  "صلاحية جديدة واحدة منذ آخر مرة نظرت فيها"
+  "صلاحية جديدة واحدة منذ آخر مرة نظرت فيها",
+  "自上次查看以来新增 1 项授权"
  ],
  "…and %d more": [
   "…et %d de plus",
-  "…و%d أخرى"
+  "…و%d أخرى",
+  "…另有 %d 项"
  ],
  "Mark All as Seen": [
   "Tout marquer comme vu",
-  "تعليم الكل كمُشاهَد"
+  "تعليم الكل كمُشاهَد",
+  "全部标为已查看"
  ],
  "%d grants · %d high-risk not reviewed": [
   "%d accès · %d à haut risque non vérifiés",
-  "%d صلاحية · %d عالية الخطورة لم تُراجع"
+  "%d صلاحية · %d عالية الخطورة لم تُراجع",
+  "%d 项授权 · %d 项高风险未审核"
  ],
  "Checked %@": [
   "Vérifié %@",
-  "آخر تحقق %@"
+  "آخر تحقق %@",
+  "检查于 %@"
  ],
  "Open AI Access Auditor": [
   "Ouvrir AI Access Auditor",
-  "فتح AI Access Auditor"
+  "فتح AI Access Auditor",
+  "打开 AI Access Auditor"
  ],
  "Check Now": [
   "Vérifier maintenant",
-  "تحقق الآن"
+  "تحقق الآن",
+  "立即检查"
  ],
  "Decisions…": [
   "Décisions…",
-  "القرارات…"
+  "القرارات…",
+  "决定…"
  ],
  "Setup…": [
   "Configuration…",
-  "الإعداد…"
+  "الإعداد…",
+  "设置…"
  ],
  "Ask Before Claude Code Acts": [
   "Demander avant que Claude Code agisse",
-  "اسأل قبل أن يتصرف Claude Code"
+  "اسأل قبل أن يتصرف Claude Code",
+  "在 Claude Code 行动前先询问"
  ],
  "Open at Login": [
   "Ouvrir à la connexion",
-  "الفتح عند تسجيل الدخول"
+  "الفتح عند تسجيل الدخول",
+  "登录时打开"
  ],
  "Quit": [
   "Quitter",
-  "إنهاء"
+  "إنهاء",
+  "退出"
+ ],
+ "Left behind": [
+  "Laissé sur place",
+  "بقايا",
+  "卸载残留"
  ]
 }

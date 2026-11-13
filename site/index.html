@@ -9,6 +9,7 @@
 <link rel="alternate" hreflang="en" href="https://dirmedmr-alt.github.io/ai-access-auditor/">
 <link rel="alternate" hreflang="fr" href="https://dirmedmr-alt.github.io/ai-access-auditor/fr/">
 <link rel="alternate" hreflang="ar" href="https://dirmedmr-alt.github.io/ai-access-auditor/ar/">
+<link rel="alternate" hreflang="zh" href="https://dirmedmr-alt.github.io/ai-access-auditor/zh/">
 <link rel="alternate" hreflang="x-default" href="https://dirmedmr-alt.github.io/ai-access-auditor/">
 <link rel="canonical" href="https://dirmedmr-alt.github.io/ai-access-auditor/">
 <meta property="og:type" content="website">
@@ -24,7 +25,7 @@
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"AI Access Auditor","url":"https://dirmedmr-alt.github.io/ai-access-auditor/","applicationCategory":"SecurityApplication","operatingSystem":"macOS, Windows, Linux","description":"Free app for macOS, Windows and Linux. See every permission, folder, login and key your AI agents (Claude Code, Codex, Gemini CLI, Cursor) have, and take any of it back.","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"image":"https://dirmedmr-alt.github.io/ai-access-auditor/assets/og.jpg"}</script>
 <script>try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}
 // first visit with a French or Arabic browser: open that version (the visitor's own choice is remembered after that)
-try{var L=localStorage.getItem('lang');if(!L&&document.documentElement.lang==='en'){var b=((navigator.languages&&navigator.languages[0])||navigator.language||'').slice(0,2).toLowerCase();if(b==='fr'||b==='ar')location.replace(b+'/'+location.hash)}}catch(e){}</script>
+try{var L=localStorage.getItem('lang');if(!L&&document.documentElement.lang==='en'){var b=((navigator.languages&&navigator.languages[0])||navigator.language||'').slice(0,2).toLowerCase();if(b==='fr'||b==='ar'||b==='zh')location.replace(b+'/'+location.hash)}}catch(e){}</script>
 <style>
 :root{
   --bg:#fbfbfa; --bg2:#f3f3f1; --card:#ffffff; --fg:#1b1b1a; --mut:#62625e; --faint:#9a9a95; --line:rgba(0,0,0,.08);
@@ -196,6 +197,7 @@ details p,details ol{color:var(--mut);margin:10px 0 0}
 :lang(ar) body{font-family:-apple-system,BlinkMacSystemFont,"SF Arabic","Geeza Pro","Noto Sans Arabic","Segoe UI",Tahoma,sans-serif}
 :lang(ar) h1,:lang(ar) h2,:lang(ar) h3,:lang(ar) .brand,:lang(ar) .eyebrow,:lang(ar) .works p{letter-spacing:0}
 :lang(ar) h1{line-height:1.3}
+:lang(zh) h1,:lang(zh) h2,:lang(zh) h3{letter-spacing:0}
 :lang(ar) h2{line-height:1.35}
 
 footer{border-top:1px solid var(--line);padding:30px 0 50px;color:var(--faint);font-size:13.5px}
@@ -243,7 +245,7 @@ footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
       <button data-t="system" title="Match my device" aria-label="Match my device"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg></button>
       <button data-t="dark" title="Dark" aria-label="Dark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
     </div>
-    <div class="langs" role="group" aria-label="Language"><a href="./" hreflang="en" lang="en" aria-current="page">EN</a><a href="fr/" hreflang="fr" lang="fr">FR</a><a href="ar/" hreflang="ar" lang="ar" title="العربية">ع</a></div>
+    <div class="langs" role="group" aria-label="Language"><a href="./" hreflang="en" lang="en" aria-current="page">EN</a><a href="fr/" hreflang="fr" lang="fr">FR</a><a href="ar/" hreflang="ar" lang="ar" title="العربية">ع</a><a href="zh/" hreflang="zh" lang="zh" title="中文">中</a></div>
     <a class="btn primary small" href="#download">Download</a>
   </div>
 </div></nav>

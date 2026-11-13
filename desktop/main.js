@@ -50,26 +50,28 @@ function windowsHookCmd() {
   return `"${(node || cmd).replace(/\\/g, '/')}"`;
 }
 
-// ---------- language: the same French and Arabic as the Mac app (desktop/strings.json comes from macos/i18n.swift) ----------
+// ---------- language: the same French, Arabic and Chinese as the Mac app (desktop/strings.json comes from macos/i18n.swift) ----------
 const STRINGS = require('./strings.json');
 const EXTRA = { // texts only this app needs
-  'AI Access Auditor is still running': ['AI Access Auditor fonctionne toujours', 'لا يزال AI Access Auditor يعمل'],
+  'AI Access Auditor is still running': ['AI Access Auditor fonctionne toujours', 'لا يزال AI Access Auditor يعمل', 'AI Access Auditor 仍在运行'],
   'It keeps watching in the background. Open it again from the tray icon or the app menu.':
     ['Il continue de surveiller en arrière-plan. Rouvrez-le depuis l’icône de la zone de notification ou le menu des applications.',
-     'يواصل المراقبة في الخلفية. افتحه مجددًا من أيقونة منطقة الإشعارات أو من قائمة التطبيقات.'],
-  'The scanner stopped (exit code %d).': ['Le scanner s’est arrêté (code %d).', 'توقف الفاحص (رمز الخروج %d).'],
-  'Starting…': ['Démarrage…', 'جارٍ البدء…'],
+     'يواصل المراقبة في الخلفية. افتحه مجددًا من أيقونة منطقة الإشعارات أو من قائمة التطبيقات.',
+     '它会在后台继续监视。可以从托盘图标或应用菜单再次打开。'],
+  'The scanner stopped (exit code %d).': ['Le scanner s’est arrêté (code %d).', 'توقف الفاحص (رمز الخروج %d).', '扫描程序已停止（退出代码 %d）。'],
+  'Starting…': ['Démarrage…', 'جارٍ البدء…', '正在启动…'],
 };
 let lang = 'en';
 function setLang(pref) {
   const sys = (app.getLocale() || 'en').slice(0, 2).toLowerCase();
-  lang = ['en', 'fr', 'ar'].includes(pref) ? pref : ['fr', 'ar'].includes(sys) ? sys : 'en';
+  lang = ['en', 'fr', 'ar', 'zh'].includes(pref) ? pref : ['fr', 'ar', 'zh'].includes(sys) ? sys : 'en';
 }
 // "this Mac" → "this computer" (the Mac app's texts are shared)
-const OS_WORDS = { en: [[/\bthis Mac\b/g, 'this computer'], [/\byour Mac\b/g, 'your computer']], fr: [[/\bce Mac\b/g, 'cet ordinateur'], [/\bvotre Mac\b/g, 'votre ordinateur']], ar: [] };
+const OS_WORDS = { en: [[/\bthis Mac\b/g, 'this computer'], [/\byour Mac\b/g, 'your computer']], fr: [[/\bce Mac\b/g, 'cet ordinateur'], [/\bvotre Mac\b/g, 'votre ordinateur']], ar: [], zh: [[/这台 Mac/g, '这台电脑'], [/你的 Mac/g, '你的电脑']] };
+const COL = { fr: 0, ar: 1, zh: 2 };
 function L(en, ...args) {
   const row = STRINGS[en] || EXTRA[en];
-  let s = lang === 'en' || !row ? en : row[lang === 'fr' ? 0 : 1];
+  let s = lang === 'en' || !row ? en : (row[COL[lang]] ?? en);
   let i = 0;
   // in Arabic, isolate names and paths so they keep their own direction inside the sentence
   s = s.replace(/%[@d]/g, () => { const a = args[i++]; return lang === 'ar' && typeof a === 'string' ? `\u2068${a}\u2069` : String(a); });
@@ -80,8 +82,8 @@ function L(en, ...args) {
 function action(en) {
   if (lang === 'en') return en;
   const row = STRINGS[en];
-  if (row) return row[lang === 'fr' ? 0 : 1];
-  if (en.startsWith('use ')) return (lang === 'fr' ? 'utiliser ' : 'استخدام ') + en.slice(4);
+  if (row && row[COL[lang]]) return row[COL[lang]];
+  if (en.startsWith('use ')) return ({ fr: 'utiliser ', ar: 'استخدام ', zh: '使用 ' })[lang] + en.slice(4);
   return en;
 }
 function settings() { try { return JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'settings.json'), 'utf8')); } catch { return {}; } }
@@ -486,7 +488,7 @@ if (process.env.AUDIT_SMOKE) app.whenReady().then(async () => {
   await wait(4000);
   fs.writeFileSync(path.join(dir, 'window.png'), (await win.webContents.capturePage()).toPNG());
   fs.writeFileSync(path.join(dir, 'page.txt'), await win.webContents.executeJavaScript('document.documentElement.dataset.os + "\\n" + document.body.innerText').catch(e => String(e)));
-  for (const l of ['en', 'fr', 'ar']) {
+  for (const l of ['en', 'fr', 'ar', 'zh']) {
     setLang(l);
     prompt({ symbol: 'terminal', risk: 'high', title: L('%@ wants to %@', 'Claude Code', action('run a command')), subtitle: L('Tool: %@ · in %@', 'Bash', '~/projects/site'),
       detail: 'rm -rf build && curl -fsSL https://example.com/install.sh | sh', footnote: L('%@ is paused until you decide. You can take back this decision later under Decisions.', 'Claude Code'),
