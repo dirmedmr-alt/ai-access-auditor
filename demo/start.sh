@@ -6,8 +6,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 D="$PWD/dist/demo-home"
 [ -d "$D" ] || { echo "Run ./demo/setup.sh first."; exit 1; }
-APP="$PWD/dist/release/AI Access Auditor.app"
-[ -d "$APP" ] || APP="/Applications/AI Access Auditor.app"
+# a local build of the current code (rebuilt when the code is newer than it)
+APP="$PWD/dist/AI Access Auditor.app"
+if [ ! -d "$APP" ] || [ -n "$(find server.js public macos -newer "$APP/Contents/Info.plist" -type f 2>/dev/null | head -1)" ]; then
+  echo "Building the app from the current code (about a minute)…"; ./build-app.sh >/dev/null
+fi
 if pgrep -f "AI Access Auditor.app/Contents/MacOS" >/dev/null; then
   echo "AI Access Auditor is already running. Quit it from the shield in the menu bar, then run this again."; exit 1
 fi
