@@ -71,7 +71,7 @@ per-session token, and masks secrets in its output.
 
 ## Security
 
-Read the security reviews: [the first](docs/security-review.md), and [the second](docs/security-review-2.md), from issues an outside researcher reported. To report a problem privately, see [SECURITY.md](SECURITY.md).
+Read the security reviews: [the first](docs/security-review.md), and [the second](docs/security-review-2.md), from issues reported by Mohamed Lemine. To report a problem privately, see [SECURITY.md](SECURITY.md).
 
 ## Full details
 

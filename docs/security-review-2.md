@@ -2,7 +2,7 @@
 
 **Date:** November 14, 2026
 **Version reviewed:** 1.0.12 by the reporter. All three issues were still present in 1.0.14, and are fixed in **1.0.15**.
-**Reported by:** an outside security researcher, through a written assessment. Each finding was checked against the
+**Reported by:** Mohamed Lemine, an outside security researcher, through a written assessment. Each finding was checked against the
 code and reproduced by the maintainer before it was fixed.
 
 ## Summary
@@ -67,7 +67,7 @@ descriptions no longer matter. Hooks written by every earlier version of the app
 
 ## Notes on the assessment
 
-The assessment was accurate and reproducible, and its severity ratings were fair: all three issues are local. The
+Thank you to Mohamed Lemine for the report, and for sending it privately. The assessment was accurate and reproducible, and its severity ratings were fair: all three issues are local. The
 fixes differ a little from the patch it proposed. For the temporary file, a random name was added to the
 "create only if new" rule it suggested. For the hooks, the check also refuses `$` and backticks in the command, which
 the shell would run even inside quotes.
