@@ -160,10 +160,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if token == nil, let r = buffer.range(of: #"TOKEN [a-f0-9]+"#, options: .regularExpression) {
             token = String(buffer[r].split(separator: " ")[1])
         }
-        if port == nil, let r = buffer.range(of: #"LISTENING \d+"#, options: .regularExpression),
+        if port == nil, let tok = token, let r = buffer.range(of: #"LISTENING \d+"#, options: .regularExpression), // the page only opens with the token
            let p = Int(buffer[r].split(separator: " ")[1]) {
             port = p
-            webView.load(URLRequest(url: URL(string: "http://127.0.0.1:\(p)/?native=1&syslang=\(I18n.systemLang)")!))
+            webView.load(URLRequest(url: URL(string: "http://127.0.0.1:\(p)/?token=\(tok)&native=1&syslang=\(I18n.systemLang)")!))
             checkForChanges()
             timer = Timer.scheduledTimer(withTimeInterval: CHECK_INTERVAL, repeats: true) { [weak self] _ in self?.checkForChanges() }
             timer?.tolerance = 30

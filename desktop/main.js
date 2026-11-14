@@ -178,11 +178,11 @@ function startServer() {
   const onData = d => {
     buffer = (buffer + d.toString()).slice(-20000);
     if (!token) { const m = buffer.match(/TOKEN ([a-f0-9]+)/); if (m) token = m[1]; }
-    if (!port) {
+    if (!port && token) { // the token comes first: the page only opens with it
       const m = buffer.match(/LISTENING (\d+)/);
       if (m) {
         port = Number(m[1]);
-        win.loadURL(`http://127.0.0.1:${port}/?syslang=${encodeURIComponent((app.getLocale() || 'en').slice(0, 2))}&os=${OS_NAME}`);
+        win.loadURL(`http://127.0.0.1:${port}/?token=${token}&syslang=${encodeURIComponent((app.getLocale() || 'en').slice(0, 2))}&os=${OS_NAME}`);
         checkForChanges();
         setInterval(checkForChanges, CHECK_INTERVAL).unref();
         eventLoop();

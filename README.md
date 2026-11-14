@@ -71,7 +71,7 @@ per-session token, and masks secrets in its output.
 
 ## Security
 
-Read the [security review](docs/security-review.md). To report a problem privately, see [SECURITY.md](SECURITY.md).
+Read the security reviews: [the first](docs/security-review.md), and [the second](docs/security-review-2.md), from issues an outside researcher reported. To report a problem privately, see [SECURITY.md](SECURITY.md).
 
 ## Full details
 
@@ -150,7 +150,7 @@ Every action is logged in `~/.ai-access-audit/`.
 /Applications. It needs Node.js (`brew install node`) and doesn't use a browser. The Linux and Windows app is
 in `desktop/` (Electron); see `build-linux.sh` and `appveyor.yml`.
 
-    npm start        # browser version: http://localhost:4517
+    npm start        # browser version: open the link it prints (it contains the page's access token)
     npm run scan     # print the findings in the terminal
 
 ## Releases

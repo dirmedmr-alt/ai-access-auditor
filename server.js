@@ -2562,9 +2562,21 @@ function replaceFile(file, text) {
   const target = realTarget(file);
   let mode = 0o600;
   try { mode = fs.statSync(target).mode & 0o777; } catch {}
-  const tmp = target + '.ai-audit-tmp';
-  try { fs.writeFileSync(tmp, text, { mode }); fs.chmodSync(tmp, mode); fs.renameSync(tmp, target); }
-  catch (e) { try { fs.unlinkSync(tmp); } catch {} throw e; }
+  // A new, unguessable temporary name, created only if nothing is there ('wx'): a link planted next to the file
+  // (a cloned project can contain one) must never redirect this write to another file.
+  const tmp = `${target}.${crypto.randomBytes(6).toString('hex')}.ai-audit-tmp`;
+  let fd;
+  try {
+    fd = fs.openSync(tmp, 'wx', mode);
+    fs.writeFileSync(fd, text);
+    if (!WIN) fs.fchmodSync(fd, mode);
+    fs.closeSync(fd); fd = undefined;
+    fs.renameSync(tmp, target);
+  } catch (e) {
+    if (fd !== undefined) try { fs.closeSync(fd); } catch {}
+    try { fs.unlinkSync(tmp); } catch {}
+    throw e;
+  }
 }
 function saveFile(file, text) { replaceFile(file, text); }
 function writeJsonAtomic(file, obj) { replaceFile(file, JSON.stringify(obj, null, 2) + '\n'); }
@@ -3173,7 +3185,22 @@ const GEMINI_SETTINGS = h('.gemini', 'settings.json');
 // our hook entry, whatever data folder it was installed from
 // (paths compared with forward slashes: on Windows the file may hold either kind)
 const slashes = s => s.replace(/\\+/g, '/');
-function isOurHook(e) { const t = slashes(JSON.stringify(e)); return t.includes(GATE_MARK) || t.includes(slashes(GATE_SCRIPT)) || t.includes('"ai-access-auditor"') || t.includes('AI Access Auditor'); }
+// Decided by what the hook runs, never by names or descriptions: every hook in the entry must be exactly
+// "<Node.js or this app>" "<…/ai-access-audit/gate.js>" (optionally --agent=codex), with nothing else in the command.
+// A hook that only mentions the app (in a comment, name or description) is someone else's and stays visible.
+const HOOK_RUNNER_RE = /^(node|node\.exe|node\.cmd|ai-access-auditor|ai-access-auditor\.exe)$/i;
+const QUOTED = '"((?:[^"\\\\$`]|\\\\.)+)"'; // a double-quoted path: no $ or ` (the shell would expand them), escapes allowed
+const OUR_HOOK_RE = new RegExp(`^(ELECTRON_RUN_AS_NODE=1 )?${QUOTED} ${QUOTED}( --agent=codex)?$`);
+function isOurHookCommand(h) {
+  if (!h || h.type !== 'command' || typeof h.command !== 'string') return false;
+  const m = h.command.trim().match(OUR_HOOK_RE);
+  if (!m) return false;
+  const unq = x => slashes(x.replace(/\\(["\\$`])/g, '$1'));
+  const runner = unq(m[2]).split('/').pop(), script = unq(m[3]);
+  const runnerOk = HOOK_RUNNER_RE.test(runner) || (!!m[1] && /\.AppImage$/.test(runner));
+  return runnerOk && (script === slashes(GATE_SCRIPT) || /\/\.?ai-access-audit\/gate\.js$/.test(script)); // this data folder, or ~/.ai-access-audit from any install
+}
+function isOurHook(e) { return !!e && Array.isArray(e.hooks) && e.hooks.length > 0 && e.hooks.every(isOurHookCommand); }
 // the hook script as written in hook commands: forward slashes on Windows too, since Claude Code may run hooks through Git Bash
 const gateArg = () => WIN ? slashes(GATE_SCRIPT) : GATE_SCRIPT;
 function gateStatus() {
@@ -3260,12 +3287,29 @@ function readBody(req) {
   });
 }
 
+const sameSecret = (a, b) => { const x = Buffer.from(String(a)), y = Buffer.from(String(b)); return x.length === y.length && crypto.timingSafeEqual(x, y); };
+const NO_ACCESS_PAGE = '<!doctype html><meta charset="utf-8"><title>AI Access Auditor</title><body style="font:15px -apple-system,Segoe UI,sans-serif;margin:40px">'
+  + '<h2>Open AI Access Auditor from its app</h2><p>This page only opens from the app, or from the link shown in the terminal that started it.</p>';
 const server = http.createServer(async (req, res) => {
   // Guard against DNS rebinding and other sites calling the API
   const host = (req.headers.host || '').split(':')[0];
   if (!['127.0.0.1', 'localhost'].includes(host)) return send(res, 403, { error: 'forbidden host' });
   const url = new URL(req.url, 'http://localhost');
   if (url.pathname === '/' || url.pathname === '/index.html') {
+    // The page holds the token, so it is only given to whoever already has it: the app that started this
+    // server (it reads the token from our output) or the link printed in the terminal. Any port on this computer
+    // can be reached by other programs and other accounts, so without this they could read the token from the page.
+    const port = server.address().port, cookieName = `aaa_session_${port}`;
+    const q = url.searchParams.get('token');
+    if (q !== null) {
+      if (!sameSecret(q, TOKEN)) return send(res, 401, NO_ACCESS_PAGE, 'text/html; charset=utf-8');
+      // keep it out of the address and the history: a cookie for this page only, then the same address without it
+      url.searchParams.delete('token');
+      return send(res, 302, '', 'text/plain; charset=utf-8', { Location: url.pathname + url.search,
+        'Set-Cookie': `${cookieName}=${TOKEN}; Path=/; HttpOnly; SameSite=Strict`, 'Cache-Control': 'no-store' });
+    }
+    const cookie = (req.headers.cookie || '').split(';').map(c => c.trim()).find(c => c.startsWith(cookieName + '='));
+    if (!cookie || !sameSecret(cookie.slice(cookieName.length + 1), TOKEN)) return send(res, 401, NO_ACCESS_PAGE, 'text/html; charset=utf-8');
     // a fresh nonce per page load: only the app's own inline script may run, never one injected through a config file
     const nonce = crypto.randomBytes(16).toString('base64');
     const html = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8').replace('__TOKEN__', TOKEN).replace('<html lang="en">', `<html lang="en" data-os="${OS_NAME}">`)
@@ -3436,7 +3480,7 @@ if (require.main === module) {
       setInterval(() => { if (process.ppid !== parent) process.exit(0); }, 3000).unref();
     }
     console.log(`LISTENING ${server.address().port}`);
-    console.log(`AI Access Auditor running at http://localhost:${server.address().port}`);
+    if (process.env.PORT !== '0') console.log(`AI Access Auditor running at http://localhost:${server.address().port}/?token=${TOKEN}`); // the link opens the page; keep it to yourself
   });
 }
-module.exports = { scanAll, publicScan, exportReport, prepareUpdate, readyUpdate, _test: { saveFile, scanLeftovers, gateInstall, gateStatus, historyFiles, refreshHistory, scanHistory, startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason } };
+module.exports = { scanAll, publicScan, exportReport, prepareUpdate, readyUpdate, _test: { saveFile, scanLeftovers, gateInstall, gateStatus, isOurHook, historyFiles, refreshHistory, scanHistory, startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason } };
