@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Access Auditor — see and control what your AI agents can do</title>
+<meta name="description" content="Free app for macOS, Windows and Linux. See every permission, folder, login and key your AI agents (Claude Code, Codex, Gemini CLI, Cursor) have, and take any of it back.">
+<link rel="icon" href="assets/favicon.png">
+<link rel="alternate" hreflang="en" href="https://dirmedmr-alt.github.io/ai-access-auditor/">
+<link rel="alternate" hreflang="fr" href="https://dirmedmr-alt.github.io/ai-access-auditor/fr/">
+<link rel="alternate" hreflang="ar" href="https://dirmedmr-alt.github.io/ai-access-auditor/ar/">
+<link rel="alternate" hreflang="zh" href="https://dirmedmr-alt.github.io/ai-access-auditor/zh/">
+<link rel="alternate" hreflang="x-default" href="https://dirmedmr-alt.github.io/ai-access-auditor/">
+<link rel="canonical" href="https://dirmedmr-alt.github.io/ai-access-auditor/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="AI Access Auditor">
+<meta property="og:title" content="AI Access Auditor: see and control what your AI agents can do">
+<meta property="og:description" content="Free app for macOS, Windows and Linux. See every permission, folder, login and key your AI agents (Claude Code, Codex, Gemini CLI, Cursor) have, and take any of it back.">
+<meta property="og:url" content="https://dirmedmr-alt.github.io/ai-access-auditor/">
+<meta property="og:locale" content="en_US">
+<meta property="og:image" content="https://dirmedmr-alt.github.io/ai-access-auditor/assets/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"AI Access Auditor","url":"https://dirmedmr-alt.github.io/ai-access-auditor/","applicationCategory":"SecurityApplication","operatingSystem":"macOS, Windows, Linux","description":"Free app for macOS, Windows and Linux. See every permission, folder, login and key your AI agents (Claude Code, Codex, Gemini CLI, Cursor) have, and take any of it back.","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"image":"https://dirmedmr-alt.github.io/ai-access-auditor/assets/og.jpg"}</script>
+<script>try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}
+// first visit with a French or Arabic browser: open that version (the visitor's own choice is remembered after that)
+try{var L=localStorage.getItem('lang');if(!L&&document.documentElement.lang==='en'){var b=((navigator.languages&&navigator.languages[0])||navigator.language||'').slice(0,2).toLowerCase();if(b==='fr'||b==='ar'||b==='zh')location.replace(b+'/'+location.hash)}}catch(e){}</script>
+<style>
+:root{
+  --bg:#fbfbfa; --bg2:#f3f3f1; --card:#ffffff; --fg:#1b1b1a; --mut:#62625e; --faint:#9a9a95; --line:rgba(0,0,0,.08);
+  --acc:#2f6bf0; --acc-2:#1b2c73; --acc-soft:rgba(47,107,240,.09);
+  --high:#d93b2b; --med:#c27a0e; --low:#2f8f4e;
+  --shadow:0 1px 2px rgba(0,0,0,.05),0 12px 40px rgba(20,30,60,.10);
+  --r:16px; --maxw:1120px;
+}
+/* dark: follows the system unless the visitor picks Light or Dark (data-theme on <html>) */
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;
+  --bg:#121211; --bg2:#1a1a19; --card:#1f1f1e; --fg:#f1f1ee; --mut:#a8a8a2; --faint:#73736e; --line:rgba(255,255,255,.08);
+  --acc:#5b8dff; --acc-2:#9fb8ff; --acc-soft:rgba(91,141,255,.12);
+  --high:#ff6b5b; --med:#f2b44c; --low:#5fcf83;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 12px 40px rgba(0,0,0,.45);
+}}
+:root[data-theme="dark"]{color-scheme:dark;
+  --bg:#121211; --bg2:#1a1a19; --card:#1f1f1e; --fg:#f1f1ee; --mut:#a8a8a2; --faint:#73736e; --line:rgba(255,255,255,.08);
+  --acc:#5b8dff; --acc-2:#9fb8ff; --acc-soft:rgba(91,141,255,.12);
+  --high:#ff6b5b; --med:#f2b44c; --low:#5fcf83;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 12px 40px rgba(0,0,0,.45);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Inter,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:var(--acc);text-decoration:none}
+a:hover{text-decoration:underline}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+img{max-width:100%;height:auto;display:block}
+
+/* nav */
+nav{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:1px solid var(--line)}
+nav .wrap{display:flex;align-items:center;gap:22px;height:62px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;color:var(--fg);letter-spacing:-.01em;white-space:nowrap}
+.brand img{width:30px;height:30px}
+.brand:hover{text-decoration:none}
+nav .links{display:flex;align-items:center;gap:22px;margin-inline-start:auto;font-size:14.5px}
+nav .links a{color:var(--mut)}
+nav .links a:hover{color:var(--fg);text-decoration:none}
+
+.btn{display:inline-flex;align-items:center;gap:10px;font:inherit;font-weight:600;border-radius:12px;padding:12px 20px;border:1px solid var(--line);background:var(--card);color:var(--fg);cursor:pointer}
+.btn:hover{text-decoration:none;filter:brightness(.98)}
+.btn.primary{background:var(--acc);border-color:var(--acc);color:#fff;box-shadow:0 6px 20px color-mix(in srgb,var(--acc) 35%,transparent)}
+.btn.small{padding:7px 14px;font-size:14px;border-radius:10px}
+.btn svg{width:18px;height:18px}
+.btn .sub{display:block;font-size:12px;font-weight:500;opacity:.8;margin-top:-2px}
+
+/* hero */
+.hero{padding:76px 0 40px;text-align:center}
+.badge{display:inline-flex;gap:8px;align-items:center;font-size:13px;font-weight:600;color:var(--acc);background:var(--acc-soft);padding:5px 12px;border-radius:99px;margin-bottom:22px}
+h1{font-size:clamp(36px,6vw,64px);line-height:1.05;letter-spacing:-.035em;margin:0 auto 18px;max-width:840px}
+h1 em{font-style:normal;background:linear-gradient(120deg,var(--acc),#8e5bd6);-webkit-background-clip:text;background-clip:text;color:transparent}
+.lead{font-size:clamp(17px,2vw,20px);color:var(--mut);max-width:680px;margin:0 auto 32px}
+.cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;align-items:center}
+.req{font-size:13px;color:var(--faint);margin-top:14px}
+.shot{margin:56px auto 0;max-width:1060px;border-radius:14px;overflow:hidden;border:1px solid var(--line);box-shadow:var(--shadow);background:var(--card)}
+.shot .chrome{height:30px;display:flex;align-items:center;gap:7px;padding:0 12px;background:var(--bg2);border-bottom:1px solid var(--line)}
+.shot .chrome i{width:11px;height:11px;border-radius:50%;background:#ff5f57}.shot .chrome i:nth-child(2){background:#febc2e}.shot .chrome i:nth-child(3){background:#28c840}
+/* hero: blue band, text on one side and the app on the other, like the link-preview card */
+.hero{padding:72px 0 80px;text-align:start;color:#fff;background:linear-gradient(135deg,#1b2c73 0%,#2f6bf0 100%);overflow:hidden}
+.hero .wrap{display:grid;grid-template-columns:minmax(0,.95fr) minmax(0,1.05fr);gap:56px;align-items:center}
+.hero .badge{color:#fff;background:rgba(255,255,255,.16)}
+.hero h1{font-size:clamp(36px,4.4vw,56px);margin:0 0 18px;color:#fff}
+.hero h1 em{background:linear-gradient(120deg,#cfe0ff,#e3d2ff);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero .lead{color:rgba(255,255,255,.86);margin:0 0 30px;font-size:clamp(17px,1.6vw,19px)}
+.hero .cta{justify-content:flex-start}
+.hero .btn{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.38);color:#fff}
+.hero .btn.primary{background:#fff;border-color:#fff;color:#1b2c73;box-shadow:0 10px 28px rgba(0,0,0,.25)}
+.hero .req{color:rgba(255,255,255,.72)}
+.hero .shot{margin:0;margin-inline-end:-180px;max-width:none;border:0;box-shadow:0 30px 80px rgba(0,0,0,.35)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .hero{background:linear-gradient(135deg,#0f1a4d 0%,#1f4fc4 100%)}}
+:root[data-theme="dark"] .hero{background:linear-gradient(135deg,#0f1a4d 0%,#1f4fc4 100%)}
+@media (max-width:920px){
+  .hero{text-align:center;padding:52px 0 0}
+  .hero .wrap{grid-template-columns:1fr;gap:40px}
+  .hero h1,.hero .lead{margin-inline:auto}
+  .hero .cta{justify-content:center}
+  .hero .shot{margin-inline-end:0;border-radius:14px 14px 0 0}
+}
+.only-dark{display:none}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .only-light{display:none}:root:not([data-theme="light"]) .only-dark{display:block}}
+:root[data-theme="dark"] .only-light{display:none}:root[data-theme="dark"] .only-dark{display:block}
+
+/* appearance switch */
+.theme{display:inline-flex;background:var(--bg2);border:1px solid var(--line);border-radius:99px;padding:2px}
+.theme button{border:0;background:none;color:var(--faint);width:30px;height:28px;border-radius:99px;display:grid;place-items:center;cursor:pointer}
+.theme button:hover{color:var(--fg)}
+.theme button[aria-pressed="true"]{background:var(--card);color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.15)}
+.theme svg{width:15px;height:15px}
+.langs{display:inline-flex;background:var(--bg2);border:1px solid var(--line);border-radius:99px;padding:2px}
+.langs a{color:var(--faint);font-size:12.5px;font-weight:650;min-width:30px;height:28px;padding:0 7px;border-radius:99px;display:grid;place-items:center}
+.langs a:hover{color:var(--fg);text-decoration:none}
+.langs a[aria-current]{background:var(--card);color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.15)}
+
+/* works with */
+.works{padding:44px 0 10px;text-align:center}
+.works p{font-size:13px;font-weight:600;color:var(--faint);text-transform:uppercase;letter-spacing:.06em;margin:0 0 14px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+.chips span{font-size:14px;padding:6px 13px;border-radius:99px;border:1px solid var(--line);background:var(--card);color:var(--mut)}
+
+/* sections */
+section{padding:84px 0}
+.eyebrow{font-size:13px;font-weight:700;color:var(--acc);text-transform:uppercase;letter-spacing:.07em;margin:0 0 10px}
+h2{font-size:clamp(28px,4vw,42px);line-height:1.12;letter-spacing:-.025em;margin:0 0 14px}
+.sec-lead{color:var(--mut);font-size:18px;max-width:660px;margin:0 0 40px}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:24px}
+.card .ic{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;background:var(--acc-soft);color:var(--acc);margin-bottom:16px}
+.card .ic svg{width:22px;height:22px}
+.card h3{font-size:17px;margin:0 0 6px;letter-spacing:-.01em}
+.card p{margin:0;color:var(--mut);font-size:15px}
+
+.split{display:grid;grid-template-columns:1fr 1fr;gap:56px;align-items:center}
+.split.rev .txt{order:2}
+.check{list-style:none;padding:0;margin:22px 0 0}
+.check li{position:relative;padding-inline-start:30px;margin:10px 0;color:var(--mut)}
+.check li b{color:var(--fg)}
+.check li::before{content:"";position:absolute;inset-inline-start:0;top:5px;width:18px;height:18px;border-radius:50%;background:var(--acc-soft)}
+.check li::after{content:"";position:absolute;inset-inline-start:6px;top:9px;width:6px;height:9px;border:solid var(--acc);border-width:0 2px 2px 0;transform:rotate(45deg)}
+.popups{display:grid;gap:16px}
+.popups img{border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line)}
+.popups img:nth-child(2){margin-inline-start:48px}
+.frame{border-radius:14px;overflow:hidden;box-shadow:var(--shadow);border:1px solid var(--line)}
+
+.privacy{background:var(--bg2)}
+.pv{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+.pv .card{background:var(--card)}
+.diff{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.diff .card{display:flex;flex-direction:column;gap:12px}
+.diff .num{font-size:13px;font-weight:700;color:var(--acc)}
+.diff h3{margin:0}
+.diff .vs{display:grid;gap:8px;margin-top:auto}
+.diff .vs p{font-size:14.5px;padding:10px 12px;border-radius:10px}
+.diff .vs .them{background:var(--bg2)}
+.diff .vs .us{background:var(--acc-soft);color:var(--fg)}
+.diff .vs span{display:block;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);margin-bottom:2px}
+.diff .vs .us span{color:var(--acc)}
+
+/* install */
+.steps{counter-reset:s;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.step{position:relative;padding-inline-start:66px}
+.step::before{counter-increment:s;content:counter(s);position:absolute;inset-inline-start:24px;top:24px;width:28px;height:28px;border-radius:50%;background:var(--acc);color:#fff;font-weight:700;font-size:14px;display:grid;place-items:center}
+code,.code{font:13.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
+.code{display:block;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:10px;overflow-x:auto;white-space:pre;color:var(--fg)}
+.note{border-inline-start:3px solid var(--med);background:color-mix(in srgb,var(--med) 9%,transparent);border-radius:12px;border-start-start-radius:0;border-end-start-radius:0;padding:14px 18px;margin-top:22px;color:var(--mut);font-size:15px}
+.note b{color:var(--fg)}
+
+/* faq */
+details{border-bottom:1px solid var(--line);padding:18px 0}
+summary{cursor:pointer;font-weight:600;font-size:17px;list-style:none;display:flex;justify-content:space-between;gap:16px}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";color:var(--faint);font-weight:400;font-size:22px;line-height:1}
+details[open] summary::after{content:"–"}
+details p,details ol{color:var(--mut);margin:10px 0 0}
+
+/* download band */
+.band{text-align:center;background:linear-gradient(160deg,var(--acc),var(--acc-2));color:#fff;border-radius:24px;padding:56px 24px;margin:0 0 84px}
+.band h2{color:#fff}
+.band p{color:rgba(255,255,255,.85);margin:0 auto 26px;max-width:560px}
+.band .btn{background:#fff;color:#1b2c73;border-color:#fff}
+.band .btn.ghost-light{background:transparent;color:#fff;border-color:rgba(255,255,255,.65);margin-inline-start:10px}
+.sub-h{font-size:22px;margin:48px 0 16px}
+.step .code{white-space:pre-wrap;word-break:break-all}
+.band .sum{font:12px ui-monospace,Menlo,monospace;color:rgba(255,255,255,.7);margin-top:18px;word-break:break-all}
+
+/* right-to-left (Arabic): commands stay left-to-right; Arabic letters must not be spaced apart */
+[dir="rtl"] code{direction:ltr;unicode-bidi:isolate}
+[dir="rtl"] .code{direction:ltr;text-align:left}
+.shot .chrome{direction:ltr}
+:lang(ar) body{font-family:-apple-system,BlinkMacSystemFont,"SF Arabic","Geeza Pro","Noto Sans Arabic","Segoe UI",Tahoma,sans-serif}
+:lang(ar) h1,:lang(ar) h2,:lang(ar) h3,:lang(ar) .brand,:lang(ar) .eyebrow,:lang(ar) .works p{letter-spacing:0}
+:lang(ar) h1{line-height:1.3}
+:lang(zh) h1,:lang(zh) h2,:lang(zh) h3{letter-spacing:0}
+:lang(ar) h2{line-height:1.35}
+
+footer{border-top:1px solid var(--line);padding:30px 0 50px;color:var(--faint);font-size:13.5px}
+footer .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
+
+@media (max-width:900px){
+  .grid,.pv{grid-template-columns:1fr 1fr}
+  .split{grid-template-columns:1fr;gap:32px}.split.rev .txt{order:0}
+  .steps{grid-template-columns:1fr}
+  nav .links > a:not(.btn){display:none}
+  nav .links{gap:10px}
+}
+@media (max-width:600px){
+  .wrap{padding:0 16px}
+  .grid,.pv,.diff{grid-template-columns:1fr}
+  .hero{padding-top:48px}
+  section{padding:60px 0}
+  .popups img:nth-child(2){margin-inline-start:0}
+  .brand{font-size:15px;gap:8px}.brand img{width:26px;height:26px}
+  .theme button{width:26px}
+  .langs a{min-width:26px;padding:0 5px}
+  nav .wrap{gap:12px}
+  nav .links{gap:6px}
+}
+@media (max-width:460px){nav .btn.primary.small{display:none}}
+@media (max-width:380px){.brand span{display:none}}
+ nav .gh{display:inline-flex;align-items:center;color:var(--mut)} nav .gh svg{width:20px;height:20px} nav .gh:hover{color:var(--fg)}
+.hero .src{margin:14px 0 0;font-size:14px}.hero .src a{display:inline-flex;align-items:center;gap:8px;color:#fff;opacity:.9}.hero .src a:hover{opacity:1}.hero .src svg{width:16px;height:16px}
+@media (max-width:460px){nav .gh{display:none}}
+.demo{padding-top:64px;padding-bottom:20px}.demo .eyebrow,.demo h2{text-align:center}
+.video{max-width:960px;margin:28px auto 0;border-radius:16px;overflow:hidden;box-shadow:var(--shadow);background:#1b2c73}
+.video video{display:block;width:100%;height:auto;aspect-ratio:1280/800}
+.vnote{text-align:center;color:var(--faint);font-size:13px;margin:12px 0 0}
+#teams .grid{margin-bottom:28px}.teams-cta{text-align:center;margin:0}
+.pv-note{margin:22px 0 0;font-size:14px;color:var(--mut)}
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <a class="brand" href="#"><img src="assets/icon.png" alt=""><span>AI Access Auditor</span></a>
+  <div class="links">
+    <a href="#features">Features</a>
+    <a href="#privacy">Privacy</a>
+    <a href="#install">Install</a>
+    <a href="#faq">FAQ</a>
+    <a class="gh" href="https://github.com/dirmedmr-alt/ai-access-auditor" title="Source code on GitHub" aria-label="Source code on GitHub"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
+    <div class="theme" role="group" aria-label="Appearance">
+      <button data-t="light" title="Light" aria-label="Light"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+      <button data-t="system" title="Match my device" aria-label="Match my device"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg></button>
+      <button data-t="dark" title="Dark" aria-label="Dark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
+    </div>
+    <div class="langs" role="group" aria-label="Language"><a href="./" hreflang="en" lang="en" aria-current="page">EN</a><a href="fr/" hreflang="fr" lang="fr">FR</a><a href="ar/" hreflang="ar" lang="ar" title="العربية">ع</a><a href="zh/" hreflang="zh" lang="zh" title="中文">中</a></div>
+    <a class="btn primary small" href="#download">Download</a>
+  </div>
+</div></nav>
+
+<header class="hero"><div class="wrap">
+  <div class="hero-text">
+  <span class="badge">Free for macOS, Windows and Linux</span>
+  <h1>See and control <em>everything</em> your AI agents can do.</h1>
+  <p class="lead">AI Access Auditor finds every permission, folder, login and privilege your AI agents have, pops up the moment that changes, and lets you take any of it back with one click.</p>
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.14/AI-Access-Auditor-1.0.14.dmg" download>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+      <span>Download for Mac<span class="sub">Version 1.0.14 · 71 MB</span></span>
+    </a>
+    <a class="btn" href="#windows">Download for Windows</a>
+    <a class="btn" href="#linux">Download for Linux</a>
+  </div>
+  <p class="req">macOS 13 Ventura or later · Windows 10 and 11 · Linux: Ubuntu 22.04, Debian 12 or later, and similar · Nothing else to install</p>
+  <p class="src"><a href="https://github.com/dirmedmr-alt/ai-access-auditor"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg><span>Free and open source (MIT) · View the code on GitHub</span></a></p>
+  </div>
+  <div class="shot">
+    <div class="chrome"><i></i><i></i><i></i></div>
+    <img class="only-light" src="assets/overview-light.png" alt="AI Access Auditor overview: a safety score, high-risk grants, new access and protection status" width="2360" height="1560">
+    <img class="only-dark" src="assets/overview-dark.png" alt="AI Access Auditor overview in dark mode" width="2360" height="1560">
+  </div>
+</div></header>
+
+<div class="works"><div class="wrap">
+  <p>Checks the agents you already use</p>
+  <div class="chips">
+    <span>Claude Code</span><span>Claude Desktop</span><span>Codex CLI</span><span>Gemini CLI</span><span>Cursor</span><span>GitHub Copilot</span><span>Windsurf</span><span>Cline</span><span>Roo Code</span><span>OpenCode</span><span>Aider</span><span>Goose</span><span>Amazon Q</span><span>Kiro</span><span>Continue</span><span>Zed</span>
+  </div>
+</div></div>
+
+<section id="demo" class="demo"><div class="wrap">
+  <p class="eyebrow">See it in action</p>
+  <h2>One minute, start to finish.</h2>
+  <div class="video"><video controls preload="none" playsinline poster="assets/demo-en.jpg"><source src="assets/demo-en.mp4" type="video/mp4"></video></div>
+  <p class="vnote">Demo with invented data. Turn the sound on for the narration.</p>
+</div></section>
+
+<section id="features"><div class="wrap">
+  <p class="eyebrow">Why it exists</p>
+  <h2>You clicked "Allow" a hundred times. Do you know what you allowed?</h2>
+  <p class="sec-lead">AI agents collect access quietly: an "always allow" here, a trusted folder there, an MCP server with your GitHub token, a terminal running in YOLO mode. AI Access Auditor puts all of it in one place.</p>
+  <div class="grid">
+    <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></div>
+      <h3>Finds every grant</h3><p>Tool permissions, trusted folders, MCP servers, agent skills, AI tools being installed, saved logins, browser and editor extensions, background jobs and macOS privacy permissions.</p></div>
+    <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M12 8v5M12 16h.01"/></svg></div>
+      <h3>Pops up the moment it changes</h3><p>When any agent gains new access, a window asks you to keep it or remove it, within seconds.</p></div>
+    <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 0 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.9-6-2.4l-3.6-3.6a2 2 0 0 1 2.8-2.8L7 15"/></svg></div>
+      <h3>Ask before Claude, Codex and Gemini act</h3><p>Approve or deny commands and file changes from Claude Code, Codex CLI and Gemini CLI in one native popup, even when they run in "YOLO" mode.</p></div>
+    <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg></div>
+      <h3>Catches agents running with safety off</h3><p>Spots agents started with <code>--yolo</code>, <code>--dangerously-skip-permissions</code> and similar flags, or running as root, and stops them if you ask.</p></div>
+    <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg></div>
+      <h3>One-click revoke, with undo</h3><p>Every change is backed up first. Restore anything from History at any time.</p></div>
+    <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+      <h3>Access that expires</h3><p>Allow a folder or tool for an hour, a day or a week. It's removed automatically when the time is up.</p></div>
+    <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/></svg></div>
+      <h3>Sees data leaving your Mac</h3><p>If a script or tool an agent started sends data out, or any app uploads a lot, you see where it's going and which files it has open. Stop it or allow it.</p></div>
+    <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></div>
+      <h3>Catches AI tools as they install</h3><p>When a new AI agent, MCP server, skill or plugin is set up, by you or by an agent, it tells you what it is, what it's connecting to, and offers to put it behind Allow / Deny.</p></div>
+    <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/></svg></div>
+      <h3>Checks agent skills</h3><p>Lists the skills your agents load on their own, and flags the ones that bring scripts or reverse-engineering tools. Remove one with a click.</p></div>
+  </div>
+</div></section>
+
+<section><div class="wrap split">
+  <div class="txt">
+    <p class="eyebrow">Live protection</p>
+    <h2>Like a firewall prompt, but for AI access.</h2>
+    <p class="sec-lead" style="margin-bottom:0">A small shield lives in your menu bar. It watches your agents' settings and running processes in the background and asks you the moment something changes.</p>
+    <ul class="check">
+      <li><b>Allow just once, or always.</b> Then change your mind later under Decisions.</li>
+      <li><b>Safe by default.</b> For high-risk requests, pressing Return means Deny.</li>
+      <li><b>Never stuck.</b> If the app isn't running, your agent asks you the usual way.</li>
+      <li><b>Sees data leaving your Mac.</b> If a script or tool an agent started sends data out, or any app uploads a lot, you're asked to allow it or stop it.</li>
+    </ul>
+  </div>
+  <div class="popups">
+    <img src="assets/popup-gate.png" alt="Popup: Claude Code wants to run a command, with Allow and Deny" width="920" height="490" loading="lazy">
+    <img src="assets/popup-new-access.png" alt="Popup: Cursor got new access to an MCP server, with Keep and Remove" width="920" height="492" loading="lazy">
+  </div>
+</div></section>
+
+<section><div class="wrap split rev">
+  <div class="txt">
+    <p class="eyebrow">Plain language</p>
+    <h2>Know what each permission actually means.</h2>
+    <p class="sec-lead" style="margin-bottom:0">Every grant comes with a risk level and a one-line explanation, like "the agent can run any shell command without asking", so you can decide in seconds.</p>
+    <ul class="check">
+      <li><b>Revoke several at once</b> and confirm once.</li>
+      <li><b>Mark what you trust as reviewed</b> to see only what's new next time.</li>
+      <li><b>Light and dark mode</b>, matched to your Mac or set by hand.</li>
+    </ul>
+  </div>
+  <div class="frame"><img class="only-light" src="assets/grants.png" alt="List of grants with a details panel explaining Bash(*) and buttons to revoke or keep it" width="2360" height="1560" loading="lazy"><img class="only-dark" src="assets/grants-dark.png" alt="The same list of grants in dark mode" width="2360" height="1560" loading="lazy"></div>
+</div></section>
+
+<section id="different"><div class="wrap">
+  <p class="eyebrow">How it&rsquo;s different</p>
+  <h2>Not just a report. A say in what happens.</h2>
+  <p class="sec-lead">Other tools look at AI agent setups too, mostly by scanning MCP server configs and listing problems. AI Access Auditor is built around four things they usually don&rsquo;t do.</p>
+  <div class="diff">
+    <div class="card"><div class="num">01</div><h3>It asks before the agent acts</h3>
+      <div class="vs"><p class="them"><span>Most scanners</span>Tell you about risky settings after they&rsquo;re already in place.</p><p class="us"><span>AI Access Auditor</span>Shows an Allow / Deny popup before Claude Code, Codex CLI or Gemini CLI acts, and offers it the moment a new agent is installed. Saved answers can be taken back later.</p></div></div>
+    <div class="card"><div class="num">02</div><h3>It looks beyond MCP</h3>
+      <div class="vs"><p class="them"><span>Most scanners</span>Focus on MCP servers and their tool descriptions.</p><p class="us"><span>AI Access Auditor</span>Also checks macOS privacy permissions, background jobs, extensions, agents running with safety off, AI tools being installed, data leaving your Mac, and the access agents quietly get from your own logins: sudo, SSH keys, GitHub, AWS, gcloud and Kubernetes.</p></div></div>
+    <div class="card"><div class="num">03</div><h3>It fixes what it finds</h3>
+      <div class="vs"><p class="them"><span>Most scanners</span>Report the issue and leave the fix to you.</p><p class="us"><span>AI Access Auditor</span>Removes, turns off or stops each item in one click, backs up the file first, and can undo it from History.</p></div></div>
+    <div class="card"><div class="num">04</div><h3>It speaks plain language</h3>
+      <div class="vs"><p class="them"><span>Most scanners</span>Are written for security engineers, often run from the Terminal.</p><p class="us"><span>AI Access Auditor</span>A desktop app for Mac, Windows and Linux with a safety score and a one-line explanation of every permission, so anyone can decide in seconds.</p></div></div>
+  </div>
+</div></section>
+
+<section id="privacy" class="privacy"><div class="wrap">
+  <p class="eyebrow">Privacy</p>
+  <h2>It stays on your Mac. All of it.</h2>
+  <p class="sec-lead">A security tool shouldn't create a new risk. AI Access Auditor has no account and no tracking. The only thing it asks the internet is whether a new version is out, once a day, and you can turn that off.</p>
+  <div class="pv">
+    <div class="card"><h3>Nothing uploaded</h3><p>What it finds never leaves your Mac. It watches other apps' traffic using macOS's own counters, without reading what they send.</p></div>
+    <div class="card"><h3>Secrets stay secret</h3><p>Tokens are masked on screen. For Keychain items it reads only names, never the passwords.</p></div>
+    <div class="card"><h3>Asks before changing</h3><p>It never removes access on its own, except for time limits you set yourself.</p></div>
+    <div class="card"><h3>Reversible</h3><p>Every change is backed up first. Your data is in one folder you can delete.</p></div>
+  </div>
+  <p class="pv-note">This website counts visits with GoatCounter, an open-source counter that uses no cookies and collects no personal data. The app itself sends nothing.</p>
+</div></section>
+
+<section id="install"><div class="wrap">
+  <p class="eyebrow">Install</p>
+  <h2>Up and running in a minute.</h2>
+  <p class="sec-lead">The Mac app is signed and notarized by Apple, so it opens like any other app.</p>
+  <div class="steps">
+    <div class="card step"><h3>Download and open the .dmg</h3><p>Drag <b>AI Access Auditor</b> into the <b>Applications</b> folder.</p></div>
+    <div class="card step"><h3>Open it</h3><p>Double-click the app in Applications. The first time, macOS checks that it's an app downloaded from the internet. Click <b>Open</b>.</p></div>
+    <div class="card step"><h3>Follow the welcome screen</h3><p>It walks you through Full Disk Access, the Allow / Deny popups and Open at Login. You can change everything later.</p></div>
+    <div class="card step"><h3>Stay up to date</h3><p>When a new version is out, the app downloads it in the background and checks that it really comes from its developer. Click <b>Restart to update</b> and it’s done.</p></div>
+  </div>
+  <div class="note"><b>Coming from a beta?</b> Install over it as usual. Because the app is now signed by its developer, macOS asks once more for Full Disk Access: turn it on again in the welcome screen.</div>
+
+  <h3 class="sub-h" id="windows">On Windows</h3>
+  <div class="steps">
+    <div class="card step"><h3>Download and run the installer</h3><p>For most PCs: <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.14/AI-Access-Auditor-1.0.14-windows-x64.exe" download>Windows (x64)</a>. For ARM PCs, such as Snapdragon laptops: <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.14/AI-Access-Auditor-1.0.14-windows-arm64.exe" download>Windows on ARM</a> (not tested yet). It installs for your account only, without administrator rights.</p></div>
+    <div class="card step"><h3>If Windows warns you</h3><p>The Windows version isn't signed yet, so Windows may say <b>Windows protected your PC</b>. Click <b>More info</b>, then <b>Run anyway</b>. Then follow the welcome screen.</p></div>
+  </div>
+  <div class="note"><b>On Windows,</b> the app also checks startup entries, scheduled tasks and logins saved in Credential Manager. It doesn't watch uploads yet, because Windows only shows how much each program sends to administrators. Checksums: <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.14/SHA256SUMS-windows.txt">SHA256SUMS-windows.txt</a></div>
+
+  <h3 class="sub-h" id="linux">On Linux</h3>
+  <div class="steps">
+    <div class="card step"><h3>Ubuntu, Debian, Mint, Pop!_OS</h3><p>Download the .deb for your computer: <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.14/AI-Access-Auditor-1.0.14-amd64.deb" download>Intel or AMD (x64)</a> or <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.14/AI-Access-Auditor-1.0.14-arm64.deb" download>ARM (arm64)</a>. Then install it from the Terminal:
+      <span class="code">sudo apt install ./AI-Access-Auditor-*.deb</span></p></div>
+    <div class="card step"><h3>Other distributions (x64)</h3><p>Download the <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.14/AI-Access-Auditor-1.0.14-x86_64.AppImage" download>AppImage</a>, make it executable and open it:
+      <span class="code">chmod +x AI-Access-Auditor-*.AppImage</span>On Ubuntu 22.04 or later, AppImages also need <b>libfuse2</b>: <span class="code">sudo apt install libfuse2t64</span>(on 22.04 the package is called libfuse2).</p></div>
+  </div>
+  <div class="note"><b>The tray icon:</b> the app keeps watching after you close its window, from an icon in the top bar or taskbar. On GNOME desktops other than Ubuntu's, that icon needs the <b>AppIndicator</b> extension. Without it, open the app again from the app menu. Checksums: <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.14/SHA256SUMS-linux.txt">SHA256SUMS-linux.txt</a></div>
+</div></section>
+
+<section id="teams"><div class="wrap">
+  <p class="eyebrow">For teams</p>
+  <h2>AI agents on every developer's laptop?</h2>
+  <p class="sec-lead">A version for companies is planned: see what AI agents can do across your whole team, without collecting anyone's secrets. Tell us what you need and get early access.</p>
+  <div class="grid">
+    <div class="card"><h3>Central dashboard</h3><p>Every developer's agents and their access in one place. Summaries only: no secrets, no files.</p></div>
+    <div class="card"><h3>Company policies</h3><p>Set rules such as "no Bash(*)" or "only approved MCP servers", and get alerted when one is broken.</p></div>
+    <div class="card"><h3>Easy rollout and reports</h3><p>Deploy with your device management tools, and export access reports for security reviews.</p></div>
+  </div>
+  <p class="teams-cta"><a class="btn primary" href="https://github.com/dirmedmr-alt/ai-access-auditor/issues/new?template=teams.yml">Request early access</a></p>
+  <p class="vnote">Opens a short form on GitHub. The app itself stays free and open source.</p>
+</div></section>
+
+<section id="faq" style="padding-top:20px"><div class="wrap">
+  <p class="eyebrow">FAQ</p>
+  <h2>Questions</h2>
+  <details><summary>Is it free?</summary><p>Yes. It's free to download and use.</p></details>
+  <details><summary>Why does Windows warn me when I install it?</summary><p>Windows programs need a paid code-signing certificate to install without a warning, and the Windows version doesn't have one yet. The steps under Install show how to run it. The Mac app is signed and notarized by Apple.</p></details>
+  <details><summary>Which computers does it run on?</summary><p>Macs with macOS 13 Ventura or later, Apple Silicon and Intel. Windows 10 and 11. On Linux: Ubuntu 22.04, Debian 12 or later and similar distributions, on x64 and ARM. Everything it needs is included, so there's nothing else to install.</p></details>
+  <details><summary>Can it stop an agent before it does something?</summary><p>For Claude Code, Codex CLI and Gemini CLI, yes. Turn on "Ask before it acts" for each one on the Overview, and you approve actions before they run. With Claude Code and Codex, the popup replaces the agent's own prompt. With Gemini, it steps in when Gemini would otherwise act without asking (YOLO or auto-edit mode). Codex asks you to trust the new hook once: type <code>/hooks</code> inside Codex. Other agents don't offer a way to be paused from outside, so for them you're alerted within seconds of any new access, and can remove it right away.</p></details>
+  <details><summary>How is it different from MCP scanners?</summary><p>MCP scanners such as Snyk Agent Scan look deeply at MCP servers, for example checking their tool descriptions for hidden instructions. AI Access Auditor doesn&rsquo;t do that deep analysis. It covers the wider picture instead: every kind of access your agents have, a popup before Claude Code, Codex or Gemini acts, and one-click removal. The two work well side by side.</p></details>
+  <details><summary>Can it block data from leaving my Mac?</summary><p>It can stop the program that's sending it, and it asks you first. It can't block a single connection while letting the program run. That needs a network filter, like the free LuLu firewall, and the two work well together. It checks every 2 seconds, so a very short upload can slip past it, and it shows the IP address rather than a website name, because looking names up would mean contacting the internet.</p></details>
+  <details><summary>Why does it want Full Disk Access?</summary><p>Only to read macOS's list of which apps can record your screen, control your Mac or read all your files. Without it, everything else still works. Those system permissions just aren't included.</p></details>
+  <details><summary>How do I uninstall it?</summary>
+    <ol>
+      <li>Open the app and turn off every <b>Ask before … acts</b> switch on the Overview, and <b>Open at Login</b> (in Setup).</li>
+      <li>Quit it from the shield in the menu bar, then move it from Applications to the Trash.</li>
+      <li>Optionally delete its data folder: <code>~/.ai-access-audit</code></li>
+    </ol>
+    <p>On Linux, turn off the same switches, quit it from the tray icon, then remove it with <code>sudo apt remove ai-access-auditor</code> (or delete the AppImage).</p>
+    <p>On Windows, turn off the same switches, quit it from the tray icon, then uninstall it in Settings → Apps → Installed apps.</p></details>
+</div></section>
+
+<div class="wrap" id="download">
+  <div class="band">
+    <h2>Know what your agents can do.</h2>
+    <p>Free for macOS 13 or later, Windows and Linux.</p>
+    <a class="btn" href="https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/v1.0.14/AI-Access-Auditor-1.0.14.dmg" download>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+      Download AI Access Auditor
+    </a>
+    <a class="btn ghost-light" href="#windows">Windows</a>
+    <a class="btn ghost-light" href="#linux">Linux</a>
+    <div class="sum">SHA-256: <span id="sha">986280e76464ef4a5ff3c6e0fd7774dbf14d6667ed30561f0fbe3c6b0feb5242</span></div>
+  </div>
+</div>
+
+<footer><div class="wrap">
+  <span><a href="https://github.com/dirmedmr-alt/ai-access-auditor">Source code on GitHub</a> · <a href="https://github.com/dirmedmr-alt/ai-access-auditor/releases">All versions</a></span>
+  <span>© 2026 AI Access Auditor · Version 1.0.14</span>
+  <span>Not affiliated with Anthropic, OpenAI, Google, GitHub, Cursor or any other company named on this page.</span>
+</div></footer>
+
+<script>
+// Appearance: Light / match device / Dark, remembered for next visit
+(function () {
+  var root = document.documentElement, btns = document.querySelectorAll('.theme button');
+  function set(t, save) {
+    if (t === 'light' || t === 'dark') root.dataset.theme = t; else { delete root.dataset.theme; t = 'system'; }
+    btns.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.t === t)); });
+    if (save) try { localStorage.setItem('theme', t); } catch (e) {}
+  }
+  btns.forEach(function (b) { b.addEventListener('click', function () { set(b.dataset.t, true); }); });
+  set(root.dataset.theme || 'system', false);
+})();
+// Language: remember the visitor's choice and keep their place on the page
+document.querySelectorAll('.langs a').forEach(function (a) {
+  a.addEventListener('click', function () {
+    try { localStorage.setItem('lang', a.getAttribute('hreflang')); } catch (e) {}
+    a.href = a.getAttribute('href') + location.hash;
+  });
+});
+// Video plays are counted too, per language
+document.querySelectorAll('.video video').forEach(function (v) {
+  v.addEventListener('play', function () {
+    if (v.dataset.counted || !window.goatcounter || !window.goatcounter.count) return;
+    v.dataset.counted = '1';
+    window.goatcounter.count({ path: 'video-play-' + document.documentElement.lang, title: 'Video play', event: true });
+  });
+});
+// Visit counter (GoatCounter: no cookies, no personal data). Downloads are counted by file, without the version.
+document.addEventListener('click', function (e) {
+  var a = e.target.closest && e.target.closest('a[href*="/releases/download/"]');
+  if (!a || !window.goatcounter || !window.goatcounter.count) return;
+  var file = a.href.split('/').pop().replace(/-[0-9]+\.[0-9]+\.[0-9]+(-beta)?/, '');
+  window.goatcounter.count({ path: 'download/' + file, title: 'Download ' + file, event: true });
+});
+</script>
+<script data-goatcounter="https://ai-access-auditor.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
+</body>
+</html>
