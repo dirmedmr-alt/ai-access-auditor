@@ -540,6 +540,98 @@ function secretsInFile(file, size) {
 }
 // Checks new and changed logs, for at most budgetMs, and remembers the result, so a scan stays fast even with
 // gigabytes of history: the first full pass finishes over the next few scans.
+// ---------- "last used": which tools, commands, folders and MCP servers Claude Code really used, and when ----------
+// Read from the same session logs, line by line (only lines with a tool call are parsed). Per log file it keeps the
+// latest time of each tool, of each command start (1 to 3 words), of each folder files were opened in, of each
+// website fetched, and the oldest time in the log, so the app knows how far back it can tell.
+const CLAUDE_LOGS = h('.claude', 'projects');
+const isClaudeLog = file => file.startsWith(CLAUDE_LOGS + path.sep) && file.endsWith('.jsonl');
+function emptyUses() { return { tools: {}, bash: {}, dirs: {}, web: {}, oldest: null }; }
+function addUse(map, key, ts, cap = 400) {
+  if (!key) return;
+  if (map[key] === undefined && Object.keys(map).length >= cap) return;
+  if (!map[key] || map[key] < ts) map[key] = ts;
+}
+function usesInText(text, u = emptyUses()) {
+  for (const line of text.split('\n')) {
+    if (!line.includes('"tool_use"')) {
+      const t = line.startsWith('{') && (line.match(/"timestamp":"([^"]+)"/) || [])[1];
+      if (t && (!u.oldest || t < u.oldest)) u.oldest = t;
+      continue;
+    }
+    let j; try { j = JSON.parse(line); } catch { continue; }
+    const ts = j.timestamp, content = j.message && j.message.content;
+    if (!ts || !Array.isArray(content)) continue;
+    if (!u.oldest || ts < u.oldest) u.oldest = ts;
+    for (const c of content) {
+      if (!c || c.type !== 'tool_use' || typeof c.name !== 'string') continue;
+      const inp = c.input || {};
+      addUse(u.tools, c.name, ts);
+      if (c.name === 'Bash' && typeof inp.command === 'string') {
+        const words = inp.command.trim().split(/\s+/).slice(0, 3);
+        for (let n = 1; n <= words.length; n++) addUse(u.bash, words.slice(0, n).join(' '), ts);
+      }
+      const fp = inp.file_path || inp.notebook_path || inp.path;
+      if (typeof fp === 'string' && path.isAbsolute(fp)) addUse(u.dirs, path.dirname(fp), ts);
+      if (c.name === 'WebFetch' && typeof inp.url === 'string') { try { addUse(u.web, new URL(inp.url).hostname, ts); } catch {} }
+    }
+  }
+  return u;
+}
+function usesInFile(file, start = 0) {
+  const u = emptyUses();
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const size = fs.fstatSync(fd).size, CH = 8 << 20, buf = Buffer.alloc(CH);
+    let carry = '';
+    for (let pos = start; pos < size; pos += CH) {
+      const n = fs.readSync(fd, buf, 0, CH, pos);
+      const text = carry + buf.toString('utf8', 0, n), cut = text.lastIndexOf('\n');
+      usesInText(cut < 0 ? '' : text.slice(0, cut), u);
+      carry = cut < 0 ? text : text.slice(cut + 1);
+    }
+    usesInText(carry, u);
+  } catch {} finally { if (fd !== undefined) fs.closeSync(fd); }
+  return u;
+}
+function mergeUses(a, b) {
+  for (const k of ['tools', 'bash', 'dirs', 'web']) for (const [key, ts] of Object.entries(b[k] || {})) addUse(a[k], key, ts, 5000);
+  if (b.oldest && (!a.oldest || b.oldest < a.oldest)) a.oldest = b.oldest;
+  return a;
+}
+function claudeUses() {
+  const all = emptyUses();
+  for (const [file, c] of Object.entries(historyCache || {})) if (c.uses && isClaudeLog(file)) mergeUses(all, c.uses);
+  return all;
+}
+// The last time a permission was used: an ISO date, null if never in the logs, or undefined if this kind can't be told
+function lastUsedFor(f, U) {
+  const latest = list => list.filter(Boolean).sort().pop() || null;
+  if (f.category === 'MCP server') return latest(Object.entries(U.tools).filter(([k]) => k.startsWith(`mcp__${f.title}__`)).map(([, t]) => t));
+  if (f.category === 'Folder access') {
+    const dir = f.title.replace(/^~(?=\/|$)/, HOME).replace(/\/+$/, '');
+    return latest(Object.entries(U.dirs).filter(([d]) => d === dir || d.startsWith(dir + '/')).map(([, t]) => t));
+  }
+  if (f.category !== 'Tool permission') return undefined;
+  const rule = String(f.title);
+  if (rule.startsWith('mcp__')) return latest(Object.entries(U.tools).filter(([k]) => k === rule || k.startsWith(rule + '__')).map(([, t]) => t));
+  const m = rule.match(/^([A-Za-z]+)(?:\((.*)\))?$/);
+  if (!m) return undefined;
+  const [, tool, spec] = m;
+  if (!spec || spec.trim() === '*') return U.tools[tool] || null;
+  if (tool === 'Bash') {
+    const prefix = spec.replace(/:\*$/, '').replace(/\s*\*$/, '').trim();
+    return prefix.split(/\s+/).length <= 3 ? U.bash[prefix] || null : undefined;
+  }
+  if (tool === 'WebFetch') { const d = (spec.match(/^domain:(.+)$/) || [])[1]; return d ? U.web[d] || null : U.tools.WebFetch || null; }
+  if (/^(Read|Edit|Write|MultiEdit)$/.test(tool)) {
+    const dir = spec.replace(/\/?\*\*?$/, '').replace(/^~(?=\/|$)/, HOME).replace(/^\/\//, '/').replace(/\/+$/, '');
+    return latest(Object.entries(U.dirs).filter(([d]) => d === dir || d.startsWith(dir + '/')).map(([, t]) => t));
+  }
+  return U.tools[tool] || null;
+}
+
 function refreshHistory(budgetMs) {
   if (!historyCache) historyCache = readJson(HISTORY_FILE) || {};
   const t0 = Date.now(), files = historyFiles(), present = new Set(files.map(x => x.file));
@@ -549,17 +641,20 @@ function refreshHistory(budgetMs) {
     if (Date.now() - t0 > budgetMs) break;
     let st;
     try { st = fs.statSync(file); } catch { continue; }
-    const c = historyCache[file];
+    let c = historyCache[file];
+    if (c && isClaudeLog(file) && !c.uses) c = null; // made before "last used" existed: read again
     if (c && c.mtime === st.mtimeMs && c.size === st.size) continue;
     if (st.size > 2 * 1024 ** 3) continue; // over 2 GB: skipped
     // a session that is still running only grows: read just what was added since last time
-    let hits;
-    if (c && st.size > c.size && !file.endsWith('.db') && !file.endsWith('.json')) {
+    let hits, uses;
+    const grows = c && st.size > c.size && !file.endsWith('.db') && !file.endsWith('.json');
+    if (grows) {
       const added = secretsInRange(file, Math.max(0, c.size - 9000), st.size);
       const seen = new Set(c.hits.map(x => x.preview));
       hits = c.hits.concat(added.filter(x => !seen.has(x.preview) && seen.add(x.preview))).slice(0, 50);
     } else hits = secretsInFile(file, st.size);
-    historyCache[file] = { mtime: st.mtimeMs, size: st.size, hits };
+    if (isClaudeLog(file)) uses = grows ? mergeUses(c.uses, usesInFile(file, c.size)) : usesInFile(file);
+    historyCache[file] = { mtime: st.mtimeMs, size: st.size, hits, ...(uses ? { uses } : {}) };
     changed = true;
   }
   if (changed) try { fs.writeFileSync(HISTORY_FILE, JSON.stringify(historyCache)); } catch {}
@@ -2115,7 +2210,12 @@ function scanAll() {
   const expiries = readJson(EXPIRY_FILE) || {};
   const seen = new Set();
   const list = [];
+  const U = claudeUses(); // scanHistory above has just refreshed the logs
   for (const f of findings) {
+    if (f.agent === 'Claude Code' && U.oldest) {
+      const last = lastUsedFor(f, U);
+      if (last !== undefined) { f.lastUsed = last; f.usageSince = U.oldest; }
+    }
     f.legacyId = id(f.source, f.action, f.title, f.agent);
     f.id = id(f.source, f.action, f.title); // display names can change; what the grant *is* doesn't
     if (seen.has(f.id)) continue;

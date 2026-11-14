@@ -31,6 +31,7 @@ finds all of it, explains each item in one line, and lets you remove it with one
 - **Finds every grant:** tool and command permissions, MCP servers, trusted folders, hooks, saved logins,
   API keys in your shell and environment, startup entries, and secrets left in agents' session logs (shown masked).
 - **Explains and scores them:** a safety score, and a one-line explanation of each risk.
+- **Shows what's actually used:** for Claude Code, when each permission, folder and MCP server was last used, from its own session logs. Permissions never used are marked "Unused": usually safe to revoke.
 - **Takes access back:** revoke one grant or many at once, now or after a time limit. Every change is backed up first and can be undone.
 - **Watches for changes:** a popup the moment an agent gains new access. Keep it, keep it for a while, or remove it.
 - **Asks before agents act:** an optional popup before Claude Code, Codex or Gemini CLI runs a tool, through their own hook systems.

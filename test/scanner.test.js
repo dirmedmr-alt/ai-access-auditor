@@ -142,6 +142,31 @@ test('agents left behind after uninstalling are reported', () => {
   else assert.fail('Kiro leftovers not reported (unless Kiro is installed on this machine)');
 });
 
+test('last used: each Claude Code permission is matched to its latest use in the session logs', () => {
+  const line = (ts, name, input) => JSON.stringify({ type: 'assistant', timestamp: ts, message: { content: [{ type: 'tool_use', id: 'x', name, input }] } });
+  const home = makeHome({
+    '.claude/settings.json': { permissions: { allow: ['Bash(*)', 'Bash(npm test:*)', 'Bash(git push:*)', 'WebFetch', 'Edit', 'mcp__github'], additionalDirectories: ['~/Documents'] } },
+    '.claude/projects/p/a.jsonl': [
+      JSON.stringify({ type: 'user', timestamp: '2026-11-01T08:00:00Z', message: { content: 'hello' } }),
+      line('2026-11-03T10:00:00Z', 'Bash', { command: 'npm test -- --watch' }),
+      line('2026-11-05T10:00:00Z', 'Bash', { command: 'ls -la' }),
+      line('2026-11-04T10:00:00Z', 'mcp__github__create_issue', { title: 'x' }),
+    ].join('\n') + '\n',
+    '.claude/projects/p/b.jsonl': line('2026-11-06T09:00:00Z', 'Read', { file_path: '/tmp/x' }) + '\n',
+  });
+  fs.appendFileSync(path.join(home, '.claude/projects/p/b.jsonl'), line('2026-11-07T09:00:00Z', 'Edit', { file_path: path.join(home, 'Documents', 'notes', 'a.md') }) + '\n');
+  const out = inHome(home, `m._test.refreshHistory(1e9); return m.scanAll().findings.filter(f => f.agent === 'Claude Code').map(f => [f.title, f.lastUsed, f.usageSince])`);
+  const last = Object.fromEntries(out.map(([t, l]) => [t, l]));
+  assert.equal(last['Bash(*)'], '2026-11-05T10:00:00Z');
+  assert.equal(last['Bash(npm test:*)'], '2026-11-03T10:00:00Z');
+  assert.equal(last['Bash(git push:*)'], null, 'never used');
+  assert.equal(last['WebFetch'], null);
+  assert.equal(last['Edit'], '2026-11-07T09:00:00Z');
+  assert.equal(last['mcp__github'], '2026-11-04T10:00:00Z');
+  assert.equal(last['~/Documents'], '2026-11-07T09:00:00Z');
+  assert.equal(out[0][2], '2026-11-01T08:00:00Z', 'oldest date in the logs');
+});
+
 // ---------- local server ----------
 test('local server: refuses other sites, needs its token, sends a strict page policy', async () => {
   const home = makeHome();

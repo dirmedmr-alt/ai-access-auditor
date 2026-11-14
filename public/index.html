@@ -157,6 +157,8 @@ a.btn{text-decoration:none}
 .badge.high{background:var(--high-soft);color:var(--high)}.badge.medium{background:var(--med-soft);color:var(--med)}.badge.low{background:var(--low-soft);color:var(--low)}
 .badge.ok{background:var(--pane2);color:var(--mut)}
 .badge.new{background:var(--acc);color:#fff}
+.lu-note{display:block;margin-top:4px;color:var(--mut);font-size:12px;line-height:1.4}
+.badge.unused{background:var(--pane2);color:var(--mut);border:1px dashed var(--line)}
 .newcard{border-color:color-mix(in srgb,var(--acc) 40%,var(--line))}
 .chev{color:var(--faint);width:14px;height:14px}
 
@@ -490,13 +492,26 @@ function renderOverview() {
 }
 
 // ctx: 'agent' = list is grouped by agent (don't repeat it), 'category' = grouped by type
+// "3 days ago" in the app's language; dates in the app's language too
+const pageLang = () => document.documentElement.lang || 'en';
+function ago(iso) {
+  const s = (Date.parse(iso) - Date.now()) / 1000, rtf = new Intl.RelativeTimeFormat(pageLang(), { numeric: 'auto' });
+  for (const [u, n] of [['year', 31536000], ['month', 2592000], ['week', 604800], ['day', 86400], ['hour', 3600], ['minute', 60]])
+    if (Math.abs(s) >= n) return rtf.format(Math.round(s / n), u);
+  return rtf.format(0, 'minute');
+}
+const day = iso => new Date(iso).toLocaleDateString(pageLang(), { month: 'short', day: 'numeric' });
+function lastUsedText(f) {
+  if (f.usageSince === undefined) return '';
+  return f.lastUsed ? `${ago(f.lastUsed)} (${day(f.lastUsed)})` : `Not used since ${day(f.usageSince)}`;
+}
 function row(f, ctx) {
   const sub = [ctx === 'agent' ? '' : f.agent, ctx === 'category' ? '' : f.category, f.detail].filter(Boolean).join(' · ');
   return `<div class="item ${selected === f.id ? 'sel' : ''} ${f.reviewedAt ? 'done' : ''}" data-id="${f.id}">
     <span class="ck ${picked.has(f.id) ? 'on' : ''}" data-pick="${f.id}" title="Select"></span>
     <span class="ic ${f.risk}">${icon(f.category)}</span>
     <div style="min-width:0"><div class="ttl">${esc(f.title)}</div><div class="sub" title="${esc(f.detail)}">${esc(sub)}</div></div>
-    <div class="meta">${f.expiresAt ? `<span class="badge exp" title="Revoked automatically ${new Date(f.expiresAt).toLocaleString()}">⏱ ${timeLeft(f.expiresAt)}</span>` : ''}${f.isNew ? '<span class="badge new">New</span>' : ''}${f.reviewedAt ? '<span class="badge ok">Reviewed</span>' : `<span class="badge ${f.risk}">${RISK_LABEL[f.risk]}</span>`}${icon('chev', 'chev')}</div>
+    <div class="meta">${f.expiresAt ? `<span class="badge exp" title="Revoked automatically ${new Date(f.expiresAt).toLocaleString()}">⏱ ${timeLeft(f.expiresAt)}</span>` : ''}${f.isNew ? '<span class="badge new">New</span>' : ''}${f.usageSince !== undefined && !f.lastUsed ? `<span class="badge unused" title="${esc(lastUsedText(f))}">Unused</span>` : ''}${f.reviewedAt ? '<span class="badge ok">Reviewed</span>' : `<span class="badge ${f.risk}">${RISK_LABEL[f.risk]}</span>`}${icon('chev', 'chev')}</div>
   </div>`;
 }
 
@@ -628,6 +643,7 @@ function renderInspector() {
       <div><dt>Type</dt><dd>${esc(f.category)}</dd></div>
       <div><dt>Details</dt><dd>${esc(f.detail)}</dd></div>
       <div><dt>Stored in</dt><dd>${esc(f.source)}</dd></div>
+      ${f.usageSince !== undefined ? `<div><dt>Last used</dt><dd>${esc(lastUsedText(f))}${f.lastUsed ? '' : '<span class="lu-note">Never used in the sessions on this computer. Likely safe to revoke.</span>'}</dd></div>` : ''}
       <div><dt>Status</dt><dd>${f.reviewedAt ? 'Reviewed ' + new Date(f.reviewedAt).toLocaleDateString() : 'Not reviewed'}</dd></div>
     </dl>
     ${revocable ? `<p class="lbl">Revoke automatically</p>

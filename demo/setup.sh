@@ -29,6 +29,15 @@ cat > "$D/.claude/projects/-Users-demo-projects-webapp/session.jsonl" <<J
 {"type":"tool","output":"git remote set-url origin https://$GHK@github.com/demo/webapp.git"}
 J
 touch -t 202611080930 "$D/.claude/projects/-Users-demo-projects-webapp/session.jsonl"
+# past tool calls, so "last used" has something to show (relative to today)
+node -e '
+const fs = require("fs"), f = process.argv[1], home = process.argv[2], ago = d => new Date(Date.now() - d * 864e5).toISOString();
+const call = (d, name, input) => JSON.stringify({ type: "assistant", timestamp: ago(d), message: { content: [{ type: "tool_use", id: "t" + d, name, input }] } });
+fs.writeFileSync(f, [JSON.stringify({ type: "user", timestamp: ago(28), message: { content: "start" } }),
+  call(2, "Bash", { command: "npm test" }), call(1, "Bash", { command: "git status" }), call(0.2, "Read", { file_path: home + "/projects/webapp/src/app.js" }),
+  call(3, "Edit", { file_path: home + "/projects/webapp/src/app.js" }), call(9, "mcp__github__create_issue", { title: "Bug" })].join("\n") + "\n", { flag: "a" });
+' "$D/.claude/projects/-Users-demo-projects-webapp/session.jsonl" "$D"
+touch -t 202611080930 "$D/.claude/projects/-Users-demo-projects-webapp/session.jsonl"
 
 # Cursor, Gemini CLI, Codex CLI, Claude Desktop
 cat > "$D/.cursor/mcp.json" <<'J'
