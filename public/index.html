@@ -367,7 +367,7 @@ const avatar = a => `<span class="av" style="background:${agentColor(a)}">${esc(
 // ---------- state ----------
 let data = null, view = 'overview', agentFilter = null, selected = null, gateOn = false, scope = 'ai', gemOn = false, gemHere = false, cdxOn = false, cdxHere = false;
 const picked = new Set(); // grants ticked for bulk actions
-const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'disableSystemdUnit', 'removeAutostart', 'removeRunValue', 'disableTask', 'redactSecrets', 'setValues', 'uninstallExt', 'killProcess', 'removeFolder', 'removeFile', 'removeTomlBlock'];
+const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'disableSystemdUnit', 'removeAutostart', 'removeRunValue', 'disableTask', 'redactSecrets', 'setValues', 'uninstallExt', 'killProcess', 'removeFolder', 'removeLeftover', 'removeFile', 'removeTomlBlock'];
 const canRevoke = f => REVOCABLE.includes(f.action.kind);
 // grants never used in the agents' session logs, when the logs go back at least a week; reviewed ones are kept
 const WEEK = 7 * 864e5;
@@ -675,7 +675,7 @@ function renderInspector() {
     <div class="expiry"><div class="seg">${EXP.map(([v, l]) => `<button data-exp="${v}" data-for="${f.id}" class="${!f.expiresAt && v === '' ? 'on' : ''}">${l}</button>`).join('')}</div>
       ${f.expiresAt ? `<span class="detail" style="width:100%">Will be revoked ${esc(new Date(f.expiresAt).toLocaleString())} (in ${timeLeft(f.expiresAt)})</span>` : ''}</div>` : ''}
     <div class="acts">
-      ${revocable ? `<button class="btn danger" data-revoke="${f.id}">${a.kind === 'killProcess' ? 'Stop it' : a.kind === 'removeFolder' ? 'Remove skill' : a.kind === 'removeFile' ? 'Sign out (remove)' : a.kind === 'redactSecrets' ? 'Remove the secrets' : a.kind === 'setValues' ? 'Turn it off' : 'Revoke access'}</button>`
+      ${revocable ? `<button class="btn danger" data-revoke="${f.id}">${a.kind === 'killProcess' ? 'Stop it' : a.kind === 'removeFolder' ? 'Remove skill' : a.kind === 'removeLeftover' ? 'Delete folder' : a.kind === 'removeFile' ? 'Sign out (remove)' : a.kind === 'redactSecrets' ? 'Remove the secrets' : a.kind === 'setValues' ? 'Turn it off' : 'Revoke access'}</button>`
         : a.kind === 'openApp' ? `<button class="btn primary" data-openapp="${f.id}">${esc(a.label)}</button><div class="hint">${esc(a.hint)}</div>`
         : a.kind === 'link' ? `<a class="btn primary" href="${esc(a.url)}">${esc(a.hint || 'Open settings')}</a>`
         : `<div class="hint">${esc(a.hint || 'Change this one by hand.')}</div>`}
@@ -728,7 +728,8 @@ document.addEventListener('click', async e => {
   if (t.dataset.id) { selected = selected === t.dataset.id ? null : t.dataset.id; document.querySelectorAll('.item').forEach(i => i.classList.toggle('sel', i.dataset.id === selected)); return renderInspector(); }
   if (t.dataset.revoke) {
     const f = data.findings.find(x => x.id === t.dataset.revoke);
-    if (f.action.kind === 'redactSecrets' ? !confirm('Remove these secrets from the session log?\n\nEach one is replaced with "[removed]". The rest of the conversation stays. This can\'t be undone, because a backup would keep the secrets.')
+    if (f.action.kind === 'removeLeftover' ? !confirm(`Delete ${f.source}?\n\nSaved logins in it are erased for good: sign in again if you reinstall ${f.agent}. Its settings and past conversations are kept in History, so you can restore them.`)
+      : f.action.kind === 'redactSecrets' ? !confirm('Remove these secrets from the session log?\n\nEach one is replaced with "[removed]". The rest of the conversation stays. This can\'t be undone, because a backup would keep the secrets.')
       : !confirm(`Revoke "${f.title}" from ${f.agent}?\n\n${f.detail}\n\nA backup is saved first, so you can undo this from History.`)) return;
     t.disabled = true;
     try { toast((await api('revoke', { id: f.id })).message, 6000); selected = null; await scan(); }

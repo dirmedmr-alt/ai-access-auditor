@@ -1679,6 +1679,10 @@ const LEFTOVERS = [
   ['Goose', h('.config', 'goose'), ['goose'], ['Goose'], []],
   ['Cline', h('.cline'), ['cline'], [], ['saoudrizwan.claude-dev']],
 ];
+// Login files an agent leaves in its folder (paths inside the folder). Deleting a leftover folder erases these
+// for good, without a backup: a kept copy would still be a working login that any program could read.
+const LEFTOVER_LOGINS = ['auth.json', '.credentials.json', 'oauth_creds.json', 'gemini-credentials.json', 'mcp-oauth-tokens.json',
+  'google_accounts.json', 'hosts.yml', 'apps.json', path.join('data', 'settings', 'providers.json'), path.join('data', 'secrets.json')];
 function scanLeftovers() {
   const out = [];
   if (DEMO) return out;
@@ -1696,14 +1700,14 @@ function scanLeftovers() {
     if (installed) continue;
     // what is still in there, in plain words
     const has = [];
-    if (['auth.json', '.credentials.json', 'oauth_creds.json', 'gemini-credentials.json', 'hosts.yml', path.join('data', 'settings', 'providers.json')].some(n => exists(path.join(dir, n)))) has.push('a saved login');
+    if (LEFTOVER_LOGINS.some(n => exists(path.join(dir, n)))) has.push('a saved login');
     if (['settings.json', 'config.toml', 'config.json', 'config.yaml', 'mcp.json', 'cli-config.json'].some(n => exists(path.join(dir, n))) || exists(path.join(dir, 'settings'))) has.push('settings and permissions');
     if (['projects', 'sessions', 'tmp', 'storage', 'history', 'session-state'].some(n => exists(path.join(dir, n))) || exists(path.join(dir, 'opencode.db'))) has.push('conversation history');
     if (!has.length) continue;
     const where = dir.replace(HOME, '~');
     out.push({ agent: name, category: 'Left behind', title: `${name} isn't installed, but its data is still here`,
       detail: `${where}: ${has.join(', ')}`, risk: has.includes('a saved login') ? 'medium' : 'low', source: dir,
-      action: { kind: 'none', hint: `If you removed ${name} for good, delete ${where}${MAC ? ' (move it to the Trash)' : ''}. Its logins and permissions are also listed one by one, so you can remove just those.` } });
+      action: { kind: 'removeLeftover', dir, hint: `Deletes ${where}. Its saved logins are erased for good (sign in again if you reinstall ${name}); the rest is kept in History, so you can restore it.` } });
   }
   return out;
 }
@@ -2689,6 +2693,29 @@ function doRevoke(f, reason) {
     log(`REMOVE [${f.agent}] ${f.category}: ${f.title}  file=${file}  backup=${bk}${why}`);
     return { message: `Removed "${f.title}". ${f.agent} will ask you to sign in again. A backup is saved under History.`, backup: bk };
   }
+  if (a.kind === 'removeLeftover') {
+    // only the data folders the app knows, and only while the agent is still not installed (the scan just checked)
+    if (!LEFTOVERS.some(([name, dir]) => dir === a.dir && name === f.agent)) throw new Error('Unexpected folder.');
+    let st;
+    try { st = fs.lstatSync(a.dir); } catch { throw new Error('That folder is already gone. Rescan.'); }
+    if (!st.isDirectory()) throw new Error('This is not a plain folder (it may be a link): delete it yourself.');
+    const erased = [];
+    for (const n of LEFTOVER_LOGINS) {
+      const file = path.join(a.dir, n);
+      try { if (fs.lstatSync(file).isFile()) { fs.unlinkSync(file); erased.push(n); } } catch {}
+    }
+    const name = `${Date.now()}__${a.dir.replace(/[\/\\:]/g, '_')}`, to = path.join(BACKUP_DIR, name);
+    try { fs.renameSync(a.dir, to); } // same disk: instant, and nothing is copied
+    catch (e) {
+      if (e.code !== 'EXDEV') throw e;
+      fs.cpSync(a.dir, to, { recursive: true, verbatimSymlinks: true }); fs.rmSync(a.dir, { recursive: true, force: true });
+    }
+    if (!WIN) try { fs.chmodSync(to, 0o700); } catch {}
+    fs.writeFileSync(path.join(BACKUP_DIR, name + '.meta.json'), JSON.stringify({ original: a.dir, at: new Date().toISOString(), folder: true, erased }));
+    log(`REMOVE [${f.agent}] leftover folder ${a.dir}  logins erased: ${erased.join(', ') || 'none'}  backup=${name}${why}`);
+    const where = a.dir.replace(HOME, '~');
+    return { message: erased.length ? `Deleted ${where}. Its saved login was erased for good; the rest can be restored from History.` : `Deleted ${where}. It can be restored from History.`, backup: name };
+  }
   if (a.kind === 'removeFolder') {
     if (!exists(a.dir)) throw new Error('That folder is already gone. Rescan.');
     const name = `${Date.now()}__${a.dir.replace(/[\/\\:]/g, '_')}`;
@@ -2731,7 +2758,7 @@ function doRevoke(f, reason) {
   return { message: `Revoked "${f.title}". Backup saved.${restartHint}`, backup: bk };
 }
 
-const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'disableSystemdUnit', 'removeAutostart', 'removeRunValue', 'disableTask', 'redactSecrets', 'setValues', 'uninstallExt', 'killProcess', 'removeFolder', 'removeFile', 'removeTomlBlock'];
+const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'disableSystemdUnit', 'removeAutostart', 'removeRunValue', 'disableTask', 'redactSecrets', 'setValues', 'uninstallExt', 'killProcess', 'removeFolder', 'removeLeftover', 'removeFile', 'removeTomlBlock'];
 
 // Revoke several grants in one go. One scan up front; each revoke re-reads its file, so they don't clash.
 function revokeMany(ids) {

@@ -142,6 +142,22 @@ test('agents left behind after uninstalling are reported', () => {
   else assert.fail('Kiro leftovers not reported (unless Kiro is installed on this machine)');
 });
 
+test('a leftover folder is deleted in one click: the login erased for good, the rest restorable', () => {
+  const home = makeHome({ '.kiro/settings/permissions.yaml': 'rules: []\n', '.kiro/auth.json': '{"token":"secret-login"}', '.kiro/sessions/a.json': '{"chat":1}' });
+  const out = inHome(home, `const f = m._test.scanLeftovers().find(x => x.agent === 'Kiro'); if (!f) return null;
+    f.id = 'x'; const r = m._test.revoke('x', '', { findings: [f] }); return { kind: f.action.kind, message: r.message, backup: r.backup };`, { AUDIT_DEMO: null, PATH: '' });
+  if (!out) return assert.fail('Kiro leftovers not reported (unless Kiro is installed on this machine)');
+  assert.equal(out.kind, 'removeLeftover');
+  assert.ok(!fs.existsSync(path.join(home, '.kiro')), 'the folder is gone');
+  assert.match(out.message, /login was erased/);
+  const kept = path.join(home, '.ai-access-audit', 'backups', out.backup);
+  assert.ok(!fs.existsSync(path.join(kept, 'auth.json')), 'no copy of the login is kept');
+  assert.ok(!JSON.stringify(fs.readdirSync(path.join(home, '.ai-access-audit', 'backups'))).includes('auth.json'));
+  inHome(home, `m._test.restore(${JSON.stringify(out.backup)})`);
+  assert.equal(fs.readFileSync(path.join(home, '.kiro', 'sessions', 'a.json'), 'utf8'), '{"chat":1}', 'conversations come back');
+  assert.ok(!fs.existsSync(path.join(home, '.kiro', 'auth.json')), 'the login does not');
+});
+
 test('last used: each Claude Code permission is matched to its latest use in the session logs', () => {
   const line = (ts, name, input) => JSON.stringify({ type: 'assistant', timestamp: ts, message: { content: [{ type: 'tool_use', id: 'x', name, input }] } });
   const home = makeHome({
