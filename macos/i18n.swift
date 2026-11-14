@@ -162,6 +162,9 @@ enum I18n {
         "Ask Before Claude Code Acts": ["Demander avant que Claude Code agisse", "اسأل قبل أن يتصرف Claude Code"],
         "Open at Login": ["Ouvrir à la connexion", "الفتح عند تسجيل الدخول"],
         "Quit": ["Quitter", "إنهاء"],
+        "AI Access Auditor %@ is ready to install": ["AI Access Auditor %@ est prêt à être installé", "AI Access Auditor %@ جاهز للتثبيت"],
+        "Click to restart and update. It takes a few seconds.": ["Cliquez pour redémarrer et mettre à jour. Cela prend quelques secondes.", "انقر لإعادة التشغيل والتحديث. يستغرق ذلك بضع ثوانٍ."],
+        "Restart to Update to %@": ["Redémarrer pour passer à la %@", "أعد التشغيل للتحديث إلى %@"],
         "Left behind": ["Laissé sur place", "بقايا"],
     ]
 
@@ -272,6 +275,9 @@ enum I18n {
         "Open at Login": "登录时打开",
         "Quit": "退出",
         "Left behind": "卸载残留",
+        "AI Access Auditor %@ is ready to install": "AI Access Auditor %@ 已可安装",
+        "Click to restart and update. It takes a few seconds.": "点击即可重启并更新，只需几秒钟。",
+        "Restart to Update to %@": "重启并更新到 %@",
     ]
 }
 

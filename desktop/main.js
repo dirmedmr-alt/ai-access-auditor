@@ -388,12 +388,39 @@ function notifyExpired(grants) {
   n.on('click', () => openView('history'));
   n.show();
 }
-// one notification per new version; clicking it opens the download page
+// one notification per new version: once it's downloaded and verified, clicking it installs it;
+// otherwise (a .deb install, or a download that failed its checks) clicking it opens the download page
 function notifyUpdate(u) {
   if (!Notification.isSupported() || !/^https:\/\/github\.com\//.test(u.url)) return;
-  const n = new Notification({ title: L('AI Access Auditor %@ is available', u.version.replace('-', ' ')), body: L('Open the download page to get it.'), icon: appIcon() });
-  n.on('click', () => openExternal(u.url));
+  const v = u.version.replace('-', ' ');
+  const n = u.ready
+    ? new Notification({ title: L('AI Access Auditor %@ is ready to install', v), body: L('Click to restart and update. It takes a few seconds.'), icon: appIcon() })
+    : new Notification({ title: L('AI Access Auditor %@ is available', v), body: L('Open the download page to get it.'), icon: appIcon() });
+  n.on('click', () => (u.ready ? installUpdate() : openExternal(u.url)));
   n.show();
+}
+// Installs the version the scanner downloaded and checked (its checksum matched the one published with the
+// release). Only a file inside the app's own update folder is ever run.
+function installUpdate() {
+  const dir = path.join(DATA_DIR, 'update');
+  let r = null;
+  try { r = JSON.parse(fs.readFileSync(path.join(dir, 'ready.json'), 'utf8')); } catch {}
+  const file = r && path.resolve(String(r.path || ''));
+  if (!file || !file.startsWith(path.resolve(dir) + path.sep) || !fs.existsSync(file)) { if (updateInfo && updateInfo.url) openExternal(updateInfo.url); return; }
+  const { spawn } = require('child_process');
+  if (r.kind === 'windows' && process.platform === 'win32') {
+    // silent install over this one, then the installer starts the new version
+    spawn(file, ['/S', '--updated', '--force-run'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    quit();
+  } else if (r.kind === 'appimage' && process.env.APPIMAGE) {
+    const target = process.env.APPIMAGE, tmp = target + '.new';
+    try {
+      fs.copyFileSync(file, tmp); fs.chmodSync(tmp, 0o755); fs.renameSync(tmp, target);
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch { try { fs.unlinkSync(tmp); } catch {} if (updateInfo && updateInfo.url) openExternal(updateInfo.url); return; }
+    spawn(target, [], { detached: true, stdio: 'ignore' }).unref();
+    quit();
+  } else if (updateInfo && updateInfo.url) openExternal(updateInfo.url);
 }
 function openFinding(id) { showWindow(); runJS(`window.selectFinding && window.selectFinding('${String(id).replace(/[^0-9a-f]/gi, '')}')`); }
 function openView(v) { showWindow(); runJS(`window.showView && window.showView('${String(v).replace(/[^a-z]/gi, '')}')`); }
@@ -434,7 +461,9 @@ function buildTrayMenu() {
   items.push({ type: 'separator' });
   const u = updateInfo;
   if (u && u.enabled && u.available && u.latest && /^https:\/\/github\.com\//.test(u.url || ''))
-    items.push({ label: L('Update available: %@…', u.latest.replace('-', ' ')), click: () => openExternal(u.url) }, { type: 'separator' });
+    items.push(u.ready === u.latest
+      ? { label: L('Restart to Update to %@', u.latest.replace('-', ' ')), click: installUpdate }
+      : { label: L('Update available: %@…', u.latest.replace('-', ' ')), click: () => openExternal(u.url) }, { type: 'separator' });
   items.push(
     { label: L('Open AI Access Auditor'), click: showWindow },
     { label: L('Check Now'), click: checkForChanges },
@@ -468,6 +497,7 @@ ipcMain.on('native', (e, msg) => {
     case 'setLang': setLang(msg.lang); buildTrayMenu(); return;
     case 'setTheme': nativeTheme.themeSource = ['light', 'dark'].includes(msg.theme) ? msg.theme : 'system'; return;
     case 'relaunch': app.relaunch(); quit(); return;
+    case 'installUpdate': installUpdate(); return;
     default: break;
   }
   sendNativeState();

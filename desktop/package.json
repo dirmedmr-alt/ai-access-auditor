@@ -1,7 +1,7 @@
 {
   "name": "ai-access-auditor",
   "productName": "AI Access Auditor",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "Find and revoke the access you've given AI agents",
   "homepage": "https://dirmedmr-alt.github.io/ai-access-auditor/",
   "author": {

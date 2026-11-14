@@ -434,7 +434,12 @@ function renderMain() {
 function updateBanner() {
   const u = update;
   if (!u || !u.enabled || !u.available || u.dismissed === u.latest) return '';
-  return `<div class="upd"><span class="pi">${icon('refresh')}</span><div class="pm"><b>Version ${esc(u.latest.replace('-', ' '))} is available</b><span>You have ${esc((u.current || '').replace('-', ' '))}. Download it and install it over this one.</span></div>
+  const v = esc(u.latest.replace('-', ' '));
+  // downloaded and verified: one click installs it (in the desktop apps)
+  if (u.ready === u.latest && isNative()) return `<div class="upd"><span class="pi">${icon('refresh')}</span><div class="pm"><b>Version ${v} is ready to install</b><span>It's downloaded and verified. The app restarts in a few seconds, and your settings stay.</span></div>
+    <button class="btn primary" data-native="installUpdate">Restart to update</button><button class="btn ghost" data-upd-later="${esc(u.latest)}">Later</button></div>`;
+  if ((u.preparing === 'downloading' || u.preparing === 'verifying') && isNative()) return `<div class="upd"><span class="pi">${icon('refresh')}</span><div class="pm"><b>Version ${v} is available</b><span>Downloading and checking it in the background…</span></div></div>`;
+  return `<div class="upd"><span class="pi">${icon('refresh')}</span><div class="pm"><b>Version ${v} is available</b><span>You have ${esc((u.current || '').replace('-', ' '))}. Download it and install it over this one.</span></div>
     <a class="btn primary" href="${esc(u.url)}" target="_blank" rel="noopener">Download</a><button class="btn ghost" data-upd-later="${esc(u.latest)}">Later</button></div>`;
 }
 function renderOverview() {

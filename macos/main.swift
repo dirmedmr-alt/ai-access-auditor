@@ -16,8 +16,8 @@ struct GateRequest: Decodable { let id, agent, tool, action, text, risk, cwd: St
 struct Events: Decodable { let gate: [GateRequest]; let changed: Bool; let closed: [String] }
 struct GateStatus: Decodable { let installed: Bool }
 struct Changes: Decodable { let scannedAt: String; let total, openHigh: Int; let new, toNotify: [Grant]; let expired: [Grant]?; let update: NewVersion? }
-struct NewVersion: Decodable { let version, url: String }
-struct UpdateInfo: Decodable { let enabled, available: Bool; let latest, url: String? }
+struct NewVersion: Decodable { let version, url: String; let ready: Bool? }
+struct UpdateInfo: Decodable { let enabled, available: Bool; let latest, url, ready: String? }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate,
                          UNUserNotificationCenterDelegate, NSMenuDelegate, WKScriptMessageHandler {
@@ -379,14 +379,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "expired-\(Date().timeIntervalSince1970)", content: c, trigger: nil))
     }
     func rank(_ r: String) -> Int { ["high": 0, "medium": 1, "low": 2][r] ?? 3 }
-    /// One notification per new version; clicking it opens the download page
+    /// One notification per new version: once it's downloaded and verified, clicking it installs it;
+    /// if it couldn't be prepared, clicking it opens the download page
     func notifyUpdate(_ u: NewVersion) {
         guard u.url.hasPrefix("https://github.com/") else { return }
         let c = UNMutableNotificationContent()
-        c.title = L("AI Access Auditor %@ is available", u.version.replacingOccurrences(of: "-", with: " "))
-        c.body = L("Open the download page to get it.")
-        c.userInfo = ["url": u.url]
+        let v = u.version.replacingOccurrences(of: "-", with: " ")
+        if u.ready == true {
+            c.title = L("AI Access Auditor %@ is ready to install", v)
+            c.body = L("Click to restart and update. It takes a few seconds.")
+            c.userInfo = ["update": "install"]
+        } else {
+            c.title = L("AI Access Auditor %@ is available", v)
+            c.body = L("Open the download page to get it.")
+            c.userInfo = ["url": u.url]
+        }
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "update-\(u.version)", content: c, trigger: nil))
+    }
+    /// Replaces this app with the new version the scanner downloaded and verified, then reopens it.
+    /// The signature is checked again here, and nothing outside the update folder is ever used as the new app.
+    @objc func installUpdate() {
+        let dataDir = ProcessInfo.processInfo.environment["AUDIT_DATA_DIR"] ?? (NSHomeDirectory() + "/.ai-access-audit")
+        let updateDir = (dataDir as NSString).appendingPathComponent("update")
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: updateDir + "/ready.json")),
+              let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let newApp = j["path"] as? String, j["kind"] as? String == "mac",
+              URL(fileURLWithPath: newApp).standardizedFileURL.path.hasPrefix(URL(fileURLWithPath: updateDir).standardizedFileURL.path + "/"),
+              FileManager.default.fileExists(atPath: newApp) else { openUpdatePage(); return }
+        // same developer as the update check required
+        let cs = Process(), pipe = Pipe()
+        cs.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        cs.arguments = ["-dv", "--verbose=2", newApp]
+        cs.standardError = pipe; cs.standardOutput = Pipe()
+        guard (try? cs.run()) != nil else { openUpdatePage(); return }
+        cs.waitUntilExit()
+        let details = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        guard cs.terminationStatus == 0, details.contains("TeamIdentifier=A7H3K2942C") else { openUpdatePage(); return }
+        let target = Bundle.main.bundlePath
+        guard FileManager.default.isWritableFile(atPath: (target as NSString).deletingLastPathComponent) else { openUpdatePage(); return }
+        // waits for this app to quit, swaps the bundles (putting the old one back if the copy fails), and reopens
+        let script = """
+        while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
+        OLD="$2.previous-version"
+        rm -rf "$OLD"
+        if mv "$2" "$OLD" && /usr/bin/ditto "$3" "$2"; then rm -rf "$OLD" "$4"; else rm -rf "$2"; mv "$OLD" "$2"; fi
+        /usr/bin/open "$2"
+        """
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", script, "sh", String(ProcessInfo.processInfo.processIdentifier), target, newApp, updateDir]
+        guard (try? p.run()) != nil else { openUpdatePage(); return }
+        NSApp.terminate(nil)
     }
     @objc func openUpdatePage() {
         if let s = updateInfo?.url, s.hasPrefix("https://github.com/"), let url = URL(string: s) { NSWorkspace.shared.open(url) }
@@ -400,6 +443,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                                 withCompletionHandler done: @escaping () -> Void) {
         let info = response.notification.request.content.userInfo
         DispatchQueue.main.async {
+            if info["update"] as? String == "install" { self.installUpdate(); return }
             if let s = info["url"] as? String, s.hasPrefix("https://github.com/"), let url = URL(string: s) { NSWorkspace.shared.open(url); return }
             if let id = info["id"] as? String { self.openFinding(id) } else { self.openView(info["view"] as? String ?? "new") }
         }
@@ -483,7 +527,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         menu.addItem(.separator())
         if let u = updateInfo, u.enabled, u.available, let v = u.latest {
-            addItem(menu, L("Update available: %@…", v.replacingOccurrences(of: "-", with: " ")), #selector(openUpdatePage))
+            if u.ready == v { addItem(menu, L("Restart to Update to %@", v.replacingOccurrences(of: "-", with: " ")), #selector(installUpdate)) }
+            else { addItem(menu, L("Update available: %@…", v.replacingOccurrences(of: "-", with: " ")), #selector(openUpdatePage)) }
             menu.addItem(.separator())
         }
         addItem(menu, L("Open AI Access Auditor"), #selector(showWindow), "o")
@@ -593,6 +638,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             return
         case "revealApp":
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: Bundle.main.bundlePath)])
+        case "installUpdate":
+            installUpdate()
+            return
         case "relaunch":
             let path = Bundle.main.bundlePath
             let p = Process()

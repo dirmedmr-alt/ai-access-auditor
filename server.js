@@ -2280,9 +2280,10 @@ const updatesOn = () => (readJson(SETTINGS_FILE) || {}).updates !== 'off';
 const verParts = v => (String(v).match(/(\d+)\.(\d+)\.(\d+)/) || [0, 0, 0, 0]).slice(1).map(Number);
 function newerThan(a, b) { const x = verParts(a), y = verParts(b); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i]; return false; }
 function updateInfo() {
-  const u = readJson(UPDATE_FILE) || {};
+  const u = readJson(UPDATE_FILE) || {}, r = readyUpdate();
   return { enabled: updatesOn(), current: APP_VERSION || null, latest: u.latest || null, url: u.url || null, checkedAt: u.checkedAt || null,
-    available: !!(APP_VERSION && u.latest && newerThan(u.latest, APP_VERSION)), dismissed: u.dismissed || null };
+    available: !!(APP_VERSION && u.latest && newerThan(u.latest, APP_VERSION)), dismissed: u.dismissed || null,
+    ready: r ? r.version : null, preparing: updateJob && updateJob.state !== 'ready' ? updateJob.state : null };
 }
 function checkForUpdate(force = false) {
   return new Promise(resolve => {
@@ -2307,15 +2308,113 @@ function checkForUpdate(force = false) {
     req.on('error', () => resolve(updateInfo()));
   });
 }
-// the apps show one notification per new version
+// ---------- installing updates ----------
+// A new version is downloaded in the background, only from this project's GitHub releases, and checked before
+// it can be installed: its SHA-256 must match the checksum published with the release, and on a Mac it must
+// also carry this developer's Apple signature (Developer ID, team below) and Apple's notarization.
+// The native app then swaps it in when the user clicks "Restart to update".
+const UPDATE_DIR = path.join(DATA_DIR, 'update');
+const RELEASE_BASE = 'https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/';
+const MAC_TEAM = 'A7H3K2942C';
+let updateJob = null; // { version, state: 'downloading' | 'verifying' | 'ready' | 'error', error }
+function updateAsset(v) {
+  if (MAC) return { file: `AI-Access-Auditor-${v}.dmg`, sums: `AI-Access-Auditor-${v}.dmg.sha256`, kind: 'mac' };
+  if (WIN) return { file: `AI-Access-Auditor-${v}-windows-${process.arch === 'arm64' ? 'arm64' : 'x64'}.exe`, sums: 'SHA256SUMS-windows.txt', kind: 'windows' };
+  if (LINUX && process.env.APPIMAGE) return { file: `AI-Access-Auditor-${v}-x86_64.AppImage`, sums: 'SHA256SUMS-linux.txt', kind: 'appimage' };
+  return null; // .deb installs need administrator rights: the update stays a download link
+}
+// Downloads over HTTPS, following GitHub's redirects only to GitHub's own hosts
+function download(url, dest, maxBytes = 400 << 20, hops = 0) {
+  return new Promise((ok, bad) => {
+    const u = new URL(url);
+    if (u.protocol !== 'https:' || !(u.hostname === 'github.com' || u.hostname.endsWith('.githubusercontent.com'))) return bad(new Error('unexpected download host ' + u.hostname));
+    const req = require('https').get(u, { headers: { 'User-Agent': 'AI-Access-Auditor' }, timeout: 60000 }, res => {
+      if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && hops < 5) { res.resume(); return download(new URL(res.headers.location, u).href, dest, maxBytes, hops + 1).then(ok, bad); }
+      if (res.statusCode !== 200) { res.resume(); return bad(new Error('download failed: HTTP ' + res.statusCode)); }
+      let got = 0;
+      const out = fs.createWriteStream(dest, { mode: 0o600 });
+      res.on('data', c => { got += c.length; if (got > maxBytes) { req.destroy(); out.destroy(); bad(new Error('download too large')); } });
+      res.pipe(out);
+      out.on('finish', () => ok(dest)); out.on('error', bad); res.on('error', bad);
+    });
+    req.on('timeout', () => req.destroy(new Error('download timed out')));
+    req.on('error', bad);
+  });
+}
+const sha256File = f => crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex');
+// The Mac app inside the disk image must be signed by this developer, notarized, and be the expected version
+function verifyMacApp(appPath, version) {
+  execFileSync('codesign', ['--verify', '--deep', '--strict', appPath], { stdio: 'pipe' });
+  // codesign prints the signature details on stderr
+  const details = String(require('child_process').spawnSync('codesign', ['-dv', '--verbose=2', appPath], { encoding: 'utf8' }).stderr || '');
+  const team = (details.match(/^TeamIdentifier=(\S+)/m) || [])[1];
+  if (team !== MAC_TEAM) throw new Error(`not signed by this developer (team ${team || 'none'})`);
+  execFileSync('spctl', ['--assess', '--type', 'execute', appPath], { stdio: 'pipe' }); // Gatekeeper: Developer ID and notarization
+  const v = execFileSync('/usr/libexec/PlistBuddy', ['-c', 'Print CFBundleShortVersionString', path.join(appPath, 'Contents', 'Info.plist')], { encoding: 'utf8' }).trim();
+  if (v !== version) throw new Error(`the app inside is version ${v}, not ${version}`);
+}
+async function prepareUpdate(version) {
+  const asset = updateAsset(version);
+  if (!asset || DEMO || !/^\d+\.\d+\.\d+$/.test(version)) return null;
+  if (updateJob && updateJob.version === version && updateJob.state !== 'error') return updateJob;
+  updateJob = { version, state: 'downloading' };
+  const job = updateJob;
+  try {
+    fs.rmSync(UPDATE_DIR, { recursive: true, force: true });
+    fs.mkdirSync(UPDATE_DIR, { recursive: true, mode: 0o700 });
+    const base = `${RELEASE_BASE}v${version}/`, file = path.join(UPDATE_DIR, asset.file), sums = path.join(UPDATE_DIR, 'sums.txt');
+    await download(base + asset.sums, sums, 1 << 20);
+    await download(base + asset.file, file);
+    job.state = 'verifying';
+    const want = (fs.readFileSync(sums, 'utf8').split(/\r?\n/).map(l => l.trim().split(/\s+/)).find(([h, n]) => /^[0-9a-f]{64}$/i.test(h || '') && (!n || path.basename(n.replace(/^\*/, '')) === asset.file)) || [])[0];
+    if (!want) throw new Error('no checksum for ' + asset.file);
+    if (sha256File(file).toLowerCase() !== want.toLowerCase()) throw new Error('checksum does not match: the download is damaged or not genuine');
+    let ready = file;
+    if (asset.kind === 'mac') {
+      const mnt = path.join(UPDATE_DIR, 'mnt');
+      fs.mkdirSync(mnt);
+      execFileSync('hdiutil', ['attach', '-nobrowse', '-readonly', '-noautoopen', '-mountpoint', mnt, file], { stdio: 'pipe', timeout: 120000 });
+      try {
+        const app = path.join(mnt, 'AI Access Auditor.app');
+        verifyMacApp(app, version);
+        ready = path.join(UPDATE_DIR, 'AI Access Auditor.app');
+        execFileSync('ditto', [app, ready], { stdio: 'pipe', timeout: 120000 });
+      } finally { try { execFileSync('hdiutil', ['detach', '-quiet', mnt], { stdio: 'pipe', timeout: 60000 }); fs.rmdirSync(mnt); } catch {} }
+      verifyMacApp(ready, version); // the copy too
+      fs.rmSync(file, { force: true });
+    }
+    if (asset.kind === 'appimage') fs.chmodSync(file, 0o755);
+    saveFile(path.join(UPDATE_DIR, 'ready.json'), JSON.stringify({ version, kind: asset.kind, path: ready, at: new Date().toISOString() }, null, 2));
+    job.state = 'ready';
+    log(`UPDATE ${version} downloaded and verified (${asset.kind})`);
+    changedFlag = true; flushEvents();
+  } catch (e) {
+    job.state = 'error'; job.error = String(e.message || e).slice(0, 300);
+    log(`UPDATE ${version} not installed automatically: ${job.error}`);
+    try { fs.rmSync(UPDATE_DIR, { recursive: true, force: true }); } catch {}
+    changedFlag = true; flushEvents();
+  }
+  return job;
+}
+function readyUpdate() {
+  const r = readJson(path.join(UPDATE_DIR, 'ready.json'));
+  return r && exists(r.path) && APP_VERSION && newerThan(r.version, APP_VERSION) ? r : null;
+}
+// the apps show one notification per new version: once it is ready to install, or when it can't be installed
+// automatically (a .deb, or a download that failed its checks), with the download page instead
 function updateToNotify() {
   const info = updateInfo();
   if (!info.enabled || !info.available) return null;
+  const ready = info.ready === info.latest;
+  if (!ready && updateAsset(info.latest) && !(updateJob && updateJob.state === 'error')) {
+    prepareUpdate(info.latest);
+    return null;
+  }
   const u = readJson(UPDATE_FILE) || {};
   if (u.notified === info.latest) return null;
   u.notified = info.latest;
   saveFile(UPDATE_FILE, JSON.stringify(u, null, 2));
-  return { version: info.latest, url: info.url };
+  return { version: info.latest, url: info.url, ready };
 }
 
 // ---------- change tracking ----------
@@ -3075,4 +3174,4 @@ if (require.main === module) {
     console.log(`AI Access Auditor running at http://localhost:${server.address().port}`);
   });
 }
-module.exports = { scanAll, publicScan, exportReport, _test: { saveFile, scanLeftovers, gateInstall, gateStatus, historyFiles, refreshHistory, scanHistory, startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason } };
+module.exports = { scanAll, publicScan, exportReport, prepareUpdate, readyUpdate, _test: { saveFile, scanLeftovers, gateInstall, gateStatus, historyFiles, refreshHistory, scanHistory, startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason } };

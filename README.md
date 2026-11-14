@@ -46,6 +46,10 @@ finds all of it, explains each item in one line, and lets you remove it with one
   <img src="site/assets/popup-new-access.png" alt="Popup showing new access gained by an agent" width="400">
 </p>
 
+## Updates
+
+When a new version is out, the app downloads it in the background from this repository's releases and checks it before anything is installed: the checksum published with the release must match, and on a Mac the app must also be signed with this developer's Apple Developer ID and notarized by Apple. Then one click on **Restart to update** installs it. The `.deb` packages, which need administrator rights, keep a download link instead.
+
 ## Privacy
 
 Everything stays on your computer: no account, no telemetry. The only network request is a daily check for a
