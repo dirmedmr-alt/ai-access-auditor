@@ -1,4 +1,4 @@
-// Tests for the scanner, revoke/restore, secrets, the local server and translations.
+// Tests for the scanner, revoke/restore, secrets, the local server and the app's translations.
 // Run: npm test     (no dependencies; each case runs in its own process with an invented home folder)
 'use strict';
 const { test } = require('node:test');
@@ -248,15 +248,6 @@ test('local server: refuses other sites, needs its token, sends a strict page po
 });
 
 // ---------- translations ----------
-test('every website text has French, Arabic and Chinese', () => {
-  execFileSync(process.execPath, [path.join(ROOT, 'i18n', 'build-site.js')], { stdio: 'pipe' });
-  const zh = new Map(require(path.join(ROOT, 'i18n', 'site-zh.js')));
-  for (const row of require(path.join(ROOT, 'i18n', 'site.js'))) {
-    assert.equal(row.length, 3, row[0]);
-    assert.ok(zh.has(row[0]), 'no Chinese: ' + row[0].slice(0, 60));
-  }
-});
-
 test('every app text and pattern has Chinese, and native strings are up to date', () => {
   const warns = [];
   const ctx = { document: { documentElement: { dataset: {}, lang: '', dir: '' }, body: null, addEventListener() {} }, location: { search: '' },

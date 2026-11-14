@@ -2,4 +2,5 @@ dist/
 node_modules/
 .DS_Store
 *.ai-audit-tmp
-site/downloads/
+# website sources, demo kit and release scripts: a separate, private repository
+private/

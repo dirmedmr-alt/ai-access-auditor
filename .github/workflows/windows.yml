@@ -1,5 +1,5 @@
 # Builds the Windows app (installers for x64 and arm64), tests the scanner and the installed app on real
-# Windows machines, and adds the installers to the GitHub release when a version tag is created by ./release.sh.
+# Windows machines, and adds the installers to the GitHub release when a version tag is created for a release.
 name: Windows app
 on:
   push:

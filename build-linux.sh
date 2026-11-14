@@ -1,7 +1,7 @@
 #!/bin/bash
 # Builds the Linux app in Docker (it needs Linux tools), into desktop/dist:
 #   AppImage for x64, and .deb for x64 and arm64, plus SHA256SUMS-linux.txt.
-# VERSION defaults to the one in desktop/package.json. release.sh uploads these files with the release.
+# VERSION defaults to the one in desktop/package.json. These files are uploaded with each release.
 set -euo pipefail
 cd "$(dirname "$0")"
 VERSION="${VERSION:-$(node -p "require('./desktop/package.json').version")}"

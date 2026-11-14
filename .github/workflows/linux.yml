@@ -1,5 +1,5 @@
 # Builds the Linux app (AppImage and .deb, for x64 and arm64), starts it on real Ubuntu machines to check it
-# works, and adds it to the GitHub release when a version tag (v1.2.3-beta) is created by ./release.sh.
+# works, and adds it to the GitHub release when a version tag (v1.2.3-beta) is created for a release.
 name: Linux app
 on:
   push:

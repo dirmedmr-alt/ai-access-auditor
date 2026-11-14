@@ -11,7 +11,7 @@ Claude Code, Codex, Gemini CLI, Cursor, OpenCode and other agents collect permis
 commands, MCP servers with tokens, trusted folders, saved logins, API keys left in their logs. AI Access Auditor
 finds all of it, explains each item in one line, and lets you remove it with one click, with undo.
 
-<img src="site/assets/demo.gif" alt="Demo: open the riskiest grant, revoke it, then undo it from History" width="820">
+<img src="docs/images/demo.gif" alt="Demo: open the riskiest grant, revoke it, then undo it from History" width="820">
 
 <sub>Demo with invented data: revoke a risky permission, then undo it from History.</sub>
 
@@ -37,13 +37,13 @@ finds all of it, explains each item in one line, and lets you remove it with one
 - **Asks before agents act:** an optional popup before Claude Code, Codex or Gemini CLI runs a tool, through their own hook systems.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="site/assets/overview-dark.png">
-  <img src="site/assets/overview-light.png" alt="AI Access Auditor overview: safety score, new access, protection switches and top risks" width="820">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-dark.png">
+  <img src="docs/images/overview-light.png" alt="AI Access Auditor overview: safety score, new access, protection switches and top risks" width="820">
 </picture>
 
 <p>
-  <img src="site/assets/popup-gate.png" alt="Popup asking before Claude Code runs a command" width="400">
-  <img src="site/assets/popup-new-access.png" alt="Popup showing new access gained by an agent" width="400">
+  <img src="docs/images/popup-gate.png" alt="Popup asking before Claude Code runs a command" width="400">
+  <img src="docs/images/popup-new-access.png" alt="Popup showing new access gained by an agent" width="400">
 </p>
 
 ## Command line
@@ -153,34 +153,11 @@ in `desktop/` (Electron); see `build-linux.sh` and `appveyor.yml`.
     npm start        # browser version: http://localhost:4517
     npm run scan     # print the findings in the terminal
 
-## Releasing a download and the website
+## Releases
 
-    VERSION=1.0.8 ./build-linux.sh                                           # Linux files, built in Docker
+Releases are built and published by the maintainer. The Mac app is signed with a Developer ID and notarized
+by Apple (`macos/node.entitlements` lets the bundled Node.js compile JavaScript). Linux files are built with
+`build-linux.sh`, and the Windows installers are built and tested by AppVeyor (`appveyor.yml`) on every push.
+Each release publishes SHA-256 checksums for every file.
 
-    VERSION=1.0.8 ./release.sh                                               # local preview in site/downloads
-    SIGN_ID="Developer ID Application: <Name> (<TEAM>)" \
-      VERSION=1.0.8 REPO=dirmedmr-alt/ai-access-auditor PUBLISH=1 ./release.sh   # sign, notarize, upload
-
-This builds `dist/AI-Access-Auditor-<version>.dmg`:
-- It runs on Apple Silicon and Intel, on macOS 13 or later.
-- It includes the official Node.js, checksum-verified, so users don't need to install anything.
-
-It also updates the download links, version, size and SHA-256 shown in `site/index.html`. With `REPO`
-set, the links point at the GitHub Release, and `PUBLISH=1` uploads the DMG there, together with the Linux files
-from `build-linux.sh` (AppImage for x64, `.deb` for x64 and arm64, and `SHA256SUMS-linux.txt`). The Windows
-installers are built and tested by AppVeyor (`appveyor.yml`) on every push to `main`; `release.sh` downloads
-the ones built for the released commit (`fetch-windows.sh`), so push first and wait for that build to pass.
-The GitHub workflows in `.github/workflows/` can build and test Linux and Windows too, when Actions are
-available on the account. The website itself
-is published from `site/` to GitHub Pages with `./publish-site.sh` (it pushes `site/` to the
-`gh-pages` branch, which Pages serves).
-
-A version without `-beta` must be signed: `release.sh` refuses to publish it otherwise. With `SIGN_ID`
-it signs the app and the bundled Node.js with the hardened runtime (`macos/node.entitlements` lets Node
-compile JavaScript), sends the DMG to Apple's notary service, and staples the result. It needs, once, the
-Developer ID Application certificate in the keychain and the notary login saved with
-`xcrun notarytool store-credentials ai-access-auditor --apple-id <id> --team-id <team> --password <app-specific password>`.
-Betas (`-beta` versions) are signed ad-hoc, published as pre-releases, and users approve them once under
-System Settings → Privacy & Security → Open Anyway. The Windows installers aren't signed yet.
-
-Website screenshots come from invented demo data (`AUDIT_DEMO=1`), never from a real Mac.
+Screenshots come from invented demo data (`AUDIT_DEMO=1`), never from a real Mac.
