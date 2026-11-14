@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Find and revoke access you've granted to AI agents",
   "main": "server.js",
+  "bin": { "ai-access-auditor": "server.js" },
+  "engines": { "node": ">=18" },
+  "files": ["server.js", "gate.js", "public/", "desktop/package.json", "LICENSE", "README.md", "SECURITY.md"],
   "scripts": { "start": "node server.js", "scan": "node server.js --scan", "test": "node --test test/scanner.test.js", "build:app": "./build-app.sh" },
   "license": "MIT"
 }

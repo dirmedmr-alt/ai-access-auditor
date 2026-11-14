@@ -160,6 +160,9 @@ a.btn{text-decoration:none}
 .lu-note{display:block;margin-top:4px;color:var(--mut);font-size:12px;line-height:1.4}
 .badge.unused{background:var(--pane2);color:var(--mut);border:1px dashed var(--line)}
 .newcard{border-color:color-mix(in srgb,var(--acc) 40%,var(--line))}
+.unusedcard{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:16px 18px}
+.unusedcard .uc-txt{flex:1 1 280px;display:flex;flex-direction:column;gap:4px}.unusedcard .uc-txt span{color:var(--mut)}
+.unusedcard .uc-btns{display:flex;gap:8px;flex-wrap:wrap}
 .chev{color:var(--faint);width:14px;height:14px}
 
 /* inspector */
@@ -366,6 +369,9 @@ let data = null, view = 'overview', agentFilter = null, selected = null, gateOn 
 const picked = new Set(); // grants ticked for bulk actions
 const REVOCABLE = ['removeArrayItem', 'deleteKey', 'setFalse', 'tccReset', 'disableLaunchAgent', 'disableSystemdUnit', 'removeAutostart', 'removeRunValue', 'disableTask', 'redactSecrets', 'setValues', 'uninstallExt', 'killProcess', 'removeFolder', 'removeFile', 'removeTomlBlock'];
 const canRevoke = f => REVOCABLE.includes(f.action.kind);
+// grants never used in the agents' session logs, when the logs go back at least a week; reviewed ones are kept
+const WEEK = 7 * 864e5;
+const unusedGrants = () => data.findings.filter(f => f.usageSince !== undefined && !f.lastUsed && !f.reviewedAt && canRevoke(f) && Date.now() - new Date(f.usageSince) >= WEEK);
 const timeLeft = iso => { const ms = Date.parse(iso) - Date.now(); if (ms <= 0) return 'now'; const h = ms / 3600e3; return h < 1 ? Math.ceil(ms / 60e3) + 'm' : h < 48 ? Math.round(h) + 'h' : Math.round(h / 24) + 'd'; };
 const ui = { q: '', risk: '', hideReviewed: false };
 
@@ -475,6 +481,11 @@ function renderOverview() {
     </div>
     ${f.some(x => x.isNew) ? `<div class="sec"><h3>New since you last looked</h3><button class="btn ghost" data-ackall>Mark all as seen</button></div>
       <div class="card newcard nock">${f.filter(x => x.isNew).slice(0, 5).map(x => row(x)).join('')}</div>` : ''}
+    ${(() => { const u = unusedGrants(); if (!u.length) return '';
+      const since = u.map(x => x.usageSince).sort()[0];
+      return `<div class="sec"><h3>Never used</h3></div><div class="card unusedcard"><div class="uc-txt"><b>${u.length === 1 ? '1 grant was never used' : `${u.length} grants were never used`}</b>
+        <span><span>Not used since ${day(since)}</span> · <span>Revoking them doesn't change anything your agents actually do. Backups are kept, so you can undo.</span></span></div>
+        <div class="uc-btns"><button class="btn danger" data-unused="revoke">${u.length === 1 ? 'Revoke it' : `Revoke all ${u.length}`}</button><button class="btn" data-go="unused">Choose which</button></div></div>`; })()}
     <div class="sec"><h3>Protection</h3><button class="btn ghost" data-setup>Setup</button></div>
     <div class="prot">
       ${prot('info', 'Live popups', 'New access from any agent', '<span class="ok-pill yes">On</span>', true)}
@@ -521,8 +532,8 @@ function row(f, ctx) {
 }
 
 function renderList() {
-  const isAgent = view === 'agent', isNew = view === 'new';
-  const base = isAgent ? data.findings.filter(f => f.agent === agentFilter) : isNew ? data.findings.filter(f => f.isNew) : data.findings;
+  const isAgent = view === 'agent', isNew = view === 'new', isUnused = view === 'unused';
+  const base = isAgent ? data.findings.filter(f => f.agent === agentFilter) : isNew ? data.findings.filter(f => f.isNew) : isUnused ? unusedGrants() : data.findings;
   const q = ui.q.toLowerCase();
   const rows = base.filter(f => (!ui.risk || f.risk === ui.risk) && (!ui.hideReviewed || !f.reviewedAt) &&
     (!q || [f.agent, f.title, f.detail, f.source, f.category].join(' ').toLowerCase().includes(q)))
@@ -536,8 +547,9 @@ function renderList() {
       <label class="switch"><input type="checkbox" id="hideRev" ${ui.hideReviewed ? 'checked' : ''}> Hide reviewed</label>
     </div>`;
   const hadFocus = document.activeElement && document.activeElement.id === 'q';
-  setHead(isAgent ? agentFilter : isNew ? 'New since you last looked' : 'All grants',
-    isAgent ? `Everything ${agentFilter} can access` : isNew ? 'Access an agent gained after your last check. Revoke it, or keep it to mark it as seen.' : 'Every permission, folder, server and key given to an AI agent',
+  setHead(isAgent ? agentFilter : isNew ? 'New since you last looked' : isUnused ? 'Never used' : 'All grants',
+    isAgent ? `Everything ${agentFilter} can access` : isNew ? 'Access an agent gained after your last check. Revoke it, or keep it to mark it as seen.'
+      : isUnused ? 'Grants no session on this computer has used. Tick the ones to revoke, or mark the ones you want to keep as reviewed.' : 'Every permission, folder, server and key given to an AI agent',
     toolbarHtml + (isNew && base.length ? '<div style="margin-top:10px"><button class="btn" data-ackall>Mark all as seen</button></div>' : ''));
   if (hadFocus) { const i = $('#q'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
   const groups = {};
@@ -549,6 +561,14 @@ function renderList() {
   renderBulk();
 }
 
+async function revokeMany(fs, t) {
+  if (!fs.length) return;
+  const list = fs.slice(0, 12).map(f => `• ${f.agent}: ${f.title}`).join('\n') + (fs.length > 12 ? `\n…and ${fs.length - 12} more` : '');
+  if (!confirm(`Revoke ${fs.length} grant${fs.length === 1 ? '' : 's'}?\n\n${list}\n\nBackups are saved where possible, so you can undo from History.`)) return;
+  t.disabled = true;
+  try { toast((await api('revoke-many', { ids: fs.map(f => f.id) })).message, 7000); picked.clear(); selected = null; if (view === 'unused') view = 'overview'; await scan(); }
+  catch (err) { toast('Couldn\'t revoke: ' + err.message); t.disabled = false; }
+}
 function renderBulk() {
   document.querySelector('.bulk')?.remove();
   if (!picked.size || !['all', 'agent', 'new'].includes(view)) return;
@@ -666,7 +686,7 @@ function renderInspector() {
 
 // ---------- events ----------
 document.addEventListener('click', async e => {
-  const t = e.target.closest('[data-trust],[data-untrust],[data-dec],[data-pick],[data-pickall],[data-bulk],[data-exp],[data-openapp],[data-ackall],[data-view],[data-go],[data-id],[data-close],[data-revoke],[data-rev],[data-restore],#seg button,#rescan');
+  const t = e.target.closest('[data-unused],[data-trust],[data-untrust],[data-dec],[data-pick],[data-pickall],[data-bulk],[data-exp],[data-openapp],[data-ackall],[data-view],[data-go],[data-id],[data-close],[data-revoke],[data-rev],[data-restore],#seg button,#rescan');
   if (!t) return;
   if (t.id === 'rescan') return scan();
   if (t.dataset.trust) {
@@ -692,15 +712,8 @@ document.addEventListener('click', async e => {
     for (const i of picked) await api('review', { id: i, on: true });
     toast(`Marked ${picked.size} as reviewed`, 2000); picked.clear(); return scan();
   }
-  if (t.dataset.bulk === 'revoke') {
-    const fs = data.findings.filter(f => picked.has(f.id) && canRevoke(f));
-    const list = fs.slice(0, 12).map(f => `• ${f.agent}: ${f.title}`).join('\n') + (fs.length > 12 ? `\n…and ${fs.length - 12} more` : '');
-    if (!confirm(`Revoke ${fs.length} grant${fs.length === 1 ? '' : 's'}?\n\n${list}\n\nBackups are saved where possible, so you can undo from History.`)) return;
-    t.disabled = true;
-    try { toast((await api('revoke-many', { ids: fs.map(f => f.id) })).message, 7000); picked.clear(); selected = null; await scan(); }
-    catch (err) { toast('Couldn\'t revoke: ' + err.message); t.disabled = false; }
-    return;
-  }
+  if (t.dataset.unused === 'revoke') return revokeMany(unusedGrants(), t);
+  if (t.dataset.bulk === 'revoke') return revokeMany(data.findings.filter(f => picked.has(f.id) && canRevoke(f)), t);
   if (t.dataset.exp !== undefined) {
     try { toast((await api('expiry', { id: t.dataset.for, hours: t.dataset.exp ? Number(t.dataset.exp) : 0 })).message, 4000); await scan(); }
     catch (err) { toast(err.message); }

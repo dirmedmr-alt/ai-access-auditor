@@ -167,6 +167,57 @@ test('last used: each Claude Code permission is matched to its latest use in the
   assert.equal(out[0][2], '2026-11-01T08:00:00Z', 'oldest date in the logs');
 });
 
+test('last used: Codex and Gemini, shown only where their logs can tell', () => {
+  const home = makeHome();
+  const W = rel => path.join(home, rel);
+  const write = (rel, content) => { fs.mkdirSync(path.dirname(W(rel)), { recursive: true }); fs.writeFileSync(W(rel), content); };
+  write('.codex/config.toml', `[mcp_servers.github]\ncommand = "npx"\n\n[mcp_servers.linear]\ncommand = "npx"\n\n[projects."${W('work/app')}"]\ntrust_level = "trusted"\n\n[projects."${W('old')}"]\ntrust_level = "trusted"\n`);
+  const cx = (ts, type, payload) => JSON.stringify({ timestamp: ts, type, payload });
+  write('.codex/sessions/2026/11/02/rollout-a.jsonl', [
+    cx('2026-11-02T08:00:00Z', 'session_meta', { id: 'a', cwd: W('work/app/src') }),
+    cx('2026-11-02T08:05:00Z', 'response_item', { type: 'function_call', name: 'mcp__github__create_issue', arguments: '{}' }),
+    cx('2026-11-02T08:06:00Z', 'response_item', { type: 'function_call_output', output: 'mcp__linear__x' }),
+  ].join('\n') + '\n');
+  write('.gemini/settings.json', JSON.stringify({ tools: { allowed: ['run_shell_command(git status)', 'run_shell_command(npm publish)'] }, mcpServers: { notes: { command: 'notes-mcp' } } }));
+  write('.gemini/trustedFolders.json', JSON.stringify({ [W('work/app')]: 'TRUST_FOLDER', [W('elsewhere')]: 'TRUST_FOLDER' }));
+  write('.gemini/tmp/app/.project_root', W('work/app'));
+  write('.gemini/tmp/app/chats/session-1.jsonl', [
+    JSON.stringify({ sessionId: 's', projectHash: 'h', startTime: '2026-11-03T09:00:00Z' }),
+    JSON.stringify({ id: '1', timestamp: '2026-11-03T09:01:00Z', type: 'gemini', content: '', toolCalls: [{ id: 't', name: 'run_shell_command', args: { command: 'git status --short' } }, { id: 'u', name: 'notes__search', args: {} }] }),
+  ].join('\n') + '\n');
+  const out = inHome(home, `m._test.refreshHistory(1e9); return m.scanAll().findings.filter(f => f.agent === 'Codex CLI' || f.agent === 'Gemini CLI').map(f => [f.agent + ' ' + f.title.replace(${JSON.stringify(home)}, '~'), f.lastUsed === undefined ? 'unknown' : f.lastUsed])`);
+  const last = Object.fromEntries(out.map(([t, l]) => [t, l === 'unknown' ? undefined : l]));
+  assert.equal(last['Codex CLI github'], '2026-11-02T08:05:00Z');
+  assert.equal(last['Codex CLI linear'], undefined, "Codex MCP names vary: no use found isn't proof of never");
+  assert.equal(last['Codex CLI ~/work/app'], '2026-11-02T08:00:00Z', 'a session ran in a subfolder');
+  assert.equal(last['Codex CLI ~/old'], null, 'every Codex session records its folder, so this one was never used');
+  assert.equal(last['Gemini CLI run_shell_command(git status)'], '2026-11-03T09:01:00Z');
+  assert.equal(last['Gemini CLI run_shell_command(npm publish)'], undefined);
+  assert.equal(last['Gemini CLI notes'], '2026-11-03T09:01:00Z');
+  assert.equal(last['Gemini CLI ~/work/app'], '2026-11-03T09:01:00Z');
+  assert.equal(last['Gemini CLI ~/elsewhere'], undefined);
+});
+
+test('command line: text, JSON, unused only, and an exit code for CI', () => {
+  const home = makeHome({ '.claude/settings.json': { permissions: { allow: ['Bash(*)', 'Read'] } } });
+  const env = { ...process.env, HOME: home, USERPROFILE: home, AUDIT_DEMO: '1', AUDIT_DATA_DIR: path.join(home, '.ai-access-audit'), NO_COLOR: '1' };
+  const run = args => { try { return { code: 0, out: execFileSync(process.execPath, [path.join(ROOT, 'server.js'), ...args], { env, encoding: 'utf8', timeout: 60000 }) }; }
+    catch (e) { return { code: e.status, out: String(e.stdout) + String(e.stderr) }; } };
+  const text = run(['--scan']);
+  assert.equal(text.code, 0);
+  assert.match(text.out, /HIGH\s+Bash\(\*\)/);
+  const json = run(['--json', '--fail-on', 'high']);
+  assert.equal(json.code, 1, 'a high-risk grant that is not reviewed fails the run');
+  const j = JSON.parse(json.out);
+  assert.ok(j.findings.some(f => f.title === 'Bash(*)' && f.risk === 'high'));
+  assert.equal(j.failing, j.findings.filter(f => f.risk === 'high').length);
+  assert.ok(!json.out.includes(home), 'no home folder path in the output');
+  assert.equal(run(['--json', '--fail-on=low']).code, 1);
+  assert.equal(run(['--nope']).code, 2, 'unknown options are refused');
+  assert.equal(run(['--fail-on', 'extreme']).code, 2);
+  assert.match(run(['--help']).out, /--fail-on/);
+});
+
 // ---------- local server ----------
 test('local server: refuses other sites, needs its token, sends a strict page policy', async () => {
   const home = makeHome();

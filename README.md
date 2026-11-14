@@ -31,7 +31,7 @@ finds all of it, explains each item in one line, and lets you remove it with one
 - **Finds every grant:** tool and command permissions, MCP servers, trusted folders, hooks, saved logins,
   API keys in your shell and environment, startup entries, and secrets left in agents' session logs (shown masked).
 - **Explains and scores them:** a safety score, and a one-line explanation of each risk.
-- **Shows what's actually used:** for Claude Code, when each permission, folder and MCP server was last used, from its own session logs. Permissions never used are marked "Unused": usually safe to revoke.
+- **Shows what's actually used:** when each permission, folder and MCP server was last used, from the agents' own session logs (Claude Code, Codex CLI and Gemini CLI). Grants never used are marked "Unused", and one click revokes them all.
 - **Takes access back:** revoke one grant or many at once, now or after a time limit. Every change is backed up first and can be undone.
 - **Watches for changes:** a popup the moment an agent gains new access. Keep it, keep it for a while, or remove it.
 - **Asks before agents act:** an optional popup before Claude Code, Codex or Gemini CLI runs a tool, through their own hook systems.
@@ -45,6 +45,19 @@ finds all of it, explains each item in one line, and lets you remove it with one
   <img src="site/assets/popup-gate.png" alt="Popup asking before Claude Code runs a command" width="400">
   <img src="site/assets/popup-new-access.png" alt="Popup showing new access gained by an agent" width="400">
 </p>
+
+## Command line
+
+The same scan runs in a terminal, in scripts and in CI. It needs [Node.js](https://nodejs.org) 18 or later, and nothing is installed:
+
+```sh
+npx github:dirmedmr-alt/ai-access-auditor --scan          # every grant, grouped by agent
+npx github:dirmedmr-alt/ai-access-auditor --unused        # only grants never used
+npx github:dirmedmr-alt/ai-access-auditor --json          # as JSON, keys and tokens masked
+npx github:dirmedmr-alt/ai-access-auditor --fail-on high  # exit code 1 if a high-risk grant isn't marked as reviewed
+```
+
+Or from a copy of this repository: `node server.js --scan`. Run `--help` for every option.
 
 ## Updates
 

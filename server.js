@@ -492,7 +492,7 @@ const HISTORY_ROOTS = [
   ['Claude Code', h('.claude', 'projects'), /\.jsonl$/, true],
   ['Codex CLI', h('.codex', 'sessions'), /\.jsonl$/, true],
   ['Codex CLI', h('.codex', 'archived_sessions'), /\.jsonl$/, true],
-  ['Gemini CLI', h('.gemini', 'tmp'), /\.json$/, true],
+  ['Gemini CLI', h('.gemini', 'tmp'), /\.jsonl?$/, true], // newer versions write .jsonl
   // OpenCode keeps its sessions in a database: reported, but removed by deleting the session in OpenCode
   ['OpenCode', h('.local', 'share', 'opencode'), /^opencode\.db(-wal)?$/, false],
 ];
@@ -545,32 +545,40 @@ function secretsInFile(file, size) {
 // latest time of each tool, of each command start (1 to 3 words), of each folder files were opened in, of each
 // website fetched, and the oldest time in the log, so the app knows how far back it can tell.
 const CLAUDE_LOGS = h('.claude', 'projects');
+const CODEX_LOGS = [h('.codex', 'sessions'), h('.codex', 'archived_sessions')], GEMINI_LOGS = h('.gemini', 'tmp');
 const isClaudeLog = file => file.startsWith(CLAUDE_LOGS + path.sep) && file.endsWith('.jsonl');
+// which agent's session log a file is, for "last used" (null: not one we read uses from)
+const usageKind = file => isClaudeLog(file) ? 'Claude Code'
+  : CODEX_LOGS.some(d => file.startsWith(d + path.sep)) && file.endsWith('.jsonl') ? 'Codex CLI'
+  : file.startsWith(GEMINI_LOGS + path.sep) && /[\\/]chats[\\/][^\\/]+\.jsonl?$/.test(file) ? 'Gemini CLI' : null;
 function emptyUses() { return { tools: {}, bash: {}, dirs: {}, web: {}, oldest: null }; }
 function addUse(map, key, ts, cap = 400) {
   if (!key) return;
   if (map[key] === undefined && Object.keys(map).length >= cap) return;
   if (!map[key] || map[key] < ts) map[key] = ts;
 }
-function usesInText(text, u = emptyUses()) {
+const addOldest = (u, t) => { if (t && (!u.oldest || t < u.oldest)) u.oldest = t; };
+const addCommand = (u, cmd, ts) => {
+  const words = String(cmd).trim().split(/\s+/).slice(0, 3);
+  for (let n = 1; n <= words.length; n++) addUse(u.bash, words.slice(0, n).join(' '), ts);
+};
+function usesInText(text, u = emptyUses(), kind = 'Claude Code', ctx = {}) {
+  if (kind === 'Codex CLI') return codexUsesInText(text, u);
+  if (kind === 'Gemini CLI') return geminiUsesInText(text, u, ctx);
   for (const line of text.split('\n')) {
     if (!line.includes('"tool_use"')) {
-      const t = line.startsWith('{') && (line.match(/"timestamp":"([^"]+)"/) || [])[1];
-      if (t && (!u.oldest || t < u.oldest)) u.oldest = t;
+      addOldest(u, line.startsWith('{') && (line.match(/"timestamp":"([^"]+)"/) || [])[1]);
       continue;
     }
     let j; try { j = JSON.parse(line); } catch { continue; }
     const ts = j.timestamp, content = j.message && j.message.content;
     if (!ts || !Array.isArray(content)) continue;
-    if (!u.oldest || ts < u.oldest) u.oldest = ts;
+    addOldest(u, ts);
     for (const c of content) {
       if (!c || c.type !== 'tool_use' || typeof c.name !== 'string') continue;
       const inp = c.input || {};
       addUse(u.tools, c.name, ts);
-      if (c.name === 'Bash' && typeof inp.command === 'string') {
-        const words = inp.command.trim().split(/\s+/).slice(0, 3);
-        for (let n = 1; n <= words.length; n++) addUse(u.bash, words.slice(0, n).join(' '), ts);
-      }
+      if (c.name === 'Bash' && typeof inp.command === 'string') addCommand(u, inp.command, ts);
       const fp = inp.file_path || inp.notebook_path || inp.path;
       if (typeof fp === 'string' && path.isAbsolute(fp)) addUse(u.dirs, path.dirname(fp), ts);
       if (c.name === 'WebFetch' && typeof inp.url === 'string') { try { addUse(u.web, new URL(inp.url).hostname, ts); } catch {} }
@@ -578,20 +586,72 @@ function usesInText(text, u = emptyUses()) {
   }
   return u;
 }
-function usesInFile(file, start = 0) {
-  const u = emptyUses();
+// Codex: every session records the folder it runs in; tool calls carry the tool's name (MCP tools: "mcp__server__tool")
+function codexUsesInText(text, u) {
+  for (const line of text.split('\n')) {
+    if (!/"(session_meta|turn_context|function_call|custom_tool_call|mcp_tool_call_end)"/.test(line)) {
+      addOldest(u, line.startsWith('{') && (line.match(/"timestamp":"([^"]+)"/) || [])[1]);
+      continue;
+    }
+    let j; try { j = JSON.parse(line); } catch { continue; }
+    const ts = j.timestamp, p = j.payload || {};
+    if (typeof ts !== 'string') continue;
+    addOldest(u, ts);
+    if ((j.type === 'session_meta' || j.type === 'turn_context') && typeof p.cwd === 'string') addUse(u.dirs, p.cwd, ts);
+    else if (j.type === 'response_item' && (p.type === 'function_call' || p.type === 'custom_tool_call') && typeof p.name === 'string') {
+      const ns = typeof p.namespace === 'string' ? p.namespace : '';
+      addUse(u.tools, ns && !p.name.startsWith(ns) ? ns.replace(/_*$/, '__') + p.name : p.name, ts);
+    } else if (j.type === 'event_msg' && p.type === 'mcp_tool_call_end' && p.invocation && typeof p.invocation.server === 'string')
+      addUse(u.tools, `mcp__${p.invocation.server}__${p.invocation.tool || ''}`, ts);
+  }
+  return u;
+}
+// Gemini: sessions are JSON Lines (older versions: one JSON file); tool calls are in "toolCalls"
+function geminiUsesInText(text, u, ctx) {
+  const record = m => {
+    if (!m || typeof m !== 'object') return;
+    const ts = typeof m.timestamp === 'string' ? m.timestamp : null;
+    addOldest(u, ts);
+    if (ts && ctx.root) addUse(u.dirs, ctx.root, ts);
+    for (const tc of Array.isArray(m.toolCalls) ? m.toolCalls : []) {
+      const t = typeof tc.timestamp === 'string' ? tc.timestamp : ts;
+      if (!t || typeof tc.name !== 'string') continue;
+      addUse(u.tools, tc.name, t);
+      if (tc.name === 'run_shell_command' && tc.args && typeof tc.args.command === 'string') addCommand(u, tc.args.command, t);
+    }
+  };
+  const whole = text.trimStart().startsWith('{') && !text.includes('\n{') ? (() => { try { return JSON.parse(text); } catch { return null; } })() : null;
+  if (whole && Array.isArray(whole.messages)) { whole.messages.forEach(record); return u; }
+  for (const line of text.split('\n')) {
+    if (!line.startsWith('{') || !line.includes('"timestamp"')) continue;
+    try { record(JSON.parse(line)); } catch {}
+  }
+  return u;
+}
+// Gemini keeps each project's sessions in ~/.gemini/tmp/<project>/chats, with the project's folder in .project_root
+function geminiRoot(file) {
+  const rel = path.relative(GEMINI_LOGS, file).split(path.sep);
+  try { return fs.readFileSync(path.join(GEMINI_LOGS, rel[0], '.project_root'), 'utf8').trim() || null; } catch { return null; }
+}
+function usesInFile(file, start = 0, kind = usageKind(file)) {
+  const u = emptyUses(), ctx = kind === 'Gemini CLI' ? { root: geminiRoot(file) } : {};
   let fd;
   try {
     fd = fs.openSync(file, 'r');
-    const size = fs.fstatSync(fd).size, CH = 8 << 20, buf = Buffer.alloc(CH);
+    const size = fs.fstatSync(fd).size;
+    if (kind === 'Gemini CLI' && file.endsWith('.json')) { // one JSON document: read it whole
+      if (size < 200 << 20) geminiUsesInText(fs.readFileSync(file, 'utf8'), u, ctx);
+      return u;
+    }
+    const CH = 8 << 20, buf = Buffer.alloc(CH);
     let carry = '';
     for (let pos = start; pos < size; pos += CH) {
       const n = fs.readSync(fd, buf, 0, CH, pos);
       const text = carry + buf.toString('utf8', 0, n), cut = text.lastIndexOf('\n');
-      usesInText(cut < 0 ? '' : text.slice(0, cut), u);
+      usesInText(cut < 0 ? '' : text.slice(0, cut), u, kind, ctx);
       carry = cut < 0 ? text : text.slice(cut + 1);
     }
-    usesInText(carry, u);
+    usesInText(carry, u, kind, ctx);
   } catch {} finally { if (fd !== undefined) fs.closeSync(fd); }
   return u;
 }
@@ -600,9 +660,9 @@ function mergeUses(a, b) {
   if (b.oldest && (!a.oldest || b.oldest < a.oldest)) a.oldest = b.oldest;
   return a;
 }
-function claudeUses() {
+function agentUses(agent) {
   const all = emptyUses();
-  for (const [file, c] of Object.entries(historyCache || {})) if (c.uses && isClaudeLog(file)) mergeUses(all, c.uses);
+  for (const [file, c] of Object.entries(historyCache || {})) if (c.uses && usageKind(file) === agent) mergeUses(all, c.uses);
   return all;
 }
 // Folder comparison that works with Windows paths too: same separators, and no letter case on Windows
@@ -612,7 +672,7 @@ const inDir = (d, dir) => { const a = normDir(d), b = normDir(dir); return a ===
 function lastUsedFor(f, U) {
   const latest = list => list.filter(Boolean).sort().pop() || null;
   if (f.category === 'MCP server') return latest(Object.entries(U.tools).filter(([k]) => k.startsWith(`mcp__${f.title}__`)).map(([, t]) => t));
-  if (f.category === 'Folder access') {
+  if (f.category === 'Folder access' || f.category === 'Trusted folder') {
     const dir = f.title.replace(/^~(?=[\\/]|$)/, HOME);
     return latest(Object.entries(U.dirs).filter(([d]) => inDir(d, dir)).map(([, t]) => t));
   }
@@ -635,6 +695,32 @@ function lastUsedFor(f, U) {
   return U.tools[tool] || null;
 }
 
+// Codex and Gemini: their logs show every folder a session ran in (Codex), but tool names vary between versions.
+// So a date is shown only when a use is found, and "never used" only where the log can prove it.
+const sanTool = n => String(n).replace(/[^a-zA-Z0-9_-]/g, '_');
+function otherLastUsed(f, U) {
+  const latest = list => list.filter(Boolean).sort().pop() || null;
+  const t = String(f.title);
+  if (f.category === 'Trusted folder') {
+    const dir = t.replace(/^~(?=[\\/]|$)/, HOME), low = d => normDir(d).toLowerCase(); // Gemini may store folders lowercased
+    const last = latest(Object.entries(U.dirs).filter(([d]) => low(d) === low(dir) || low(d).startsWith(low(dir) + '/')).map(([, x]) => x));
+    return last || (f.agent === 'Codex CLI' ? null : undefined);
+  }
+  if (f.category === 'MCP server') {
+    const s = sanTool(t), re = new RegExp(`^(mcp__)?([0-9a-f]{12}__)?(${s.replace(/[-]/g, '\\-')}|${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})__`);
+    return latest(Object.entries(U.tools).filter(([k]) => re.test(k)).map(([, x]) => x)) || undefined;
+  }
+  if (f.agent === 'Gemini CLI' && f.category === 'Tool permission') {
+    const m = t.match(/^(\w+)(?:\((.*)\)|: (.*))?$/);
+    if (!m) return undefined;
+    const [, tool, a, b] = m, specs = (a || b || '').split(' | ').map(x => x.trim()).filter(Boolean);
+    if (!specs.length) return U.tools[tool] || undefined;
+    if (tool !== 'run_shell_command' && tool !== 'ShellTool') return undefined;
+    return latest(specs.map(c => c.split(/\s+/).length <= 3 ? U.bash[c] : null)) || undefined;
+  }
+  return undefined;
+}
+
 function refreshHistory(budgetMs) {
   if (!historyCache) historyCache = readJson(HISTORY_FILE) || {};
   const t0 = Date.now(), files = historyFiles(), present = new Set(files.map(x => x.file));
@@ -645,7 +731,7 @@ function refreshHistory(budgetMs) {
     let st;
     try { st = fs.statSync(file); } catch { continue; }
     let c = historyCache[file];
-    if (c && isClaudeLog(file) && !c.uses) c = null; // made before "last used" existed: read again
+    if (c && usageKind(file) && !c.uses) c = null; // made before "last used" existed: read again
     if (c && c.mtime === st.mtimeMs && c.size === st.size) continue;
     if (st.size > 2 * 1024 ** 3) continue; // over 2 GB: skipped
     // a session that is still running only grows: read just what was added since last time
@@ -656,7 +742,7 @@ function refreshHistory(budgetMs) {
       const seen = new Set(c.hits.map(x => x.preview));
       hits = c.hits.concat(added.filter(x => !seen.has(x.preview) && seen.add(x.preview))).slice(0, 50);
     } else hits = secretsInFile(file, st.size);
-    if (isClaudeLog(file)) uses = grows ? mergeUses(c.uses, usesInFile(file, c.size)) : usesInFile(file);
+    if (usageKind(file)) uses = grows ? mergeUses(c.uses, usesInFile(file, c.size)) : usesInFile(file);
     historyCache[file] = { mtime: st.mtimeMs, size: st.size, hits, ...(uses ? { uses } : {}) };
     changed = true;
   }
@@ -2213,10 +2299,12 @@ function scanAll() {
   const expiries = readJson(EXPIRY_FILE) || {};
   const seen = new Set();
   const list = [];
-  const U = claudeUses(); // scanHistory above has just refreshed the logs
+  // scanHistory above has just refreshed the logs
+  const USES = { 'Claude Code': agentUses('Claude Code'), 'Codex CLI': agentUses('Codex CLI'), 'Gemini CLI': agentUses('Gemini CLI') };
   for (const f of findings) {
-    if (f.agent === 'Claude Code' && U.oldest) {
-      const last = lastUsedFor(f, U);
+    const U = USES[f.agent];
+    if (U && U.oldest) {
+      const last = f.agent === 'Claude Code' ? lastUsedFor(f, U) : otherLastUsed(f, U);
       if (last !== undefined) { f.lastUsed = last; f.usageSince = U.oldest; }
     }
     f.legacyId = id(f.source, f.action, f.title, f.agent);
@@ -3236,6 +3324,79 @@ const server = http.createServer(async (req, res) => {
   } catch (e) { send(res, 400, { error: e.message }); }
 });
 
+// ---------- command line ----------
+// For scripts and CI: list what AI agents can access, as text or JSON, and fail when something risky is found.
+const CLI_HELP = `AI Access Auditor: find what AI agents on this computer can access.
+
+Usage: ai-access-auditor [options]
+
+  (no option)        start the app's page at http://localhost:${PORT}
+  --scan             list every grant, then exit
+  --json             the same list as JSON (keys and tokens stay masked)
+  --unused           only grants never used in the agents' session logs
+  --fail-on <risk>   exit with code 1 if a grant not marked as reviewed is at
+                     this risk or higher: high, medium or low (for CI)
+  --version          show the version
+  --help             show this help
+
+Nothing is sent anywhere: the scan only reads files on this computer.`;
+function cliOptions(args) {
+  const o = { scan: false, json: false, unused: false, failOn: null };
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--help' || a === '-h') o.help = true;
+    else if (a === '--version' || a === '-v') o.version = true;
+    else if (a === '--scan') o.scan = true;
+    else if (a === '--json') o.json = o.scan = true;
+    else if (a === '--unused') o.unused = o.scan = true;
+    else if (a === '--fail-on' || a.startsWith('--fail-on=')) {
+      const v = a.includes('=') ? a.split('=')[1] : args[++i];
+      if (!['high', 'medium', 'low'].includes(v)) return { error: `--fail-on needs high, medium or low (got ${v === undefined ? 'nothing' : JSON.stringify(v)})` };
+      o.failOn = v; o.scan = true;
+    } else if (a === '--background' || a.startsWith('-psn_')) continue; // passed by the desktop apps
+    else return { error: `Unknown option: ${a}` };
+  }
+  return o;
+}
+function cliVersion() {
+  if (APP_VERSION) return APP_VERSION;
+  for (const f of ['desktop/package.json', 'package.json']) { const v = (readJson(path.join(__dirname, f)) || {}).version; if (v) return v; }
+  return '';
+}
+function runCli(o) {
+  const r = publicScan();
+  let list = r.findings;
+  if (o.unused) list = list.filter(f => f.usageSince !== undefined && !f.lastUsed);
+  const order = { high: 0, medium: 1, low: 2 };
+  const failing = o.failOn ? list.filter(f => !f.reviewedAt && order[f.risk] <= order[o.failOn]) : [];
+  if (o.json) {
+    console.log(JSON.stringify({ version: cliVersion() || null, os: r.os, scannedAt: new Date().toISOString(),
+      findings: list.map(({ id, agent, category, title, detail, risk, source, lastUsed, usageSince, reviewedAt, keys }) =>
+        ({ id, agent, category, title, detail, risk, source, lastUsed, usageSince, reviewedAt, keys })),
+      ...(o.failOn ? { failOn: o.failOn, failing: failing.length } : {}) }, null, 2));
+  } else {
+    const color = process.stdout.isTTY && !process.env.NO_COLOR;
+    const paint = (code, t) => color ? `\x1b[${code}m${t}\x1b[0m` : t;
+    const tag = { high: paint('31;1', 'HIGH  '), medium: paint('33', 'MEDIUM'), low: paint('32', 'LOW   ') };
+    const day = t => new Date(t).toISOString().slice(0, 10);
+    const groups = {};
+    for (const f of list) (groups[f.agent] ||= []).push(f);
+    for (const [agent, fs] of Object.entries(groups)) {
+      console.log(`\n${paint('1', agent)} (${fs.length})`);
+      for (const f of fs.sort((a, b) => order[a.risk] - order[b.risk])) {
+        const used = f.usageSince === undefined ? '' : f.lastUsed ? ` · last used ${day(f.lastUsed)}` : ` · ${paint('2', `never used since ${day(f.usageSince)}`)}`;
+        console.log(`  ${tag[f.risk] || f.risk}  ${f.title}  ${paint('2', `(${f.category}${f.reviewedAt ? ', reviewed' : ''})`)}${used}`);
+        console.log(`          ${paint('2', f.detail)}`);
+      }
+    }
+    const n = k => list.filter(f => f.risk === k).length;
+    console.log(`\n${list.length} grant${list.length === 1 ? '' : 's'}${o.unused ? ' never used' : ''} across ${Object.keys(groups).length} agent${Object.keys(groups).length === 1 ? '' : 's'}: ${n('high')} high, ${n('medium')} medium, ${n('low')} low risk.`);
+    if (OS_NAME === 'mac' && !r.tcc.readable.length) console.log('macOS privacy permissions were not checked: give your terminal Full Disk Access to include them.');
+    if (o.failOn) console.log(failing.length ? `${failing.length} not reviewed at ${o.failOn} risk or higher: failing.` : `Nothing unreviewed at ${o.failOn} risk or higher.`);
+  }
+  return failing.length ? 1 : 0;
+}
+
 if (require.main === module) {
   // A full disk shouldn't stop the watcher: a background save that fails is skipped and done again next round
   let diskFullSince = 0;
@@ -3246,11 +3407,12 @@ if (require.main === module) {
     }
     console.error(err); process.exit(1);
   });
-  if (process.argv.includes('--scan')) {
-    const r = scanAll();
-    for (const f of r.findings) console.log(`[${f.risk.toUpperCase().padEnd(6)}] ${f.agent} · ${f.category} · ${f.title}\n          ${f.detail}`);
-    console.log(`\n${r.findings.length} grants found. TCC readable: ${r.tcc.readable.length ? 'yes' : 'no'}`);
-  } else server.listen(process.env.PORT === '0' ? 0 : PORT, '127.0.0.1', () => {
+  const cli = cliOptions(process.argv.slice(2));
+  if (cli.error) { console.error(`${cli.error}\n\n${CLI_HELP}`); process.exit(2); }
+  if (cli.help) console.log(CLI_HELP);
+  else if (cli.version) console.log(cliVersion() || 'unknown');
+  else if (cli.scan) process.exitCode = runCli(cli);
+  else server.listen(process.env.PORT === '0' ? 0 : PORT, '127.0.0.1', () => {
     if (!process.env.AUDIT_PREVIEW) try { // preview copies (screenshots/tests) must not take over the gate
       fs.copyFileSync(path.join(__dirname, 'gate.js'), GATE_SCRIPT);
       fs.writeFileSync(GATE_INFO, JSON.stringify({ port: server.address().port, token: GATE_TOKEN, pid: process.pid }), { mode: 0o600 });
