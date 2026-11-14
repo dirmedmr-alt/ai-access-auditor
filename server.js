@@ -325,11 +325,13 @@ function scanOtherMcp() {
     const ap = line(/^approval_policy\s*=\s*"([^"]+)"[^\n]*/m);
     if (ap && (ap.value === 'never' || ap.value === 'on-failure')) out.push({ agent: 'Codex CLI', category: 'Permission mode', title: `approval_policy = ${ap.value}`,
       detail: ap.value === 'never' ? 'Runs commands without ever asking' : 'Only asks after a command fails', risk: ap.value === 'never' ? 'high' : 'medium', source: codex, action: cut(ap.text) });
-    for (const m of t.matchAll(/^\[projects\."([^"]+)"\]\s*$/gm)) {
+    // [projects."/path"], or on Windows [projects.'C:\path'] / [projects."C:\\path"]
+    for (const m of t.matchAll(/^\[projects\.(?:"((?:[^"\\]|\\.)+)"|'([^']+)')\]\s*$/gm)) {
       const sec = section(m[0]);
-      if (!/^\s*trust_level\s*=\s*"trusted"/m.test(sec)) continue;
-      out.push({ agent: 'Codex CLI', category: 'Trusted folder', title: m[1].replace(HOME, '~'), detail: 'Trusted project: Codex works here with fewer prompts',
-        risk: m[1] === HOME || m[1] === '/' ? 'high' : 'low', source: codex, action: cut(sec) });
+      if (!/^\s*trust_level\s*=\s*["']trusted["']/m.test(sec)) continue;
+      const dir = m[1] !== undefined ? m[1].replace(/\\(.)/g, '$1') : m[2];
+      out.push({ agent: 'Codex CLI', category: 'Trusted folder', title: dir.replace(HOME, '~'), detail: 'Trusted project: Codex works here with fewer prompts',
+        risk: dir === HOME || dir === '/' ? 'high' : 'low', source: codex, action: cut(sec) });
     }
   }
   const ch = readJson(h('.codex', 'hooks.json')) || {};

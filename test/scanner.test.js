@@ -171,7 +171,8 @@ test('last used: Codex and Gemini, shown only where their logs can tell', () => 
   const home = makeHome();
   const W = rel => path.join(home, rel);
   const write = (rel, content) => { fs.mkdirSync(path.dirname(W(rel)), { recursive: true }); fs.writeFileSync(W(rel), content); };
-  write('.codex/config.toml', `[mcp_servers.github]\ncommand = "npx"\n\n[mcp_servers.linear]\ncommand = "npx"\n\n[projects."${W('work/app')}"]\ntrust_level = "trusted"\n\n[projects."${W('old')}"]\ntrust_level = "trusted"\n`);
+  const toml = p => JSON.stringify(p); // a TOML basic string: backslashes doubled, like Codex writes on Windows
+  write('.codex/config.toml', `[mcp_servers.github]\ncommand = "npx"\n\n[mcp_servers.linear]\ncommand = "npx"\n\n[projects.${toml(W('work/app'))}]\ntrust_level = "trusted"\n\n[projects.${toml(W('old'))}]\ntrust_level = "trusted"\n`);
   const cx = (ts, type, payload) => JSON.stringify({ timestamp: ts, type, payload });
   write('.codex/sessions/2026/11/02/rollout-a.jsonl', [
     cx('2026-11-02T08:00:00Z', 'session_meta', { id: 'a', cwd: W('work/app/src') }),
@@ -185,7 +186,7 @@ test('last used: Codex and Gemini, shown only where their logs can tell', () => 
     JSON.stringify({ sessionId: 's', projectHash: 'h', startTime: '2026-11-03T09:00:00Z' }),
     JSON.stringify({ id: '1', timestamp: '2026-11-03T09:01:00Z', type: 'gemini', content: '', toolCalls: [{ id: 't', name: 'run_shell_command', args: { command: 'git status --short' } }, { id: 'u', name: 'notes__search', args: {} }] }),
   ].join('\n') + '\n');
-  const out = inHome(home, `m._test.refreshHistory(1e9); return m.scanAll().findings.filter(f => f.agent === 'Codex CLI' || f.agent === 'Gemini CLI').map(f => [f.agent + ' ' + f.title.replace(${JSON.stringify(home)}, '~'), f.lastUsed === undefined ? 'unknown' : f.lastUsed])`);
+  const out = inHome(home, `m._test.refreshHistory(1e9); return m.scanAll().findings.filter(f => f.agent === 'Codex CLI' || f.agent === 'Gemini CLI').map(f => [f.agent + ' ' + f.title.replace(${JSON.stringify(home)}, '~').replace(/\\\\/g, '/'), f.lastUsed === undefined ? 'unknown' : f.lastUsed])`);
   const last = Object.fromEntries(out.map(([t, l]) => [t, l === 'unknown' ? undefined : l]));
   assert.equal(last['Codex CLI github'], '2026-11-02T08:05:00Z');
   assert.equal(last['Codex CLI linear'], undefined, "Codex MCP names vary: no use found isn't proof of never");
