@@ -2682,36 +2682,134 @@ function openApp(findingId) {
 // ---------- report ----------
 // A self-contained HTML page with every grant, saved in Downloads and opened in the browser (Print → Save as
 // PDF makes a PDF). Secrets are already masked in the findings; home folder paths are shown as ~.
-function exportReport() {
+// Texts of the report, in the app's languages (findings themselves come from the scanner, in English)
+const REPORT_TEXT = {
+  en: { title: 'AI agent access report', score: 'safety score', status: ['Needs attention', 'Worth a look', 'Looking good'],
+    statusText: ['Agents have broad access that hasn’t been reviewed.', 'Some agents have more access than they may need.', 'Only a few grants are left to review.'],
+    high: 'High risk', medium: 'Medium', low: 'Low', reviewed: 'Reviewed', unused: 'Unused', agents: 'Agents', grants: 'Grants',
+    todo: 'What to do first', todoNone: 'Nothing urgent. Keep reviewing new access as it appears.',
+    todoKeys: n => `Cancel the keys leaked in ${n} session log${n === 1 ? '' : 's'}, then create new ones`, todoHigh: n => `Review ${n} high-risk grant${n === 1 ? '' : 's'}`,
+    todoUnused: n => `Revoke ${n} permission${n === 1 ? '' : 's'} never used`, cancelAt: x => `Cancel at ${x}`,
+    byAgent: 'By agent', details: 'All grants', risk: 'Risk', grant: 'Grant', type: 'Type', lastUsed: 'Last used', stored: 'Stored in',
+    never: 'Never', since: d => `since ${d}`, footer: 'Made on this computer by AI Access Auditor. Secrets are masked, and nothing was uploaded.',
+    app: 'app', mix: 'Risk mix' },
+  fr: { title: 'Rapport des accès des agents IA', score: 'score de sécurité', status: ['Attention requise', 'À examiner', 'Tout va bien'],
+    statusText: ['Des agents ont des accès étendus qui n’ont pas été vérifiés.', 'Certains agents ont plus d’accès qu’ils n’en ont besoin.', 'Il ne reste que quelques accès à vérifier.'],
+    high: 'Risque élevé', medium: 'Moyen', low: 'Faible', reviewed: 'Vérifiés', unused: 'Inutilisés', agents: 'Agents', grants: 'Accès',
+    todo: 'Par où commencer', todoNone: 'Rien d’urgent. Continuez à vérifier les nouveaux accès.',
+    todoKeys: n => `Annuler les clés exposées dans ${n} journal${n === 1 ? '' : 'aux'} de session, puis en créer de nouvelles`, todoHigh: n => `Vérifier ${n} accès à haut risque`,
+    todoUnused: n => `Retirer ${n} autorisation${n === 1 ? '' : 's'} jamais utilisée${n === 1 ? '' : 's'}`, cancelAt: x => `Annuler sur ${x}`,
+    byAgent: 'Par agent', details: 'Tous les accès', risk: 'Risque', grant: 'Accès', type: 'Type', lastUsed: 'Dernière utilisation', stored: 'Enregistré dans',
+    never: 'Jamais', since: d => `depuis le ${d}`, footer: 'Généré sur cet ordinateur par AI Access Auditor. Les secrets sont masqués et rien n’a été envoyé.',
+    app: 'app', mix: 'Répartition des risques' },
+  ar: { title: 'تقرير صلاحيات وكلاء الذكاء الاصطناعي', score: 'درجة الأمان', status: ['يحتاج إلى انتباه', 'يستحق نظرة', 'الوضع جيد'],
+    statusText: ['لدى الوكلاء صلاحيات واسعة لم تُراجَع بعد.', 'لدى بعض الوكلاء صلاحيات أكثر مما يحتاجون.', 'بقيت صلاحيات قليلة فقط للمراجعة.'],
+    high: 'خطورة عالية', medium: 'متوسطة', low: 'منخفضة', reviewed: 'تمت مراجعتها', unused: 'غير مستخدمة', agents: 'الوكلاء', grants: 'الصلاحيات',
+    todo: 'ابدأ من هنا', todoNone: 'لا شيء عاجل. واصل مراجعة الصلاحيات الجديدة عند ظهورها.',
+    todoKeys: n => `ألغِ المفاتيح المكشوفة في سجلات الجلسات (${n}) ثم أنشئ مفاتيح جديدة`, todoHigh: n => `راجع الصلاحيات عالية الخطورة (${n})`,
+    todoUnused: n => `اسحب الأذونات التي لم تُستخدم قط (${n})`, cancelAt: x => `إلغاؤها لدى ${x}`,
+    byAgent: 'حسب الوكيل', details: 'كل الصلاحيات', risk: 'الخطورة', grant: 'الصلاحية', type: 'النوع', lastUsed: 'آخر استخدام', stored: 'مكان الحفظ',
+    never: 'أبدًا', since: d => `منذ ${d}`, footer: 'أُنشئ على هذا الحاسوب بواسطة AI Access Auditor. المفاتيح السرية مخفية، ولم يُرسَل أي شيء.',
+    app: 'التطبيق', mix: 'توزيع الخطورة' },
+  zh: { title: 'AI 代理权限报告', score: '安全评分', status: ['需要注意', '值得一看', '状态良好'],
+    statusText: ['代理拥有尚未审核的大量权限。', '有些代理拥有的权限可能超出所需。', '只剩少数授权待审核。'],
+    high: '高风险', medium: '中', low: '低', reviewed: '已审核', unused: '未使用', agents: '代理', grants: '授权',
+    todo: '优先处理', todoNone: '没有紧急事项。新权限出现时继续审核即可。',
+    todoKeys: n => `作废 ${n} 个会话日志中泄露的密钥，然后创建新密钥`, todoHigh: n => `审核 ${n} 项高风险授权`,
+    todoUnused: n => `收回 ${n} 项从未使用的权限`, cancelAt: x => `在 ${x} 作废`,
+    byAgent: '按代理', details: '所有授权', risk: '风险', grant: '授权', type: '类型', lastUsed: '上次使用', stored: '存储位置',
+    never: '从未', since: d => `自 ${d} 起`, footer: '由 AI Access Auditor 在这台电脑上生成。密钥已遮盖，没有上传任何内容。',
+    app: '应用', mix: '风险分布' },
+};
+// A self-contained page with every grant, saved in Downloads and opened in the browser (Print → Save as PDF
+// makes a tidy PDF). Secrets are already masked in the findings; home folder paths are shown as ~.
+function exportReport(lang = 'en') {
+  const L = REPORT_TEXT[lang] ? lang : 'en', T = REPORT_TEXT[L], rtl = L === 'ar';
   const r = publicScan(), f = r.findings, now = new Date();
   const e = x => String(x == null ? '' : x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const home = x => String(x || '').split(HOME).join('~');
+  const ltr = html => (rtl ? `<bdi dir="ltr">${html}</bdi>` : html); // paths and commands keep their own order in Arabic
   const open = f.filter(x => !x.reviewedAt);
   const score = Math.round(100 * Math.exp(-open.reduce((s, x) => s + ({ high: 12, medium: 4, low: 1 }[x.risk] || 0), 0) / 80));
+  const tone = score >= 80 ? 2 : score >= 50 ? 1 : 0, toneColor = ['#d93b2b', '#c27a0e', '#2f8f4e'][tone];
   const n = k => f.filter(x => x.risk === k).length, order = { high: 0, medium: 1, low: 2 };
+  const unused = f.filter(x => x.usageSince !== undefined && !x.lastUsed);
+  const fmtDay = iso => { try { return new Intl.DateTimeFormat(L === 'zh' ? 'zh-CN' : L, { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(iso)); } catch { return iso.slice(0, 10); } };
+  const stamp = (() => { try { return new Intl.DateTimeFormat(L === 'zh' ? 'zh-CN' : L, { dateStyle: 'long', timeStyle: 'short' }).format(now); } catch { return now.toISOString(); } })();
+  const riskLabel = k => ({ high: T.high, medium: T.medium, low: T.low }[k] || k);
   const agents = [...new Set(f.map(x => x.agent))].sort((a, b) => f.filter(x => x.agent === b).length - f.filter(x => x.agent === a).length);
+  const lastUsed = x => x.usageSince === undefined ? '<span class="m">—</span>' : x.lastUsed ? e(fmtDay(x.lastUsed)) : `<span class="unused">${e(T.never)}</span><div class="m sm">${e(T.since(fmtDay(x.usageSince)))}</div>`;
+  // what to do first
+  const keys = f.filter(x => x.category === 'Secret in history'), highOpen = open.filter(x => x.risk === 'high' && x.category !== 'Secret in history');
+  const links = [...new Map(keys.flatMap(x => x.keys || []).map(k => [k.url, k])).values()];
+  const todo = [
+    keys.length && `<li><b>${e(T.todoKeys(keys.length))}</b>${links.length ? `<div class="links">${links.map(k => `<a href="${e(k.url)}">${e(T.cancelAt(k.label))}</a>`).join('')}</div>` : ''}</li>`,
+    highOpen.length && `<li><b>${e(T.todoHigh(highOpen.length))}</b><div class="m">${highOpen.slice(0, 5).map(x => ltr(e(`${x.agent}: ${home(x.title)}`))).join(' · ')}${highOpen.length > 5 ? ' …' : ''}</div></li>`,
+    unused.length && `<li><b>${e(T.todoUnused(unused.length))}</b><div class="m">${unused.slice(0, 5).map(x => ltr(e(`${x.agent}: ${home(x.title)}`))).join(' · ')}${unused.length > 5 ? ' …' : ''}</div></li>`,
+  ].filter(Boolean);
+  const C = 2 * Math.PI * 42;
+  const bar = ['high', 'medium', 'low'].map(k => n(k) ? `<span class="seg ${k}" style="flex:${n(k)}" title="${e(riskLabel(k))}: ${n(k)}"></span>` : '').join('');
   const rows = a => f.filter(x => x.agent === a).sort((x, y) => order[x.risk] - order[y.risk] || x.category.localeCompare(y.category)).map(x => `
-    <tr><td><span class="r ${e(x.risk)}">${e(x.risk)}</span></td><td>${e(x.category)}</td><td><b>${e(home(x.title))}</b><div class="d">${e(home(x.detail))}</div></td>
-    <td class="src">${e(home(x.source))}</td><td>${x.reviewedAt ? 'Reviewed' : x.isNew ? 'New' : 'To review'}</td></tr>`).join('');
-  const stamp = now.toISOString().slice(0, 16).replace('T', ' ');
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AI Access Auditor report, ${e(stamp)}</title><style>
-body{font:14px/1.45 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#1b1b1a;background:#fff;margin:0;padding:32px}
-main{max-width:1100px;margin:0 auto}h1{font-size:26px;margin:0 0 4px}h2{font-size:18px;margin:32px 0 8px}.m{color:#62625e}
-.sum{display:flex;gap:12px;flex-wrap:wrap;margin:20px 0}.k{border:1px solid #e3e3df;border-radius:10px;padding:10px 16px;min-width:110px}.k b{display:block;font-size:24px}
-table{width:100%;border-collapse:collapse}th,td{text-align:left;vertical-align:top;padding:8px;border-bottom:1px solid #ececea}th{font-size:12px;color:#62625e;text-transform:uppercase;letter-spacing:.04em}
-.d{color:#62625e;font-size:13px;word-break:break-word}.src{font-size:12px;color:#62625e;word-break:break-all;max-width:260px}
-.r{font-size:12px;font-weight:600;padding:2px 8px;border-radius:99px;text-transform:capitalize}.high{background:#fde8e5;color:#b42d1f}.medium{background:#fbf0dc;color:#8f5a08}.low{background:#e3f3e8;color:#1f6b39}
-@media print{body{padding:0}h2{break-after:avoid}tr{break-inside:avoid}}
-</style></head><body><main>
-<h1>AI Access Auditor report</h1>
-<p class="m">${e(stamp)} · ${e(({ mac: 'macOS', win: 'Windows', windows: 'Windows', linux: 'Linux' })[r.os || OS_NAME] || r.os || OS_NAME)}${APP_VERSION ? ` · app ${e(APP_VERSION)}` : ''} · secrets are masked</p>
-<div class="sum"><div class="k"><b>${score}</b>safety score</div><div class="k"><b>${f.length}</b>grants</div><div class="k"><b>${n('high')}</b>high risk</div>
-<div class="k"><b>${n('medium')}</b>medium</div><div class="k"><b>${n('low')}</b>low</div><div class="k"><b>${f.length - open.length}</b>reviewed</div><div class="k"><b>${agents.length}</b>agents</div></div>
-${agents.map(a => `<h2>${e(a)} <span class="m">(${f.filter(x => x.agent === a).length})</span></h2>
-<table><thead><tr><th>Risk</th><th>Type</th><th>Grant</th><th>Stored in</th><th>Status</th></tr></thead><tbody>${rows(a)}</tbody></table>`).join('')}
-<p class="m" style="margin-top:32px">Made by AI Access Auditor, https://dirmedmr-alt.github.io/ai-access-auditor/</p>
-</main></body></html>`;
+      <tr class="${x.reviewedAt ? 'done' : ''}"><td><span class="pill ${e(x.risk)}">${e(riskLabel(x.risk))}</span></td>
+        <td><div class="t">${ltr(e(home(x.title)))}${x.reviewedAt ? ` <span class="ok">✓ ${e(T.reviewed)}</span>` : ''}</div><div class="m sm">${ltr(e(home(x.detail)))}</div></td>
+        <td class="m">${ltr(e(x.category))}</td><td>${lastUsed(x)}</td><td class="src">${ltr(e(home(x.source)))}</td></tr>`).join('');
+  const shield = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.6-3 8.2-7 10-4-1.8-7-5.4-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>';
+  const html = `<!doctype html><html lang="${L}" dir="${rtl ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${e(T.title)} · ${e(now.toISOString().slice(0, 10))}</title><style>
+:root{--fg:#1b1b1a;--mut:#62625e;--line:#e7e7e3;--bg:#f6f6f4;--card:#fff;--acc:#2f6bf0;--high:#d93b2b;--med:#c27a0e;--low:#2f8f4e}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,"Segoe UI",Roboto,"PingFang SC","Noto Sans Arabic",Helvetica,Arial,sans-serif}
+main{max-width:1080px;margin:0 auto;padding:0 28px 48px}
+header{background:linear-gradient(135deg,#1b2c73,#2f6bf0);color:#fff;padding:30px 0 70px}
+header .in{max-width:1080px;margin:0 auto;padding:0 28px;display:flex;align-items:center;gap:14px}
+header .logo{width:42px;height:42px;border-radius:11px;background:rgba(255,255,255,.18);display:grid;place-items:center}
+header h1{margin:0;font-size:24px;letter-spacing:-.3px}header p{margin:2px 0 0;opacity:.85;font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px 24px;margin-top:18px}
+.sum{margin-top:-48px;display:grid;grid-template-columns:auto 1fr;gap:28px;align-items:center}
+.ring{position:relative;width:118px;height:118px}.ring svg{transform:rotate(-90deg)}
+.ring .v{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}.ring b{font-size:32px;line-height:1}.ring span{font-size:11px;color:var(--mut)}
+.st h2{margin:0 0 4px;font-size:20px}.st p{margin:0 0 14px;color:var(--mut)}
+.kpis{display:flex;flex-wrap:wrap;gap:10px}.kpi{border:1px solid var(--line);border-radius:12px;padding:8px 14px;min-width:92px}.kpi b{display:block;font-size:20px}.kpi span{font-size:12px;color:var(--mut)}
+.kpi.h b{color:var(--high)}.kpi.u b{color:var(--mut)}
+.mix{margin-top:14px}.mix .lbl{font-size:12px;color:var(--mut);margin-bottom:6px}.bar{display:flex;height:10px;border-radius:99px;overflow:hidden;background:var(--line)}
+.seg.high{background:var(--high)}.seg.medium{background:var(--med)}.seg.low{background:var(--low)}
+h3{margin:0 0 12px;font-size:16px}
+ol.todo{margin:0;padding-inline-start:20px}ol.todo li{margin:0 0 12px}ol.todo li:last-child{margin:0}
+.links{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}.links a{font-size:12.5px;color:var(--acc);text-decoration:none;border:1px solid #cfdcfb;background:#f1f5fe;border-radius:99px;padding:3px 10px}
+table{width:100%;border-collapse:collapse}th,td{text-align:start;vertical-align:top;padding:9px 8px;border-bottom:1px solid var(--line)}
+tr:last-child td{border-bottom:0}th{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+.t{font-weight:600;word-break:break-word}.m{color:var(--mut)}.sm{font-size:12.5px;word-break:break-word}.src{font-size:12px;color:var(--mut);word-break:break-all;max-width:220px}
+.pill{font-size:11.5px;font-weight:650;padding:2px 9px;border-radius:99px;white-space:nowrap}
+.pill.high{background:#fde8e5;color:#b42d1f}.pill.medium{background:#fbf0dc;color:#8f5a08}.pill.low{background:#e3f3e8;color:#1f6b39}
+.unused{font-weight:600;color:var(--med)}.ok{font-size:11.5px;font-weight:600;color:var(--low);white-space:nowrap}tr.done .t{opacity:.75}
+.agents td,.agents th{text-align:start}.num{text-align:end!important;font-variant-numeric:tabular-nums}
+.agent h3{display:flex;justify-content:space-between;align-items:baseline}.agent h3 span{font-size:13px;color:var(--mut);font-weight:500}
+footer{max-width:1080px;margin:0 auto;padding:0 28px 32px;color:var(--mut);font-size:12px}
+@media (max-width:720px){.sum{grid-template-columns:1fr}.src,th:nth-child(5),td:nth-child(5){display:none}}
+@media print{@page{size:A4;margin:14mm}body{background:#fff}header{padding:18px 0 54px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .card{break-inside:avoid;border-color:#ddd}.agent{break-inside:auto}tr{break-inside:avoid}.pill,.seg,.bar,.links a{-webkit-print-color-adjust:exact;print-color-adjust:exact}main,header .in,footer{padding-left:0;padding-right:0}}
+</style></head><body>
+<header><div class="in"><div class="logo">${shield}</div><div><h1>${e(T.title)}</h1><p>${e(stamp)} · ${e(({ mac: 'macOS', windows: 'Windows', linux: 'Linux' })[OS_NAME] || OS_NAME)}${APP_VERSION ? ` · AI Access Auditor ${e(APP_VERSION)}` : ''}</p></div></div></header>
+<main>
+<section class="card sum">
+  <div class="ring"><svg width="118" height="118" viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="#ececea" stroke-width="9"/>
+    <circle cx="50" cy="50" r="42" fill="none" stroke="${toneColor}" stroke-width="9" stroke-linecap="round" stroke-dasharray="${(C * score / 100).toFixed(1)} ${C.toFixed(1)}"/></svg>
+    <div class="v"><b>${score}</b><span>${e(T.score)}</span></div></div>
+  <div class="st"><h2 style="color:${toneColor}">${e(T.status[tone])}</h2><p>${e(T.statusText[tone])}</p>
+    <div class="kpis"><div class="kpi"><b>${f.length}</b><span>${e(T.grants)}</span></div><div class="kpi h"><b>${n('high')}</b><span>${e(T.high)}</span></div>
+      <div class="kpi"><b>${n('medium')}</b><span>${e(T.medium)}</span></div><div class="kpi"><b>${n('low')}</b><span>${e(T.low)}</span></div>
+      <div class="kpi"><b>${f.length - open.length}</b><span>${e(T.reviewed)}</span></div><div class="kpi u"><b>${unused.length}</b><span>${e(T.unused)}</span></div>
+      <div class="kpi"><b>${agents.length}</b><span>${e(T.agents)}</span></div></div>
+    ${f.length ? `<div class="mix"><div class="lbl">${e(T.mix)}</div><div class="bar">${bar}</div></div>` : ''}</div>
+</section>
+<section class="card"><h3>${e(T.todo)}</h3>${todo.length ? `<ol class="todo">${todo.join('')}</ol>` : `<p class="m" style="margin:0">${e(T.todoNone)}</p>`}</section>
+<section class="card"><h3>${e(T.byAgent)}</h3><table class="agents"><thead><tr><th>${e(T.agents)}</th><th class="num">${e(T.grants)}</th><th class="num">${e(T.high)}</th><th class="num">${e(T.unused)}</th><th class="num">${e(T.reviewed)}</th></tr></thead><tbody>
+  ${agents.map(a => { const g = f.filter(x => x.agent === a); return `<tr><td class="t">${e(a)}</td><td class="num">${g.length}</td><td class="num">${g.filter(x => x.risk === 'high').length}</td><td class="num">${g.filter(x => x.usageSince !== undefined && !x.lastUsed).length}</td><td class="num">${g.filter(x => x.reviewedAt).length}</td></tr>`; }).join('')}
+</tbody></table></section>
+${agents.map(a => `<section class="card agent"><h3>${e(a)} <span>${f.filter(x => x.agent === a).length} ${e(T.grants.toLowerCase())}</span></h3>
+<table><thead><tr><th>${e(T.risk)}</th><th>${e(T.grant)}</th><th>${e(T.type)}</th><th>${e(T.lastUsed)}</th><th>${e(T.stored)}</th></tr></thead><tbody>${rows(a)}</tbody></table></section>`).join('')}
+</main>
+<footer>${e(T.footer)} · https://dirmedmr-alt.github.io/ai-access-auditor/</footer>
+</body></html>`;
   const dir = exists(h('Downloads')) ? h('Downloads') : DATA_DIR;
   const file = path.join(dir, `AI-Access-Auditor-report-${now.toISOString().slice(0, 16).replace(/[T:]/g, '-')}.html`);
   saveFile(file, html);
@@ -3132,7 +3230,7 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/review') return send(res, 200, markReviewed(body.id, body.on));
     if (url.pathname === '/api/uploads/trust') return send(res, 200, trustUploader(body.id));
     if (url.pathname === '/api/uploads/untrust') return send(res, 200, untrustUploader(String(body.key || '')));
-    if (url.pathname === '/api/export') return send(res, 200, exportReport());
+    if (url.pathname === '/api/export') return send(res, 200, exportReport(String(body.lang || 'en').slice(0, 2)));
     if (url.pathname === '/api/restore') return send(res, 200, restore(body.name));
     send(res, 404, { error: 'unknown endpoint' });
   } catch (e) { send(res, 400, { error: e.message }); }

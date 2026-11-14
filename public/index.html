@@ -785,7 +785,7 @@ document.addEventListener('click', async e => {
   const b = e.target.closest('[data-export]');
   if (!b) return;
   b.disabled = true;
-  try { toast((await api('export', {})).message, 7000); } catch (err) { toast('Couldn\'t export: ' + err.message); }
+  try { toast((await api('export', { lang: document.documentElement.lang })).message, 7000); } catch (err) { toast('Couldn\'t export: ' + err.message); }
   b.disabled = false;
 });
 const nativeCmd = (cmd, extra = {}) => { if (isNative()) window.webkit.messageHandlers.native.postMessage({ cmd, ...extra }); };
