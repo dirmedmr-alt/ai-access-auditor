@@ -605,13 +605,16 @@ function claudeUses() {
   for (const [file, c] of Object.entries(historyCache || {})) if (c.uses && isClaudeLog(file)) mergeUses(all, c.uses);
   return all;
 }
+// Folder comparison that works with Windows paths too: same separators, and no letter case on Windows
+const normDir = d => { const x = String(d).replace(/\\/g, '/').replace(/\/+$/, ''); return WIN ? x.toLowerCase() : x; };
+const inDir = (d, dir) => { const a = normDir(d), b = normDir(dir); return a === b || a.startsWith(b + '/'); };
 // The last time a permission was used: an ISO date, null if never in the logs, or undefined if this kind can't be told
 function lastUsedFor(f, U) {
   const latest = list => list.filter(Boolean).sort().pop() || null;
   if (f.category === 'MCP server') return latest(Object.entries(U.tools).filter(([k]) => k.startsWith(`mcp__${f.title}__`)).map(([, t]) => t));
   if (f.category === 'Folder access') {
-    const dir = f.title.replace(/^~(?=\/|$)/, HOME).replace(/\/+$/, '');
-    return latest(Object.entries(U.dirs).filter(([d]) => d === dir || d.startsWith(dir + '/')).map(([, t]) => t));
+    const dir = f.title.replace(/^~(?=[\\/]|$)/, HOME);
+    return latest(Object.entries(U.dirs).filter(([d]) => inDir(d, dir)).map(([, t]) => t));
   }
   if (f.category !== 'Tool permission') return undefined;
   const rule = String(f.title);
@@ -626,8 +629,8 @@ function lastUsedFor(f, U) {
   }
   if (tool === 'WebFetch') { const d = (spec.match(/^domain:(.+)$/) || [])[1]; return d ? U.web[d] || null : U.tools.WebFetch || null; }
   if (/^(Read|Edit|Write|MultiEdit)$/.test(tool)) {
-    const dir = spec.replace(/\/?\*\*?$/, '').replace(/^~(?=\/|$)/, HOME).replace(/^\/\//, '/').replace(/\/+$/, '');
-    return latest(Object.entries(U.dirs).filter(([d]) => d === dir || d.startsWith(dir + '/')).map(([, t]) => t));
+    const dir = spec.replace(/[\\/]?\*\*?$/, '').replace(/^~(?=[\\/]|$)/, HOME).replace(/^\/\//, '/');
+    return latest(Object.entries(U.dirs).filter(([d]) => inDir(d, dir)).map(([, t]) => t));
   }
   return U.tools[tool] || null;
 }
