@@ -635,6 +635,165 @@ function geminiRoot(file) {
   const rel = path.relative(GEMINI_LOGS, file).split(path.sep);
   try { return fs.readFileSync(path.join(GEMINI_LOGS, rel[0], '.project_root'), 'utf8').trim() || null; } catch { return null; }
 }
+// ---------- "Sent to AI": what each session sent to the AI company, read from the agent's own session log ----------
+// The log is the agent's own record of the conversation: your prompts, and everything it sent back to the AI after
+// using a tool (a file it read, a command's output, a web page). Per session this keeps counts and sizes, the file
+// paths and the first 200 characters of each command (keys masked), never the contents themselves.
+// What the log doesn't hold (usage statistics, error reports) is sent separately and encrypted: the app says so.
+function emptySent() { return { cwd: null, first: null, last: null, requests: 0, models: {}, prompts: 0, promptBytes: 0, ctxBytes: 0, env: null, files: {}, cmds: {}, web: {}, tools: {}, pending: {} }; }
+const sentMask = t => String(t).replace(/(--?(?:password|token|api-?key|secret)[= ])\S+/gi, '$1••••')
+  .replace(/\b([A-Za-z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD)[A-Za-z0-9_]*)=("[^"]*"|'[^']*'|\S+)/gi, '$1=••••')
+  .replace(/sk-ant-[A-Za-z0-9_-]{8,}|\bsk-[A-Za-z0-9_-]{20,}|\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|github_pat_\w{20,}|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\bAIza[0-9A-Za-z_-]{30,}|\bxox[abprs]-[A-Za-z0-9-]{10,}|\b(?:sk|rk)_live_\w{10,}|\bnpm_\w{20,}|\bhf_\w{20,}/g, m => mask(m));
+function sentAdd(map, key, bytes, ts, cap) {
+  if (!key) return;
+  key = sentMask(String(key)).slice(0, 200);
+  let e = map[key];
+  if (!e) { if (Object.keys(map).length >= cap) key = '(others)'; e = map[key] || (map[key] = [0, 0, null]); }
+  e[0]++; e[1] += bytes; if (ts && (!e[2] || e[2] < ts)) e[2] = ts;
+}
+const sentTime = (s, ts) => { if (typeof ts !== 'string') return; if (!s.first || ts < s.first) s.first = ts; if (!s.last || ts > s.last) s.last = ts; };
+const sizeOf = v => v == null ? 0 : typeof v === 'string' ? Buffer.byteLength(v) : Buffer.byteLength(JSON.stringify(v));
+// what a tool call sends to the AI, by the tool's name and input: a file, a command, a web page, or another tool
+function sentTarget(name, inp) {
+  inp = inp || {};
+  const file = inp.file_path || inp.notebook_path || inp.absolute_path || inp.path;
+  if (/^(Read|NotebookRead|read_file|read_many_files|view|ReadFile|ReadManyFiles)$/.test(name)) {
+    const f = typeof file === 'string' ? file : Array.isArray(inp.paths) ? inp.paths.join(', ') : null;
+    return f ? ['files', f] : ['tools', name];
+  }
+  const cmd = inp.command || inp.cmd;
+  if (/^(Bash|shell|exec_command|local_shell|run_shell_command|container\.exec|ShellTool|PowerShell)$/.test(name) && cmd) return ['cmds', Array.isArray(cmd) ? cmd.join(' ') : cmd];
+  const url = inp.url || inp.query;
+  if (/^(WebFetch|WebSearch|web_fetch|google_web_search|web_search)$/.test(name)) return ['web', typeof url === 'string' ? url : name];
+  return ['tools', String(name).replace(/^mcp__([^_]+(?:_[^_]+)*?)__.*$/, 'MCP server: $1')];
+}
+function sentPending(s, id, name, inp) {
+  if (!id) return;
+  const ks = Object.keys(s.pending);
+  if (ks.length >= 300) for (const k of ks.slice(0, 100)) delete s.pending[k];
+  s.pending[id] = sentTarget(name, inp);
+}
+function sentResult(s, id, bytes, ts) {
+  const t = s.pending[id] || ['tools', 'Other tools'];
+  delete s.pending[id];
+  sentAdd(s[t[0]], t[1], bytes, ts, t[0] === 'files' ? 500 : t[0] === 'cmds' ? 300 : 100);
+}
+function sentInText(text, s, kind, ctx = {}) {
+  if (kind === 'Codex CLI') return codexSentInText(text, s);
+  if (kind === 'Gemini CLI') return geminiSentInText(text, s, ctx);
+  for (const line of text.split('\n')) {
+    if (!line.startsWith('{')) continue;
+    let j; try { j = JSON.parse(line); } catch { continue; }
+    const ts = j.timestamp, m = j.message;
+    if (typeof j.cwd === 'string' && !s.cwd) s.cwd = j.cwd;
+    if (j.type === 'api-request') { s.requests++; sentTime(s, ts); const md = j.params && j.params.model; if (typeof md === 'string') s.models[md] = (s.models[md] || 0) + 1; continue; }
+    if (j.type === 'api-request-blob') { if (m && m.role === 'system') s.ctxBytes += sizeOf(m.content); continue; }
+    if (j.type === 'attachment' && j.attachment && j.attachment.snapshot) {
+      const sn = j.attachment.snapshot;
+      s.env = ['platform', 'osVersion', 'shell', 'workingDirectory', 'isGitRepo'].filter(k => sn[k] !== undefined);
+      continue;
+    }
+    if (!m || (j.type !== 'user' && j.type !== 'assistant')) continue;
+    sentTime(s, ts);
+    const c = m.content;
+    if (j.type === 'assistant') { if (Array.isArray(c)) for (const b of c) if (b && b.type === 'tool_use') sentPending(s, b.id, b.name, b.input); continue; }
+    if (typeof c === 'string') { if (j.isMeta) s.ctxBytes += sizeOf(c); else { s.prompts++; s.promptBytes += sizeOf(c); } continue; }
+    if (!Array.isArray(c)) continue;
+    let typed = 0;
+    for (const b of c) {
+      if (!b) continue;
+      if (b.type === 'tool_result') sentResult(s, b.tool_use_id, sizeOf(b.content), ts);
+      else if (b.type === 'text' || b.type === 'image') typed += sizeOf(b.type === 'text' ? b.text : b.source);
+    }
+    if (typed) { if (j.isMeta) s.ctxBytes += typed; else { s.prompts++; s.promptBytes += typed; } }
+  }
+  return s;
+}
+// Codex: function calls and their outputs are linked by call_id; the environment it adds is a user message too
+function codexSentInText(text, s) {
+  for (const line of text.split('\n')) {
+    if (!line.startsWith('{')) continue;
+    let j; try { j = JSON.parse(line); } catch { continue; }
+    const ts = j.timestamp, p = j.payload || {};
+    if ((j.type === 'session_meta' || j.type === 'turn_context') && typeof p.cwd === 'string') { if (!s.cwd) s.cwd = p.cwd; if (j.type === 'turn_context') { s.requests++; if (typeof p.model === 'string') s.models[p.model] = (s.models[p.model] || 0) + 1; } sentTime(s, ts); continue; }
+    if (j.type !== 'response_item') continue;
+    sentTime(s, ts);
+    if (p.type === 'function_call' || p.type === 'custom_tool_call' || p.type === 'local_shell_call') {
+      let inp = {}; try { inp = typeof p.arguments === 'string' ? JSON.parse(p.arguments) : p.arguments || p.action || {}; } catch {}
+      sentPending(s, p.call_id, p.name || (p.type === 'local_shell_call' ? 'local_shell' : 'tool'), inp);
+    } else if (p.type === 'function_call_output' || p.type === 'custom_tool_call_output' || p.type === 'local_shell_call_output') sentResult(s, p.call_id, sizeOf(p.output), ts);
+    else if (p.type === 'message' && p.role === 'user') {
+      const t = (Array.isArray(p.content) ? p.content : []).map(x => x && (x.text || '')).join('');
+      if (/^\s*<(environment_context|user_instructions)/.test(t)) { s.ctxBytes += sizeOf(t); if (/<environment_context/.test(t)) s.env = ['workingDirectory', 'shell']; }
+      else if (t) { s.prompts++; s.promptBytes += sizeOf(t); }
+    }
+  }
+  return s;
+}
+// Gemini: each message is a record; a tool call keeps its arguments and its result together
+function geminiSentInText(text, s, ctx) {
+  if (ctx.root && !s.cwd) s.cwd = ctx.root;
+  const record = m => {
+    if (!m || typeof m !== 'object') return;
+    const ts = typeof m.timestamp === 'string' ? m.timestamp : null;
+    sentTime(s, ts);
+    if (m.type === 'user') { const t = typeof m.content === 'string' ? m.content : sizeOf(m.content); if (t) { s.prompts++; s.promptBytes += typeof t === 'number' ? t : sizeOf(t); } }
+    if (m.type === 'gemini') { s.requests++; if (typeof m.model === 'string') s.models[m.model] = (s.models[m.model] || 0) + 1; }
+    for (const tc of Array.isArray(m.toolCalls) ? m.toolCalls : []) {
+      if (!tc || typeof tc.name !== 'string') continue;
+      const [k, key] = sentTarget(tc.name, tc.args);
+      sentAdd(s[k], key, sizeOf(tc.result), tc.timestamp || ts, k === 'files' ? 500 : k === 'cmds' ? 300 : 100);
+    }
+  };
+  const whole = text.trimStart().startsWith('{') && !text.includes('\n{') ? (() => { try { return JSON.parse(text); } catch { return null; } })() : null;
+  if (whole && Array.isArray(whole.messages)) { whole.messages.forEach(record); return s; }
+  for (const line of text.split('\n')) { if (line.startsWith('{')) try { record(JSON.parse(line)); } catch {} }
+  return s;
+}
+function sentInFile(file, start = 0, s = emptySent(), kind = usageKind(file)) {
+  const ctx = kind === 'Gemini CLI' ? { root: geminiRoot(file) } : {};
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const size = fs.fstatSync(fd).size;
+    if (kind === 'Gemini CLI' && file.endsWith('.json')) { if (size < 200 << 20) { s = emptySent(); geminiSentInText(fs.readFileSync(file, 'utf8'), s, ctx); } return s; }
+    const CH = 8 << 20, buf = Buffer.alloc(CH);
+    let carry = '';
+    for (let pos = start; pos < size; pos += CH) {
+      const n = fs.readSync(fd, buf, 0, CH, pos);
+      const text = carry + buf.toString('utf8', 0, n), cut = text.lastIndexOf('\n');
+      sentInText(cut < 0 ? '' : text.slice(0, cut), s, kind, ctx);
+      carry = cut < 0 ? text : text.slice(cut + 1);
+    }
+    sentInText(carry, s, kind, ctx);
+  } catch {} finally { if (fd !== undefined) fs.closeSync(fd); }
+  return s;
+}
+const SENT_SENSITIVE = t => SENSITIVE_RE.test('/' + String(t).replace(/^~/, '')) || /(^|[\/\s])(id_(rsa|ed25519|ecdsa)|\.pem$|\.p12$|\.key$)/.test(String(t));
+// the sessions of the last `days` days, newest first, for the "Sent to AI" page
+function sentSessions(days = 30) {
+  if (!historyCache) refreshHistory(400);
+  const since = new Date(Date.now() - days * 864e5).toISOString(), out = [];
+  for (const [file, c] of Object.entries(historyCache || {})) {
+    const s = c.sent;
+    if (!s || !s.last || s.last < since || !(s.prompts || s.requests || Object.keys(s.files).length || Object.keys(s.cmds).length)) continue;
+    const list = (m, n) => Object.entries(m).map(([k, [count, bytes, at]]) => ({ name: k.replace(HOME, '~'), count, bytes, at, sensitive: SENT_SENSITIVE(k) }))
+      .sort((a, b) => b.sensitive - a.sensitive || b.bytes - a.bytes).slice(0, n);
+    const sum = m => Object.values(m).reduce((a, [count, bytes]) => [a[0] + count, a[1] + bytes], [0, 0]);
+    const [nf, bf] = sum(s.files), [nc, bc] = sum(s.cmds), [nw, bw] = sum(s.web), [nt, bt] = sum(s.tools);
+    const agent = usageKind(file);
+    out.push({
+      id: id('sent', file), agent, company: { 'Claude Code': 'Anthropic', 'Codex CLI': 'OpenAI', 'Gemini CLI': 'Google' }[agent],
+      project: s.cwd ? s.cwd.replace(HOME, '~') : null, first: s.first, last: s.last, requests: s.requests, models: Object.keys(s.models),
+      prompts: s.prompts, promptBytes: s.promptBytes, ctxBytes: s.ctxBytes, env: s.env,
+      totals: { files: nf, fileBytes: bf, cmds: nc, cmdBytes: bc, web: nw, webBytes: bw, tools: nt, toolBytes: bt, bytes: s.promptBytes + s.ctxBytes + bf + bc + bw + bt },
+      files: list(s.files, 200), cmds: list(s.cmds, 150), web: list(s.web, 50), tools: list(s.tools, 50),
+      sensitive: Object.keys(s.files).concat(Object.keys(s.cmds)).filter(SENT_SENSITIVE).length,
+      secrets: (c.hits || []).length, log: file.replace(HOME, '~'),
+    });
+  }
+  return out.sort((a, b) => (b.last || '').localeCompare(a.last || ''));
+}
 function usesInFile(file, start = 0, kind = usageKind(file)) {
   const u = emptyUses(), ctx = kind === 'Gemini CLI' ? { root: geminiRoot(file) } : {};
   let fd;
@@ -733,7 +892,7 @@ function refreshHistory(budgetMs) {
     let st;
     try { st = fs.statSync(file); } catch { continue; }
     let c = historyCache[file];
-    if (c && usageKind(file) && !c.uses) c = null; // made before "last used" existed: read again
+    if (c && usageKind(file) && (!c.uses || !c.sent)) c = null; // made before "last used" or "Sent to AI" existed: read again
     if (c && c.mtime === st.mtimeMs && c.size === st.size) continue;
     if (st.size > 2 * 1024 ** 3) continue; // over 2 GB: skipped
     // a session that is still running only grows: read just what was added since last time
@@ -744,8 +903,12 @@ function refreshHistory(budgetMs) {
       const seen = new Set(c.hits.map(x => x.preview));
       hits = c.hits.concat(added.filter(x => !seen.has(x.preview) && seen.add(x.preview))).slice(0, 50);
     } else hits = secretsInFile(file, st.size);
-    if (usageKind(file)) uses = grows ? mergeUses(c.uses, usesInFile(file, c.size)) : usesInFile(file);
-    historyCache[file] = { mtime: st.mtimeMs, size: st.size, hits, ...(uses ? { uses } : {}) };
+    let sent;
+    if (usageKind(file)) {
+      uses = grows ? mergeUses(c.uses, usesInFile(file, c.size)) : usesInFile(file);
+      sent = grows && !file.endsWith('.json') ? sentInFile(file, c.size, c.sent) : sentInFile(file);
+    }
+    historyCache[file] = { mtime: st.mtimeMs, size: st.size, hits, ...(uses ? { uses } : {}), ...(sent ? { sent } : {}) };
     changed = true;
   }
   if (changed) try { fs.writeFileSync(HISTORY_FILE, JSON.stringify(historyCache)); } catch {}
@@ -3381,6 +3544,12 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/scan') { sweepExpired(); return send(res, 200, publicScan()); }
     if (req.method === 'GET' && url.pathname === '/api/events') return waitEvents(res);
     if (req.method === 'GET' && url.pathname === '/api/update') return send(res, 200, updateInfo());
+    if (req.method === 'GET' && url.pathname === '/api/sent') {
+      const files = refreshHistory(800);
+      // logs not read yet (the first pass over big logs takes a few scans): the page says so and asks again
+      const reading = files.filter(({ file }) => { const c = historyCache[file]; if (!usageKind(file)) return false; try { const st = fs.statSync(file); return !c || !c.sent || (st.size > c.size + (64 << 20)); } catch { return false; } }).length; // a running session's log grows a little all the time: that isn't 'still reading'
+      return send(res, 200, { sessions: sentSessions(Number(url.searchParams.get('days')) || 30), reading });
+    }
     if (req.method === 'GET' && url.pathname === '/api/settings') return send(res, 200, { scope: getScope(), onboarded: !!(readJson(SETTINGS_FILE) || {}).onboarded, theme: (readJson(SETTINGS_FILE) || {}).theme || 'system', lang: (readJson(SETTINGS_FILE) || {}).lang || 'auto', updates: updatesOn() ? 'on' : 'off' });
     if (req.method === 'GET' && url.pathname === '/api/decisions') return send(res, 200, listDecisions());
     if (req.method === 'GET' && url.pathname === '/api/gate/status') return send(res, 200, gateStatus());
@@ -3534,4 +3703,4 @@ if (require.main === module) {
     if (process.env.PORT !== '0') console.log(`AI Access Auditor running at http://localhost:${server.address().port}/?token=${TOKEN}`); // the link opens the page; keep it to yourself
   });
 }
-module.exports = { scanAll, publicScan, exportReport, prepareUpdate, readyUpdate, _test: { saveFile, scanLeftovers, gateInstall, gateStatus, isOurHook, historyFiles, refreshHistory, scanHistory, startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason, ipOwner } };
+module.exports = { scanAll, publicScan, exportReport, prepareUpdate, readyUpdate, _test: { saveFile, scanLeftovers, gateInstall, gateStatus, isOurHook, historyFiles, refreshHistory, scanHistory, startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason, ipOwner, sentSessions, sentInText, emptySent, sentMask } };

@@ -329,3 +329,56 @@ test('data uploads name the owner of known addresses', () => {
     console.log(JSON.stringify(['160.79.104.10', '160.79.111.255', '160.79.112.0', '8.8.8.8', '::1'].map(t.ipOwner))); process.exit(0);`], { env: { ...process.env, AUDIT_DEMO: '' } }).toString();
   assert.deepEqual(JSON.parse(out.trim().split('\n').pop()), ['Anthropic', 'Anthropic', null, null, null]);
 });
+
+test('Sent to AI: adds up what each agent sent, from Claude Code, Codex and Gemini logs, with keys masked', () => {
+  const script = `const t = require(${JSON.stringify(path.join(ROOT, 'server.js'))})._test, J = x => JSON.stringify(x);
+    const ts = '2026-11-15T10:00:00Z';
+    // Claude Code: a prompt, a file read, a command with a key in it, a web fetch, context it adds itself
+    const claude = [
+      { type: 'attachment', cwd: '/w/app', timestamp: ts, attachment: { type: 'environment', snapshot: { platform: 'darwin', osVersion: '15', shell: 'zsh', workingDirectory: '/w/app', isGitRepo: true } } },
+      { type: 'user', cwd: '/w/app', timestamp: ts, message: { role: 'user', content: 'fix the bug' } },
+      { type: 'api-request', timestamp: ts, params: { model: 'claude-x' } },
+      { type: 'api-request-blob', message: { role: 'system', content: [{ type: 'text', text: 'x'.repeat(1000) }] } },
+      { type: 'assistant', timestamp: ts, message: { role: 'assistant', content: [
+        { type: 'tool_use', id: 'r1', name: 'Read', input: { file_path: '/w/app/.env' } },
+        { type: 'tool_use', id: 'b1', name: 'Bash', input: { command: 'curl -H x API_TOKEN=abcdef123456 https://x' } },
+        { type: 'tool_use', id: 'w1', name: 'WebFetch', input: { url: 'https://example.com/a' } }] } },
+      { type: 'user', timestamp: ts, message: { role: 'user', content: [
+        { type: 'tool_result', tool_use_id: 'r1', content: 'SECRET=1234567890' },
+        { type: 'tool_result', tool_use_id: 'b1', content: 'ok' },
+        { type: 'tool_result', tool_use_id: 'w1', content: 'page' }] } },
+    ].map(J).join('\\n');
+    const c = t.sentInText(claude, t.emptySent(), 'Claude Code');
+    // Codex: environment context, a prompt, a shell call and its output linked by call_id
+    const codex = [
+      { timestamp: ts, type: 'session_meta', payload: { cwd: '/w/cx' } },
+      { timestamp: ts, type: 'turn_context', payload: { cwd: '/w/cx', model: 'gpt-x' } },
+      { timestamp: ts, type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<environment_context><cwd>/w/cx</cwd></environment_context>' }] } },
+      { timestamp: ts, type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'list files' }] } },
+      { timestamp: ts, type: 'response_item', payload: { type: 'function_call', name: 'shell', call_id: 'c1', arguments: J({ command: ['bash', '-lc', 'cat ~/.ssh/config'] }) } },
+      { timestamp: ts, type: 'response_item', payload: { type: 'function_call_output', call_id: 'c1', output: 'Host x' } },
+    ].map(J).join('\\n');
+    const x = t.sentInText(codex, t.emptySent(), 'Codex CLI');
+    // Gemini: a prompt and a file read with its result
+    const gemini = [
+      { id: '1', timestamp: ts, type: 'user', content: 'explain' },
+      { id: '2', timestamp: ts, type: 'gemini', model: 'gemini-x', content: '', toolCalls: [{ id: 't', name: 'read_file', args: { absolute_path: '/w/g/main.go' }, result: [{ functionResponse: { response: { output: 'package main' } } }] }] },
+    ].map(J).join('\\n');
+    const g = t.sentInText(gemini, t.emptySent(), 'Gemini CLI', { root: '/w/g' });
+    console.log(J({ c, x, g })); process.exit(0);`;
+  const { c, x, g } = JSON.parse(execFileSync(process.execPath, ['-e', script]).toString().trim().split('\n').pop());
+  assert.equal(c.cwd, '/w/app'); assert.equal(c.requests, 1); assert.deepEqual(Object.keys(c.models), ['claude-x']);
+  assert.equal(c.prompts, 1); assert.equal(c.promptBytes, 'fix the bug'.length);
+  assert.ok(c.ctxBytes >= 1000, 'system context counted');
+  assert.deepEqual(c.env, ['platform', 'osVersion', 'shell', 'workingDirectory', 'isGitRepo']);
+  assert.deepEqual(c.files['/w/app/.env'].slice(0, 2), [1, 'SECRET=1234567890'.length]);
+  const cmd = Object.keys(c.cmds)[0];
+  assert.ok(!cmd.includes('abcdef123456') && cmd.includes('API_TOKEN=••••'), 'key masked in the stored command: ' + cmd);
+  assert.deepEqual(Object.keys(c.web), ['https://example.com/a']);
+  assert.deepEqual(c.pending, {});
+  assert.equal(x.cwd, '/w/cx'); assert.equal(x.prompts, 1); assert.ok(x.ctxBytes > 0); assert.deepEqual(Object.keys(x.models), ['gpt-x']);
+  assert.deepEqual(Object.values(x.cmds)[0].slice(0, 2), [1, 'Host x'.length]);
+  assert.ok(Object.keys(x.cmds)[0].includes('.ssh/config'));
+  assert.equal(g.cwd, '/w/g'); assert.equal(g.prompts, 1); assert.equal(g.requests, 1);
+  assert.ok(g.files['/w/g/main.go'][1] > 0);
+});

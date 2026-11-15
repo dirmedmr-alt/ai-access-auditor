@@ -173,6 +173,19 @@ html.native .insp-in{padding-top:34px}
 .insp .x{float:inline-end;border:0;background:var(--hover);width:24px;height:24px;border-radius:50%;color:var(--mut);cursor:default;font-size:14px;line-height:1}
 .insp h2{font-size:16px;margin:14px 0 6px;overflow-wrap:anywhere}
 .insp .lead{color:var(--mut);margin:0 0 16px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.sentsum{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+.sentsum div{flex:1 1 110px;border:1px solid var(--line);border-radius:10px;background:var(--pane);padding:10px 12px}
+.sentsum b{display:block;font-size:20px}.sentsum span{color:var(--mut);font-size:12px}.sentsum .bad b{color:var(--high)}
+.sentttl{display:flex;align-items:center;gap:6px;min-width:0}.sentttl .ttl{min-width:0}
+.sentses .chev{color:var(--mut);font-size:16px;width:20px;text-align:center}
+.sentdet{padding:4px 14px 14px 56px}
+.sentlist{border:1px solid var(--line);border-radius:10px;max-height:260px;overflow:auto;margin-bottom:12px}
+.sentlist div{display:flex;justify-content:space-between;gap:12px;padding:5px 10px;font-size:12px}
+.sentlist div+div{border-top:1px solid var(--line)}
+.sentlist .nm{unicode-bidi:plaintext;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,Menlo,monospace;font-size:11.5px}
+.sentlist .sens{background:var(--high-soft)}
+@media (max-width:600px){.sentdet{padding-left:14px}}
+.kv dd[dir=ltr]{text-align:start;unicode-bidi:plaintext}
 .kv{border:1px solid var(--line);background:var(--pane);border-radius:10px;padding:2px 12px;margin-bottom:16px}
 .kv div{display:grid;grid-template-columns:80px 1fr;gap:10px;padding:8px 0;font-size:12px}
 .kv div+div{border-top:1px solid var(--line)}
@@ -418,6 +431,7 @@ function renderNav() {
     `<div class="navh">Agents</div>` +
     Object.entries(agents).sort((a, b) => b[1] - a[1]).map(([a, n]) => item('agent', a, avatar(a), n, a)).join('') +
     `<div class="navh">More</div>` +
+    item('sent', 'Sent to AI', icon('Data upload'), '') +
     item('decisions', 'Decisions', icon('hand'), '') +
     item('accounts', 'Online accounts', icon('accounts'), '') +
     item('history', 'History & undo', icon('history'), '');
@@ -432,6 +446,7 @@ function renderMain() {
   if (view === 'accounts') return renderAccounts();
   if (view === 'privacy') return renderPrivacy();
   if (view === 'history') return renderHistory();
+  if (view === 'sent') return renderSent();
   if (view === 'decisions') return renderDecisions();
   renderList();
 }
@@ -635,6 +650,51 @@ async function renderDecisions() {
   }).join('')}</div>`;
 }
 
+// ---------- Sent to AI: what each session sent to the AI company, from the agent's own log ----------
+const kb = n => n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+const sentOpen = new Set();
+const ENV_LABEL = { platform: 'operating system', osVersion: 'its version', shell: 'shell', workingDirectory: 'project folder', isGitRepo: 'whether it is a Git project' };
+async function renderSent() {
+  setHead('Sent to AI', 'What your agents sent to the AI companies in the last 30 days, read from their own session logs on this computer.');
+  if (!$('#body').querySelector('.sentsum, .explain')) $('#body').innerHTML = '<div class="empty">Reading session logs…</div>';
+  let ss, reading;
+  try { ({ sessions: ss, reading } = await api('sent')); } catch (err) { $('#body').innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
+  if (view !== 'sent') return;
+  clearTimeout(renderSent.t);
+  if (reading) renderSent.t = setTimeout(() => { if (view === 'sent') renderSent(); }, 2500);
+  const tot = ss.reduce((a, x) => ({ bytes: a.bytes + x.totals.bytes, files: a.files + x.totals.files, cmds: a.cmds + x.totals.cmds, sens: a.sens + x.sensitive }), { bytes: 0, files: 0, cmds: 0, sens: 0 });
+  const rows = (label, list, unit) => list.length ? `<p class="lbl">${esc(label)}</p><div class="sentlist">${list.map(x => `<div class="${x.sensitive ? 'sens' : ''}"><span class="nm" dir="ltr" title="${esc(x.name)}">${x.sensitive ? '⚠️ ' : ''}${esc(x.name)}</span><span dir="ltr">${x.count > 1 ? `${x.count}× · ` : ''}${kb(x.bytes)}</span></div>`).join('')}</div>` : '';
+  const session = x => {
+    const open = sentOpen.has(x.id), t = x.totals;
+    const parts = [x.last && ago(x.last), x.requests && `${x.requests} request${x.requests === 1 ? '' : 's'} to ${x.company || 'the AI'}`,
+      t.files && `${t.files} file read${t.files === 1 ? '' : 's'} (${kb(t.fileBytes)})`, t.cmds && `${t.cmds} command output${t.cmds === 1 ? '' : 's'} (${kb(t.cmdBytes)})`,
+      x.prompts && `${x.prompts} prompt${x.prompts === 1 ? '' : 's'}`, t.web && `${t.web} web page${t.web === 1 ? '' : 's'}`].filter(Boolean);
+    return `<div class="sentses${open ? ' open' : ''}">
+      <div class="item" data-sent="${x.id}" style="cursor:pointer">${avatar(x.agent)}
+        <div style="min-width:0"><div class="sentttl"><span class="ttl">${esc(x.agent)}${x.project ? ` · ${esc(x.project.split('/').pop() || x.project)}` : ''}</span> <span class="badge ok" dir="ltr">${kb(t.bytes)}</span>${x.sensitive ? ` <span class="badge high">${x.sensitive} sensitive</span>` : ''}${x.secrets ? ` <span class="badge high">keys in log</span>` : ''}</div>
+          <div class="sub">${parts.map(p => `<span>${esc(p)}</span>`).join(' · ')}</div></div>
+        <span class="chev">${open ? '▾' : '▸'}</span></div>
+      ${open ? `<div class="sentdet">
+        <dl class="kv">
+          ${x.project ? `<div><dt>Project</dt><dd dir="ltr">${esc(x.project)}</dd></div>` : ''}
+          <div><dt>When</dt><dd>${x.first ? esc(new Date(x.first).toLocaleString()) : '?'} – ${x.last ? esc(new Date(x.last).toLocaleString()) : '?'}</dd></div>
+          ${x.models.length ? `<div><dt>Model</dt><dd>${esc(x.models.join(', '))}</dd></div>` : ''}
+          <div><dt>Your prompts</dt><dd>${x.prompts} (${kb(x.promptBytes)})</dd></div>
+          ${x.ctxBytes ? `<div><dt>Added by ${esc(x.agent)}</dt><dd>${kb(x.ctxBytes)} of instructions and context it adds by itself</dd></div>` : ''}
+          ${x.env && x.env.length ? `<div><dt>About this computer</dt><dd>${x.env.map(k => `<span>${esc(ENV_LABEL[k] || k)}</span>`).join(', ')}</dd></div>` : ''}
+          <div><dt>Session log</dt><dd dir="ltr">${esc(x.log)}</dd></div>
+        </dl>
+        ${rows('Files it read and sent', x.files)}${rows('Commands whose output it sent', x.cmds)}${rows('Web pages', x.web)}${rows('Other tools', x.tools)}
+      </div>` : ''}</div>`;
+  };
+  $('#body').innerHTML = `
+    <div class="explain medium"><b>What this shows, and what it can't</b>Each agent's own session log records your prompts and everything it sent back to the AI after using a tool: the files it read, the output of the commands it ran, the web pages it fetched. This page adds them up. Not included: usage statistics and error reports, which agents send separately and encrypted, so their contents can't be read. You can turn those off under Privacy. The Claude and ChatGPT desktop apps keep no such log on this computer.</div>
+    ${reading ? `<p class="detail" style="margin-top:10px">Still reading ${reading === 1 ? '1 session log' : `${reading} session logs`}…</p>` : ''}
+    ${ss.length ? `<div class="sentsum"><div><b>${kb(tot.bytes)}</b><span>sent</span></div><div><b>${ss.length}</b><span>sessions</span></div><div><b>${tot.files}</b><span>files</span></div><div><b>${tot.cmds}</b><span>command outputs</span></div><div class="${tot.sens ? 'bad' : ''}"><b>${tot.sens}</b><span>sensitive</span></div></div>
+    <div class="sec"><h3>Sessions</h3></div><div class="card nock">${ss.map(session).join('')}</div>`
+    : '<div class="empty">No sessions of Claude Code, Codex CLI or Gemini CLI in the last 30 days.</div>'}`;
+}
+
 async function renderHistory() {
   setHead('History & undo', 'A backup is saved before every change. Restore one to put the access back.');
   $('#body').innerHTML = '<div class="empty">Loading…</div>';
@@ -688,7 +748,7 @@ function renderInspector() {
 
 // ---------- events ----------
 document.addEventListener('click', async e => {
-  const t = e.target.closest('[data-unused],[data-trust],[data-untrust],[data-dec],[data-pick],[data-pickall],[data-bulk],[data-exp],[data-openapp],[data-ackall],[data-view],[data-go],[data-id],[data-close],[data-revoke],[data-rev],[data-restore],#seg button,#rescan');
+  const t = e.target.closest('[data-sent],[data-unused],[data-trust],[data-untrust],[data-dec],[data-pick],[data-pickall],[data-bulk],[data-exp],[data-openapp],[data-ackall],[data-view],[data-go],[data-id],[data-close],[data-revoke],[data-rev],[data-restore],#seg button,#rescan');
   if (!t) return;
   if (t.id === 'rescan') return scan();
   if (t.dataset.trust) {
@@ -723,6 +783,7 @@ document.addEventListener('click', async e => {
   }
   if (t.dataset.openapp) { try { toast((await api('open-app', { id: t.dataset.openapp })).message, 6000); } catch (err) { toast(err.message); } return; }
   if (t.dataset.ackall !== undefined) { await api('ack', {}); toast('All marked as seen', 2000); if (view === 'new') view = 'overview'; return scan(); }
+  if (t.dataset.sent) { sentOpen.has(t.dataset.sent) ? sentOpen.delete(t.dataset.sent) : sentOpen.add(t.dataset.sent); return renderSent(); }
   if (t.dataset.view) { view = t.dataset.view; agentFilter = t.dataset.agent || null; ui.risk = ''; $('#content').scrollTop = 0; return render(); }
   if (t.dataset.go) { view = t.dataset.go; agentFilter = null; ui.risk = t.dataset.risk || ''; $('#content').scrollTop = 0; return render(); }
   if (t.closest('#seg')) { ui.risk = t.dataset.risk; return renderMain(); }
