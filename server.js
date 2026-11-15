@@ -2155,17 +2155,16 @@ function checkUploads(now) {
       return /\.app$/.test(exeOf(q.cmd)) ? (appName(q.cmd) === 'Claude' ? 'Claude Desktop' : appName(q.cmd)) : AGENT_NAMES[k];
     };
     if (agentOf(p)) continue;
-    let by = null, self = false;
-    // a helper of the agent's own app (Electron's network process, for example) is the agent itself
-    for (let n = 0, a = byPid.get(p.ppid); a && n < 30; n++, a = byPid.get(a.ppid)) if ((by = agentOf(a))) { self = exeOf(a.cmd) === exeOf(p.cmd); break; }
-    if (self) continue;
+    let by = null, own = false;
+    // a helper of the agent's own app (Electron's network process, for example) is the app itself: still shown, as the app
+    for (let n = 0, a = byPid.get(p.ppid); a && n < 30; n++, a = byPid.get(a.ppid)) if ((by = agentOf(a))) { own = exeOf(a.cmd) === exeOf(p.cmd); break; }
     if (!by && total < ANY_LIMIT) continue;
     let ev = st.events.find(x => x.key === key && x.ip === e.ip && now - Date.parse(x.firstAt) < 24 * 3600e3);
     if (!ev) {
       // the files it has open that could matter: secrets, and your own files
       const files = openFiles(p.pid).filter(f => SENSITIVE_RE.test(f)
         || (f.startsWith(HOME) && !/\/(Library|\.cache)\//.test(f) && !/\.(dylib|so|node|pyc)$|\.so\.\d/.test(f)));
-      ev = { key, ip: e.ip, port: e.port, pid: Number(p.pid), cmd: p.cmd.slice(0, 300), name: (() => { const n = appName(p.cmd); const sc = appKey(p.cmd).slice(exeOf(p.cmd).length).trim(); return INTERP_RE.test(n) && sc ? `${n} (${path.basename(sc)})` : n; })(), by, bytes: 0, firstAt: new Date(now).toISOString(),
+      ev = { key, ip: e.ip, port: e.port, pid: Number(p.pid), cmd: p.cmd.slice(0, 300), name: (() => { const n = appName(p.cmd); const sc = appKey(p.cmd).slice(exeOf(p.cmd).length).trim(); return own ? by : INTERP_RE.test(n) && sc ? `${n} (${path.basename(sc)})` : n; })(), by: own ? null : by, own: own || undefined, bytes: 0, firstAt: new Date(now).toISOString(),
         files: [...new Set(files)].sort((a, b) => SENSITIVE_RE.test(b) - SENSITIVE_RE.test(a)).slice(0, 6) };
       st.events.push(ev);
       log(`UPLOAD ${ev.name} (process ${ev.pid}${by ? `, started by ${by}` : ''}) sending to ${e.ip}:${e.port}`);
@@ -2198,21 +2197,35 @@ function openFiles(pid) {
   }
   return files;
 }
+// who owns an address, for the few services whose addresses are known and stable
+const IP_OWNERS = [['160.79.104.0', 21, 'Anthropic']];
+function ipOwner(ip) {
+  const n = a => String(a).split('.').reduce((x, y) => x * 256 + Number(y), 0);
+  if (!/^\d+\.\d+\.\d+\.\d+$/.test(ip)) return null;
+  const hit = IP_OWNERS.find(([net, bits]) => Math.floor(n(ip) / 2 ** (32 - bits)) === Math.floor(n(net) / 2 ** (32 - bits)));
+  return hit ? hit[2] : null;
+}
 function scanUploads() {
   const out = [];
   if (DEMO) return out;
   const { events } = uploadStore();
   for (const ev of events) {
     if (Date.now() - Date.parse(ev.firstAt) > 24 * 3600e3) continue;
-    const sensitive = ev.files.filter(f => SENSITIVE_RE.test(f));
+    // an app's own data folder (its login cookies, for example) isn't someone else's secret
+    const app = ev.own ? ev.name.replace(/ Desktop$/, '').toLowerCase() : null;
+    const ownData = f => !!app && ['/application support/', '/appdata/roaming/', '/.config/'].some(d => f.replace(/\\/g, '/').toLowerCase().includes(`${d}${app}/`));
+    const sensitive = ev.files.filter(f => SENSITIVE_RE.test(f) && !ownData(f));
     const port = ev.port === '443' ? '443, secure web' : ev.port === '80' ? '80, plain web' : ev.port === '22' ? '22, SSH' : ev.port;
+    const owner = ipOwner(ev.ip);
     out.push({
-      agent: ev.by || ev.name, category: 'Data upload', title: `${ev.name} is sending data to ${ev.ip}`,
+      agent: ev.by || ev.name, category: 'Data upload', title: `${ev.name} is sending data to ${owner ? `${owner} (${ev.ip})` : ev.ip}`,
       detail: `${fmtBytes(ev.bytes)} sent to ${ev.ip} (port ${port}) since ${new Date(ev.firstAt).toLocaleTimeString()}`
+        + `${owner === 'Anthropic' ? ' · Anthropic runs Claude' : ''}`
         + `${ev.by ? ` · Started by ${ev.by}` : ''}`
         + `${ev.files.length ? ` · Files it has open: ${ev.files.map(f => f.replace(HOME, '~')).join(', ')}` : ''}`
+        + `${ev.own && ev.files.some(ownData) ? ` · The files in its own folder are ${ev.name}'s own data, such as its login cookies` : ''}`
         + ` · Process ${ev.pid}: ${ev.cmd.replace(HOME, '~').slice(0, 160)}`,
-      risk: ev.by || sensitive.length ? 'high' : 'medium', source: `upload ${ev.key} -> ${ev.ip}`,
+      risk: (ev.by && !ev.own) || sensitive.length ? 'high' : 'medium', source: `upload ${ev.key} -> ${ev.ip}`,
       action: { kind: 'killProcess', pid: ev.pid, cmdStart: ev.cmd.slice(0, 200), tree: true },
     });
   }
@@ -3517,4 +3530,4 @@ if (require.main === module) {
     if (process.env.PORT !== '0') console.log(`AI Access Auditor running at http://localhost:${server.address().port}/?token=${TOKEN}`); // the link opens the page; keep it to yourself
   });
 }
-module.exports = { scanAll, publicScan, exportReport, prepareUpdate, readyUpdate, _test: { saveFile, scanLeftovers, gateInstall, gateStatus, isOurHook, historyFiles, refreshHistory, scanHistory, startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason } };
+module.exports = { scanAll, publicScan, exportReport, prepareUpdate, readyUpdate, _test: { saveFile, scanLeftovers, gateInstall, gateStatus, isOurHook, historyFiles, refreshHistory, scanHistory, startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason, ipOwner } };

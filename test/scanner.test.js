@@ -323,3 +323,9 @@ test('every app text and pattern has Chinese, and native strings are up to date'
   assert.deepEqual(warns, []);
   execFileSync(process.execPath, [path.join(ROOT, 'desktop', 'gen-strings.js'), '--check'], { stdio: 'pipe' });
 });
+
+test('data uploads name the owner of known addresses', () => {
+  const out = execFileSync(process.execPath, ['-e', `const t = require(${JSON.stringify(path.join(ROOT, 'server.js'))})._test;
+    console.log(JSON.stringify(['160.79.104.10', '160.79.111.255', '160.79.112.0', '8.8.8.8', '::1'].map(t.ipOwner))); process.exit(0);`], { env: { ...process.env, AUDIT_DEMO: '' } }).toString();
+  assert.deepEqual(JSON.parse(out.trim().split('\n').pop()), ['Anthropic', 'Anthropic', null, null, null]);
+});
