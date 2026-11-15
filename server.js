@@ -2199,6 +2199,8 @@ function openFiles(pid) {
 }
 // who owns an address, for the few services whose addresses are known and stable
 const IP_OWNERS = [['160.79.104.0', 21, 'Anthropic']];
+// where each company says what it collects, and where you can limit it
+const PRIVACY = { Anthropic: { company: 'Anthropic', policy: 'https://www.anthropic.com/legal/privacy', settings: 'https://claude.ai/settings' } };
 function ipOwner(ip) {
   const n = a => String(a).split('.').reduce((x, y) => x * 256 + Number(y), 0);
   if (!/^\d+\.\d+\.\d+\.\d+$/.test(ip)) return null;
@@ -2226,6 +2228,7 @@ function scanUploads() {
         + `${ev.own && ev.files.some(ownData) ? ` · The files in its own folder are ${ev.name}'s own data, such as its login cookies` : ''}`
         + ` · Process ${ev.pid}: ${ev.cmd.replace(HOME, '~').slice(0, 160)}`,
       risk: (ev.by && !ev.own) || sensitive.length ? 'high' : 'medium', source: `upload ${ev.key} -> ${ev.ip}`,
+      ...(PRIVACY[owner] ? { privacy: PRIVACY[owner] } : {}),
       action: { kind: 'killProcess', pid: ev.pid, cmdStart: ev.cmd.slice(0, 200), tree: true },
     });
   }

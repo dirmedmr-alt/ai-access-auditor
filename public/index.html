@@ -664,6 +664,8 @@ function renderInspector() {
     <div class="explain ${f.risk}"><b>${esc(head)}</b>${esc(text)}</div>
     ${f.keys && f.keys.length ? `<div class="explain high"><b>The keys still work</b>Removing them from the log only cleans the file. Anyone or anything that saw them can still use them until you cancel them with the service and create new ones.</div>
     <div class="keylinks">${f.keys.map(k => `<a class="btn" href="${esc(k.url)}" target="_blank" rel="noopener">Cancel at ${esc(k.label)}</a>`).join('')}</div>` : ''}
+    ${f.privacy ? `<div class="explain medium"><b>What Anthropic collects</b>Its privacy policy says its apps send, on their own: your device and connection details, how you use the app, and error reports. By default your chats may also be used to train its models. To stop that, open Settings, then Privacy, and turn off “Help improve Claude”.</div>
+    <div class="keylinks"><a class="btn" href="${esc(f.privacy.settings)}" target="_blank" rel="noopener">Turn off training on your chats</a><a class="btn" href="${esc(f.privacy.policy)}" target="_blank" rel="noopener">Privacy policy</a></div>` : ''}
     <dl class="kv">
       <div><dt>Type</dt><dd>${esc(f.category)}</dd></div>
       <div><dt>Details</dt><dd>${esc(f.detail)}</dd></div>
