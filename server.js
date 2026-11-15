@@ -2148,10 +2148,17 @@ function checkUploads(now) {
     const key = appKey(p.cmd);
     if (st.trusted.includes(key)) continue;
     // started by an AI agent? (the agent itself talking to its model service is expected, so only its helpers count)
-    const agentOf = q => { const x = exeBase(q.cmd).toLowerCase(); const k = AGENT_NAMES[x] ? x : (normCmd(q.cmd).match(AGENT_PROC_RE) || [])[1]; return k && AGENT_NAMES[k]; };
+    // a desktop app (Claude.app, Codex.app) is named after the app, not its command-line agent of the same name
+    const agentOf = q => {
+      const x = exeBase(q.cmd).toLowerCase(); const k = AGENT_NAMES[x] ? x : (normCmd(q.cmd).match(AGENT_PROC_RE) || [])[1];
+      if (!k) return null;
+      return /\.app$/.test(exeOf(q.cmd)) ? (appName(q.cmd) === 'Claude' ? 'Claude Desktop' : appName(q.cmd)) : AGENT_NAMES[k];
+    };
     if (agentOf(p)) continue;
-    let by = null;
-    for (let n = 0, a = byPid.get(p.ppid); a && n < 30; n++, a = byPid.get(a.ppid)) if ((by = agentOf(a))) break;
+    let by = null, self = false;
+    // a helper of the agent's own app (Electron's network process, for example) is the agent itself
+    for (let n = 0, a = byPid.get(p.ppid); a && n < 30; n++, a = byPid.get(a.ppid)) if ((by = agentOf(a))) { self = exeOf(a.cmd) === exeOf(p.cmd); break; }
+    if (self) continue;
     if (!by && total < ANY_LIMIT) continue;
     let ev = st.events.find(x => x.key === key && x.ip === e.ip && now - Date.parse(x.firstAt) < 24 * 3600e3);
     if (!ev) {
