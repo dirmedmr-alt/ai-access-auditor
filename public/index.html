@@ -177,6 +177,10 @@ html.native .insp-in{padding-top:34px}
 .bksec{margin-top:4px;font-size:12px;color:var(--mut);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .bkacts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 .sentsum{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+.cobar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--line);margin-top:10px}.cobar i{display:block;height:100%}
+.colegend{display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:12.5px}.colegend>span{color:var(--mut)}.colegend b{color:var(--fg);font-weight:600}
+.colegend i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-inline-end:6px}
+.cocard{padding:14px 16px}.cocard .cobar{margin-top:0}.unusedcard .uc-txt span.badtxt{color:var(--high)}
 .sentsum div{flex:1 1 110px;border:1px solid var(--line);border-radius:10px;background:var(--pane);padding:10px 12px}
 .sentsum b{display:block;font-size:20px}.sentsum span{color:var(--mut);font-size:12px}.sentsum .bad b{color:var(--high)}
 .sentttl{display:flex;align-items:center;gap:6px;min-width:0}.sentttl .ttl{min-width:0}
@@ -276,7 +280,7 @@ html.native .insp-in{padding-top:34px}
   <aside class="side">
     <div class="brand">
       <div class="logo"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4-3 7.5-7 9-4-1.5-7-5-7-9V6z" fill="#fff" stroke="none"/><path d="M9 12l2 2 4-4" stroke="#2849b8"/></svg></div>
-      <div><b>Access Auditor</b><span>AI agent permissions</span></div>
+      <div><b>AI Access Auditor</b><span>AI agent permissions</span></div>
     </div>
     <nav id="nav"></nav>
     <div class="sidefoot"><button class="btn ghost" data-setup style="padding:3px 4px;font-size:11px">Setup</button><span id="when">Scanning…</span><button class="btn ghost" id="themeBtn" style="margin-inline-start:auto;padding:3px 6px"></button><button class="btn ghost" id="rescan" title="Rescan (⌘R)" style="padding:3px 6px"></button></div>
@@ -429,12 +433,12 @@ function renderNav() {
   $('#nav').innerHTML =
     item('overview', 'Overview', icon('overview'), openHigh ? '!' + openHigh : '') +
     item('all', 'All grants', icon('list'), f.length) +
+    item('sent', 'Sent to AI', icon('Data upload'), '') +
     item('privacy', 'Privacy', icon('privacy'), (n => n ? (f.some(x => PRIVACY.includes(x.category) && x.risk === 'high' && !x.reviewedAt) ? '!' : '') + n : '')(f.filter(x => PRIVACY.includes(x.category) && !x.reviewedAt).length)) +
     (f.some(x => x.isNew) ? item('new', 'New', icon('info'), '!' + f.filter(x => x.isNew).length) : '') +
     `<div class="navh">Agents</div>` +
     Object.entries(agents).sort((a, b) => b[1] - a[1]).map(([a, n]) => item('agent', a, avatar(a), n, a)).join('') +
     `<div class="navh">More</div>` +
-    item('sent', 'Sent to AI', icon('Data upload'), '') +
     item('decisions', 'Decisions', icon('hand'), '') +
     item('accounts', 'Online accounts', icon('accounts'), '') +
     item('history', 'History & undo', icon('history'), '');
@@ -504,7 +508,9 @@ function renderOverview() {
       return `<div class="sec"><h3>Never used</h3></div><div class="card unusedcard"><div class="uc-txt"><b>${u.length === 1 ? '1 grant was never used' : `${u.length} grants were never used`}</b>
         <span><span>Not used since ${day(since)}</span> · <span>Revoking them doesn't change anything your agents actually do. Backups are kept, so you can undo.</span></span></div>
         <div class="uc-btns"><button class="btn danger" data-unused="revoke">${u.length === 1 ? 'Revoke it' : `Revoke all ${u.length}`}</button><button class="btn" data-go="unused">Choose which</button></div></div>`; })()}
-    <div class="sec"><h3>Protection</h3><button class="btn ghost" data-setup>Setup</button></div>
+    <div id="sentov">${sentCard(sentCache && sentCache.ss)}</div>
+    <div class="sec"><h3>Protection</h3>${(() => { const gates = [true, gemHere || gemOn, cdxHere || cdxOn].filter(Boolean).length, on = [gateOn, gemOn, cdxOn].filter(Boolean).length;
+      return gates > 1 && on < gates ? '<button class="btn ghost" data-gate-all style="margin-inline-start:auto">Turn on Ask before for all</button>' : ''; })()}<button class="btn ghost" data-setup>Setup</button></div>
     <div class="prot">
       ${prot('info', 'Live popups', 'New access from any agent', '<span class="ok-pill yes">On</span>', true)}
       ${prot('hand', 'Ask before Claude Code acts', gateOn ? 'You approve each new action' : 'Claude Code asks in its own window', `<label class="switch"><input type="checkbox" id="gateSw" ${gateOn ? 'checked' : ''}></label>`, gateOn)}
@@ -512,7 +518,7 @@ function renderOverview() {
       ${cdxHere || cdxOn ? prot('hand', 'Ask before Codex CLI acts', cdxOn ? 'You approve each action here' : 'Codex asks in its own window', `<label class="switch"><input type="checkbox" id="cdxSw" ${cdxOn ? 'checked' : ''}></label>`, cdxOn) : ''}
       ${!MACOS ? '' : prot('macOS privacy', 'macOS permissions', fda ? 'Screen, files, camera and more' : 'Needs Full Disk Access', fda ? '<span class="ok-pill yes">On</span>' : '<button class="btn" data-setup-step="1">Fix</button>', fda)}
       ${(() => { const s = f.filter(x => x.category === 'Secret in history').length, d = f.filter(x => x.category === 'Data sharing').length;
-        return prot('privacy', 'Privacy', s || d ? `${s} logs with secrets · ${d} sharing data` : 'Nothing found', s || d ? '<button class="btn" data-go="privacy">Review</button>' : '<span class="ok-pill yes">Clear</span>', !(s || d)); })()}
+        return prot('privacy', 'Privacy', s || d ? `${s} ${s === 1 ? 'log' : 'logs'} with secrets · ${d} sharing data` : 'Nothing found', s || d ? '<button class="btn" data-go="privacy">Review</button>' : '<span class="ok-pill yes">Clear</span>', !(s || d)); })()}
       ${prot('Folder access', 'Watch all apps', scope === 'all' ? 'Every app, not just AI' : 'AI apps only', `<label class="switch"><input type="checkbox" id="scopeSw" ${scope === 'all' ? 'checked' : ''}></label>`, scope === 'all')}
     </div>
     <div class="split">
@@ -523,6 +529,31 @@ function renderOverview() {
           <div class="bar"><span>${esc(k)}</span><span class="t">${['high', 'medium', 'low'].map(r => `<i style="width:${c[r] / max * 100}%;background:var(--${r === 'medium' ? 'med' : r})"></i>`).join('')}</span><span class="c">${c.n}</span></div>`).join('')}
           <div class="legend"><span><i style="background:var(--high)"></i>High</span><span><i style="background:var(--med)"></i>Medium</span><span><i style="background:var(--low)"></i>Low</span></div></div></div>
     </div>`;
+  // the "Sent to AI" card fills in when the session logs have been read (kept for a minute)
+  if (!sentCache || Date.now() - sentCache.at > 60000) loadSent().then(() => { const el = view === 'overview' && $('#sentov'); if (el) el.innerHTML = sentCard(sentCache.ss); }).catch(() => {});
+}
+
+// what agents sent, per company: one bar, plus a legend with the amounts
+let sentCache = null;
+async function loadSent() { const r = await api('sent'); sentCache = { ss: r.sessions, reading: r.reading, at: Date.now() }; return r; }
+const CO_COLOR = { Anthropic: '#d97757', OpenAI: '#10a37f', Google: '#4285f4' };
+function coBar(ss) {
+  const by = {};
+  ss.forEach(x => { const c = x.company || 'Other'; by[c] = (by[c] || 0) + x.totals.bytes; });
+  const list = Object.entries(by).filter(([, b]) => b > 0).sort((a, b) => b[1] - a[1]), sum = list.reduce((a, [, b]) => a + b, 0);
+  if (!sum) return '';
+  return `<div class="cobar">${list.map(([c, b]) => `<i style="width:${Math.max(1, b / sum * 100)}%;background:${CO_COLOR[c] || 'var(--faint)'}" title="${esc(c)}"></i>`).join('')}</div>
+    <div class="colegend">${list.map(([c, b]) => `<span><i style="background:${CO_COLOR[c] || 'var(--faint)'}"></i><b>${esc(c)}</b> <span dir="ltr">${kb(b)}</span></span>`).join('')}</div>`;
+}
+function sentCard(ss) {
+  if (!ss || !ss.length) return '';
+  const week = ss.filter(x => x.last && Date.now() - Date.parse(x.last) < 7 * 864e5), use = week.length ? week : ss;
+  const bytes = use.reduce((a, x) => a + x.totals.bytes, 0), sens = use.reduce((a, x) => a + x.sensitive, 0);
+  if (!bytes) return '';
+  return `<div class="sec"><h3>Sent to AI</h3></div><div class="card unusedcard sentov"><div class="uc-txt"><b>${kb(bytes)} sent to AI companies</b>
+    <span><span>${week.length ? 'In the last 7 days' : 'In the last 30 days'}</span> · <span>${use.length === 1 ? '1 session' : `${use.length} sessions`}</span>${sens ? ` · <span class="badtxt">${sens === 1 ? '1 sensitive file' : `${sens} sensitive files`}</span>` : ''}</span>
+    ${coBar(use)}</div>
+    <div class="uc-btns"><button class="btn" data-go="sent">See what was sent</button></div></div>`;
 }
 
 // ctx: 'agent' = list is grouped by agent (don't repeat it), 'category' = grouped by type
@@ -656,12 +687,27 @@ async function renderDecisions() {
 // ---------- Sent to AI: what each session sent to the AI company, from the agent's own log ----------
 const kb = n => n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`;
 const sentOpen = new Set();
+// "Today, 5:29 PM – 5:59 PM (30 min)", in the app's language
+function sentWhen(a, b) {
+  if (!a && !b) return '?';
+  const L = pageLang(), A = new Date(a || b), B = new Date(b || a);
+  const dayDiff = d => Math.round((new Date().setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / 864e5);
+  const dayName = d => { const n = dayDiff(d);
+    if (n === 0 || n === 1) { const s = new Intl.RelativeTimeFormat(L, { numeric: 'auto' }).format(-n, 'day'); return s[0].toLocaleUpperCase(L) + s.slice(1); }
+    return d.toLocaleDateString(L, { month: 'short', day: 'numeric', ...(d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}) }); };
+  const time = d => d.toLocaleTimeString(L, { hour: 'numeric', minute: '2-digit' });
+  const mins = Math.round((B - A) / 6e4);
+  const dur = mins < 1 || mins >= 1440 ? '' : ` (${mins < 60 ? new Intl.NumberFormat(L, { style: 'unit', unit: 'minute', unitDisplay: 'short' }).format(mins)
+    : new Intl.NumberFormat(L, { style: 'unit', unit: 'hour', unitDisplay: 'short', maximumFractionDigits: 1 }).format(mins / 60)})`;
+  if (A.toDateString() === B.toDateString()) return `${dayName(A)}, ${time(A)}${+A === +B ? '' : ` – ${time(B)}`}${dur}`;
+  return `${dayName(A)}, ${time(A)} – ${dayName(B)}, ${time(B)}${dur}`;
+}
 const ENV_LABEL = { platform: 'operating system', osVersion: 'its version', shell: 'shell', workingDirectory: 'project folder', isGitRepo: 'whether it is a Git project' };
 async function renderSent() {
   setHead('Sent to AI', 'What your agents sent to the AI companies in the last 30 days, read from their own session logs on this computer.');
   if (!$('#body').querySelector('.sentsum, .explain')) $('#body').innerHTML = '<div class="empty">Reading session logs…</div>';
   let ss, reading;
-  try { ({ sessions: ss, reading } = await api('sent')); } catch (err) { $('#body').innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
+  try { ({ sessions: ss, reading } = await loadSent()); } catch (err) { $('#body').innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
   if (view !== 'sent') return;
   clearTimeout(renderSent.t);
   if (reading) renderSent.t = setTimeout(() => { if (view === 'sent') renderSent(); }, 2500);
@@ -680,7 +726,7 @@ async function renderSent() {
       ${open ? `<div class="sentdet">
         <dl class="kv">
           ${x.project ? `<div><dt>Project</dt><dd dir="ltr">${esc(x.project)}</dd></div>` : ''}
-          <div><dt>When</dt><dd>${x.first ? esc(new Date(x.first).toLocaleString()) : '?'} – ${x.last ? esc(new Date(x.last).toLocaleString()) : '?'}</dd></div>
+          <div><dt>When</dt><dd>${esc(sentWhen(x.first, x.last))}</dd></div>
           ${x.models.length ? `<div><dt>Model</dt><dd>${esc(x.models.join(', '))}</dd></div>` : ''}
           <div><dt>Your prompts</dt><dd>${x.prompts} (${kb(x.promptBytes)})</dd></div>
           ${x.ctxBytes ? `<div><dt>Added by ${esc(x.agent)}</dt><dd>${kb(x.ctxBytes)} of instructions and context it adds by itself</dd></div>` : ''}
@@ -694,6 +740,7 @@ async function renderSent() {
     <div class="explain medium"><b>What this shows, and what it can't</b>Each agent's own session log records your prompts and everything it sent back to the AI after using a tool: the files it read, the output of the commands it ran, the web pages it fetched. This page adds them up. Not included: usage statistics and error reports, which agents send separately and encrypted, so their contents can't be read. You can turn those off under Privacy. The Claude and ChatGPT desktop apps keep no such log on this computer.</div>
     ${reading ? `<p class="detail" style="margin-top:10px">Still reading ${reading === 1 ? '1 session log' : `${reading} session logs`}…</p>` : ''}
     ${ss.length ? `<div class="sentsum"><div><b>${kb(tot.bytes)}</b><span>sent</span></div><div><b>${ss.length}</b><span>sessions</span></div><div><b>${tot.files}</b><span>files</span></div><div><b>${tot.cmds}</b><span>command outputs</span></div><div class="${tot.sens ? 'bad' : ''}"><b>${tot.sens}</b><span>sensitive</span></div></div>
+    ${(b => b ? `<div class="sec"><h3>By company</h3></div><div class="card cocard">${b}</div>` : '')(coBar(ss))}
     <div class="sec"><h3>Sessions</h3></div><div class="card nock">${ss.map(session).join('')}</div>`
     : '<div class="empty">No sessions of Claude Code, Codex CLI or Gemini CLI in the last 30 days.</div>'}`;
 }
@@ -753,9 +800,17 @@ function renderInspector() {
 
 // ---------- events ----------
 document.addEventListener('click', async e => {
-  const t = e.target.closest('[data-delbk],[data-sent],[data-unused],[data-trust],[data-untrust],[data-dec],[data-pick],[data-pickall],[data-bulk],[data-exp],[data-openapp],[data-ackall],[data-view],[data-go],[data-id],[data-close],[data-revoke],[data-rev],[data-restore],#seg button,#rescan');
+  const t = e.target.closest('[data-gate-all],[data-delbk],[data-sent],[data-unused],[data-trust],[data-untrust],[data-dec],[data-pick],[data-pickall],[data-bulk],[data-exp],[data-openapp],[data-ackall],[data-view],[data-go],[data-id],[data-close],[data-revoke],[data-rev],[data-restore],#seg button,#rescan');
   if (!t) return;
   if (t.id === 'rescan') return scan();
+  if (t.dataset.gateAll !== undefined) { // one click for every agent's "Ask before" hook
+    const todo = [[!gateOn, undefined], [(gemHere || gemOn) && !gemOn, 'Gemini CLI'], [(cdxHere || cdxOn) && !cdxOn, 'Codex CLI']].filter(([x]) => x).map(([, a]) => a);
+    if (!todo.length || !confirm('Turn on Ask before for every agent?\n\nBefore an agent acts without asking you, a window pops up here so you can Allow or Deny. This adds a hook to each agent\'s settings (a backup is saved). If this app isn\'t running, each agent works as usual.')) return;
+    const failed = [];
+    for (const agent of todo) { try { await api('gate/install', agent ? { on: true, agent } : { on: true }); } catch (err) { failed.push(`${agent || 'Claude Code'}: ${err.message}`); } }
+    toast(failed.length ? 'Couldn\'t turn on: ' + failed.join(' · ') : todo.includes('Codex CLI') ? 'Ask before is on for every agent. One step left for Codex: start it, type /hooks and trust the new hooks.' : 'Ask before is on for every agent.', 9000);
+    return scan();
+  }
   if (t.dataset.trust) {
     if (!confirm('Let this app send data without asking from now on?\n\nYou can undo this under Decisions.')) return;
     try { toast((await api('uploads/trust', { id: t.dataset.trust })).message, 5000); selected = null; await scan(); } catch (err) { toast(err.message); }
