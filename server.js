@@ -2223,6 +2223,7 @@ function scanUploads() {
       agent: ev.by || ev.name, category: 'Data upload', title: `${ev.name} is sending data to ${owner ? `${owner} (${ev.ip})` : ev.ip}`,
       detail: `${fmtBytes(ev.bytes)} sent to ${ev.ip} (port ${port}) since ${new Date(ev.firstAt).toLocaleTimeString()}`
         + `${owner === 'Anthropic' ? ' · Anthropic runs Claude' : ''}`
+        + (ev.port === '80' ? ' · Not encrypted' : ' · Encrypted: where it went and how much can be seen, not what was inside')
         + `${ev.by ? ` · Started by ${ev.by}` : ''}`
         + `${ev.files.length ? ` · Files it has open: ${ev.files.map(f => f.replace(HOME, '~')).join(', ')}` : ''}`
         + `${ev.own && ev.files.some(ownData) ? ` · The files in its own folder are ${ev.name}'s own data, such as its login cookies` : ''}`
