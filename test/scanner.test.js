@@ -131,6 +131,25 @@ test('leaked keys: found, masked everywhere, linked to where they are cancelled,
   assert.equal(out.f.keys[0].url, 'https://console.anthropic.com/settings/keys');
   inHome(home, `m._test.refreshHistory(1e9); m._test.revoke(m.scanAll().findings.find(x => x.category === 'Secret in history').id);`);
   assert.ok(!fs.readFileSync(path.join(home, '.claude/projects/p/s.jsonl'), 'utf8').includes(key));
+  assert.deepEqual(inHome(home, 'return m._test.listBackups()'), [], 'removing keys from a log must not keep a copy of them');
+});
+
+test('a backup that holds a key is marked, deleted after 7 days (not before), and leaves no copy of the key', () => {
+  const tok = 'ghp_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8';
+  const home = makeHome({ '.claude.json': { mcpServers: { gh: { command: 'npx', args: ['-y', 'gh-mcp'], env: { GITHUB_TOKEN: tok } } } } });
+  inHome(home, `m._test.revoke(m.scanAll().findings.find(x => x.category === 'MCP server' && x.title === 'gh').id);`);
+  const bks = inHome(home, 'return m._test.listBackups()');
+  assert.equal(bks.length, 1); assert.ok(bks[0].secrets >= 1, 'backup not marked as holding keys'); assert.ok(bks[0].expiresAt);
+  assert.equal(inHome(home, 'return m._test.expireSecretBackups(Date.now() + 6 * 864e5)'), 0);
+  assert.equal(inHome(home, 'return m._test.expireSecretBackups(Date.now() + 8 * 864e5)'), 1);
+  assert.deepEqual(inHome(home, 'return m._test.listBackups()'), []);
+  const dir = path.join(home, '.ai-access-audit/backups');
+  assert.ok(!fs.readdirSync(dir).some(n => fs.readFileSync(path.join(dir, n), 'latin1').includes(tok)), 'key left in the backup folder');
+});
+
+test('deleting a backup refuses names that leave the backup folder', () => {
+  const home = makeHome();
+  for (const bad of ['../../.ssh/id_rsa', 'a/b', '..', '']) assert.throws(() => inHome(home, `m._test.deleteBackup(${JSON.stringify(bad)})`));
 });
 
 test('agents left behind after uninstalling are reported', () => {

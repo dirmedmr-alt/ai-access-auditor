@@ -173,6 +173,8 @@ html.native .insp-in{padding-top:34px}
 .insp .x{float:inline-end;border:0;background:var(--hover);width:24px;height:24px;border-radius:50%;color:var(--mut);cursor:default;font-size:14px;line-height:1}
 .insp h2{font-size:16px;margin:14px 0 6px;overflow-wrap:anywhere}
 .insp .lead{color:var(--mut);margin:0 0 16px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.bksec{margin-top:4px;font-size:12px;color:var(--mut);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.bkacts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 .sentsum{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
 .sentsum div{flex:1 1 110px;border:1px solid var(--line);border-radius:10px;background:var(--pane);padding:10px 12px}
 .sentsum b{display:block;font-size:20px}.sentsum span{color:var(--mut);font-size:12px}.sentsum .bad b{color:var(--high)}
@@ -696,15 +698,16 @@ async function renderSent() {
 }
 
 async function renderHistory() {
-  setHead('History & undo', 'A backup is saved before every change. Restore one to put the access back.');
+  setHead('History & undo', 'A backup is saved before every change. Restore one to put the access back. Backups that contain keys or logins are deleted after 7 days.');
   $('#body').innerHTML = '<div class="empty">Loading…</div>';
   const [bks, lg] = await Promise.all([api('backups'), api('log')]);
   if (view !== 'history') return;
   $('#body').innerHTML = `
     <div class="sec"><h3>Backups</h3></div>
     <div class="card nock">${bks.length ? bks.map(b => `<div class="item"><span class="ic low">${icon('history')}</span>
-      <div style="min-width:0"><div class="ttl">${esc(b.original)}</div><div class="sub">${b.at ? new Date(b.at).toLocaleString() : ''}</div></div>
-      <button class="btn" data-restore="${esc(b.name)}">Restore</button></div>`).join('') : '<div class="empty">No changes yet.</div>'}</div>
+      <div style="min-width:0"><div class="ttl">${esc(b.original)}</div><div class="sub">${b.at ? new Date(b.at).toLocaleString() : ''}</div>
+        ${b.secrets ? `<div class="bksec"><span class="badge high">Contains keys or logins</span> <span>Deleted automatically on ${esc(new Date(b.expiresAt).toLocaleDateString())}</span></div>` : ''}</div>
+      <div class="bkacts">${b.secrets ? `<button class="btn" data-delbk="${esc(b.name)}">Delete now</button>` : ''}<button class="btn" data-restore="${esc(b.name)}">Restore</button></div></div>`).join('') : '<div class="empty">No changes yet.</div>'}</div>
     <div class="sec"><h3>Activity</h3></div>
     <div class="card"><div class="log">${esc(lg.log.join('\n') || 'Nothing yet.')}</div></div>`;
 }
@@ -748,7 +751,7 @@ function renderInspector() {
 
 // ---------- events ----------
 document.addEventListener('click', async e => {
-  const t = e.target.closest('[data-sent],[data-unused],[data-trust],[data-untrust],[data-dec],[data-pick],[data-pickall],[data-bulk],[data-exp],[data-openapp],[data-ackall],[data-view],[data-go],[data-id],[data-close],[data-revoke],[data-rev],[data-restore],#seg button,#rescan');
+  const t = e.target.closest('[data-delbk],[data-sent],[data-unused],[data-trust],[data-untrust],[data-dec],[data-pick],[data-pickall],[data-bulk],[data-exp],[data-openapp],[data-ackall],[data-view],[data-go],[data-id],[data-close],[data-revoke],[data-rev],[data-restore],#seg button,#rescan');
   if (!t) return;
   if (t.id === 'rescan') return scan();
   if (t.dataset.trust) {
@@ -783,6 +786,11 @@ document.addEventListener('click', async e => {
   }
   if (t.dataset.openapp) { try { toast((await api('open-app', { id: t.dataset.openapp })).message, 6000); } catch (err) { toast(err.message); } return; }
   if (t.dataset.ackall !== undefined) { await api('ack', {}); toast('All marked as seen', 2000); if (view === 'new') view = 'overview'; return scan(); }
+  if (t.dataset.delbk) {
+    if (!confirm('Delete this backup now?\n\nIt contains keys or logins. Once deleted, this change can\'t be undone from History.')) return;
+    try { toast((await api('backups/delete', { name: t.dataset.delbk })).message); } catch (err) { toast(err.message); }
+    return renderHistory();
+  }
   if (t.dataset.sent) { sentOpen.has(t.dataset.sent) ? sentOpen.delete(t.dataset.sent) : sentOpen.add(t.dataset.sent); return renderSent(); }
   if (t.dataset.view) { view = t.dataset.view; agentFilter = t.dataset.agent || null; ui.risk = ''; $('#content').scrollTop = 0; return render(); }
   if (t.dataset.go) { view = t.dataset.go; agentFilter = null; ui.risk = t.dataset.risk || ''; $('#content').scrollTop = 0; return render(); }

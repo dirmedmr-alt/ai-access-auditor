@@ -2729,12 +2729,46 @@ function ack(ids) {
 // ---------- actions ----------
 function log(msg) { fs.appendFileSync(LOG_FILE, `${new Date().toISOString()}  ${msg}\n`); }
 
+// Backups that hold keys or logins are deleted after a week: an undo shouldn't keep a secret around for ever
+const SECRET_BACKUP_DAYS = 7;
+const LOGIN_FILE_RE = /(^|[\/\\_])(auth\.json|\.credentials\.json|oauth_creds\.json|gemini-credentials\.json|mcp-oauth-tokens\.json|google_accounts\.json|hosts\.yml|apps\.json|secrets\.json|credentials(\.json)?)$/i; // also backup names, where folders become _
+function secretsInBackup(p) {
+  let n = 0, budget = 256 << 20;
+  const visit = f => {
+    let st; try { st = fs.lstatSync(f); } catch { return; }
+    if (st.isDirectory()) { let ents = []; try { ents = fs.readdirSync(f); } catch {} for (const e of ents) { if (budget <= 0 || n >= 50) return; visit(path.join(f, e)); } return; }
+    if (!st.isFile()) return;
+    if (LOGIN_FILE_RE.test(f)) n++;
+    if (st.size > budget) return;
+    budget -= st.size; n += secretsInFile(f, st.size).length;
+  };
+  visit(p);
+  return Math.min(n, 50);
+}
 function backup(file) {
   const name = `${Date.now()}__${file.replace(/[\/\\:]/g, '_')}`;
   const dest = path.join(BACKUP_DIR, name);
   fs.copyFileSync(file, dest);
-  fs.writeFileSync(dest + '.meta.json', JSON.stringify({ original: file, at: new Date().toISOString() }));
+  const secrets = secretsInBackup(dest);
+  fs.writeFileSync(dest + '.meta.json', JSON.stringify({ original: file, at: new Date().toISOString(), ...(secrets ? { secrets } : {}) }));
   return name;
+}
+function deleteBackup(name) {
+  if (!name || name.includes('/') || name.includes('\\') || name.includes('..')) throw new Error('bad name');
+  const meta = readJson(path.join(BACKUP_DIR, name + '.meta.json'));
+  if (!meta) throw new Error('Backup not found');
+  fs.rmSync(path.join(BACKUP_DIR, name), { recursive: true, force: true });
+  fs.rmSync(path.join(BACKUP_DIR, name + '.meta.json'), { force: true });
+  return meta;
+}
+function expireSecretBackups(now = Date.now()) {
+  let n = 0;
+  for (const f of fs.readdirSync(BACKUP_DIR).filter(x => x.endsWith('.meta.json'))) {
+    const meta = readJson(path.join(BACKUP_DIR, f));
+    if (!meta || !meta.secrets || !meta.at || now - Date.parse(meta.at) < SECRET_BACKUP_DAYS * 864e5) continue;
+    try { deleteBackup(f.slice(0, -'.meta.json'.length)); n++; log(`EXPIRED backup of ${meta.original} (it held ${meta.secrets} key${meta.secrets === 1 ? '' : 's'} or logins), ${SECRET_BACKUP_DAYS} days old`); } catch {}
+  }
+  return n;
 }
 // Some changes aren't files (a registry value, a scheduled task): the backup records the command that undoes it
 const RESTORE_CMDS = ['reg', 'schtasks'];
@@ -2898,7 +2932,8 @@ function doRevoke(f, reason) {
       fs.cpSync(a.dir, to, { recursive: true, verbatimSymlinks: true }); fs.rmSync(a.dir, { recursive: true, force: true });
     }
     if (!WIN) try { fs.chmodSync(to, 0o700); } catch {}
-    fs.writeFileSync(path.join(BACKUP_DIR, name + '.meta.json'), JSON.stringify({ original: a.dir, at: new Date().toISOString(), folder: true, erased }));
+    const secrets = secretsInBackup(to);
+    fs.writeFileSync(path.join(BACKUP_DIR, name + '.meta.json'), JSON.stringify({ original: a.dir, at: new Date().toISOString(), folder: true, erased, ...(secrets ? { secrets } : {}) }));
     log(`REMOVE [${f.agent}] leftover folder ${a.dir}  logins erased: ${erased.join(', ') || 'none'}  backup=${name}${why}`);
     const where = a.dir.replace(HOME, '~');
     return { message: erased.length ? `Deleted ${where}. Its saved login was erased for good; the rest can be restored from History.` : `Deleted ${where}. It can be restored from History.`, backup: name };
@@ -2907,7 +2942,8 @@ function doRevoke(f, reason) {
     if (!exists(a.dir)) throw new Error('That folder is already gone. Rescan.');
     const name = `${Date.now()}__${a.dir.replace(/[\/\\:]/g, '_')}`;
     fs.cpSync(a.dir, path.join(BACKUP_DIR, name), { recursive: true, verbatimSymlinks: true });
-    fs.writeFileSync(path.join(BACKUP_DIR, name + '.meta.json'), JSON.stringify({ original: a.dir, at: new Date().toISOString(), folder: true }));
+    const secrets = secretsInBackup(path.join(BACKUP_DIR, name));
+    fs.writeFileSync(path.join(BACKUP_DIR, name + '.meta.json'), JSON.stringify({ original: a.dir, at: new Date().toISOString(), folder: true, ...(secrets ? { secrets } : {}) }));
     fs.rmSync(a.dir, { recursive: true, force: true });
     log(`REMOVE [${f.agent}] ${f.category}: ${f.title}  folder=${a.dir}  backup=${name}${why}`);
     return { message: `Removed "${f.title}". A copy is saved, so you can restore it from History.`, backup: name };
@@ -3140,7 +3176,8 @@ ${agents.map(a => `<section class="card agent"><h3>${e(a)} <span>${f.filter(x =>
 function listBackups() {
   return fs.readdirSync(BACKUP_DIR).filter(n => !n.endsWith('.meta.json')).sort().reverse().slice(0, 100).map(n => {
     const meta = readJson(path.join(BACKUP_DIR, n + '.meta.json')) || {};
-    return { name: n, original: (meta.original || '?').replace(HOME, '~'), at: meta.at };
+    return { name: n, original: (meta.original || '?').replace(HOME, '~'), at: meta.at,
+      ...(meta.secrets ? { secrets: meta.secrets, expiresAt: new Date(Date.parse(meta.at) + SECRET_BACKUP_DAYS * 864e5).toISOString() } : {}) };
   });
 }
 function restore(name) {
@@ -3586,6 +3623,7 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/uploads/untrust') return send(res, 200, untrustUploader(String(body.key || '')));
     if (url.pathname === '/api/export') return send(res, 200, exportReport(String(body.lang || 'en').slice(0, 2)));
     if (url.pathname === '/api/restore') return send(res, 200, restore(body.name));
+    if (url.pathname === '/api/backups/delete') { const m = deleteBackup(body.name); log(`DELETED backup of ${m.original}`); return send(res, 200, { message: `Deleted the backup of ${String(m.original).replace(HOME, '~')}` }); }
     send(res, 404, { error: 'unknown endpoint' });
   } catch (e) { send(res, 400, { error: e.message }); }
 });
@@ -3693,6 +3731,7 @@ if (require.main === module) {
     if (!DEMO) setInterval(() => refreshHistory(3000), 45e3).unref(); // keeps checking new session logs in the background
     setTimeout(() => checkForUpdate(), 20e3).unref();
     setInterval(() => checkForUpdate(), 3600e3).unref(); // checks at most once a day (see checkForUpdate)
+    if (!DEMO) { try { expireSecretBackups(); } catch {} setInterval(() => { try { expireSecretBackups(); } catch {} }, 6 * 3600e3).unref(); }
     if (process.env.PORT === '0') {
       console.log(`TOKEN ${TOKEN}`); // only for the Mac app that launched us
       // Exit when the Mac app goes away, even if it was force-quit
@@ -3703,4 +3742,4 @@ if (require.main === module) {
     if (process.env.PORT !== '0') console.log(`AI Access Auditor running at http://localhost:${server.address().port}/?token=${TOKEN}`); // the link opens the page; keep it to yourself
   });
 }
-module.exports = { scanAll, publicScan, exportReport, prepareUpdate, readyUpdate, _test: { saveFile, scanLeftovers, gateInstall, gateStatus, isOurHook, historyFiles, refreshHistory, scanHistory, startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason, ipOwner, sentSessions, sentInText, emptySent, sentMask } };
+module.exports = { scanAll, publicScan, exportReport, prepareUpdate, readyUpdate, _test: { saveFile, scanLeftovers, gateInstall, gateStatus, isOurHook, historyFiles, refreshHistory, scanHistory, startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason, ipOwner, expireSecretBackups, deleteBackup, sentSessions, sentInText, emptySent, sentMask } };
