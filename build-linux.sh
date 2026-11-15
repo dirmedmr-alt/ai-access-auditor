@@ -11,6 +11,7 @@ node --test test/scanner.test.js >/dev/null || { echo "Tests failed: run  node -
 docker build -q -t ai-access-auditor-linux-build -f desktop/build.Dockerfile desktop >/dev/null
 docker run --rm -v "$PWD":/src -v ai-access-auditor-node-modules:/src/desktop/node_modules -v ai-access-auditor-build-cache:/root/.cache \
   -w /src/desktop -e USE_SYSTEM_FPM=true -e ELECTRON_SKIP_BINARY_DOWNLOAD=1 ai-access-auditor-linux-build bash -c "
+    (cd /src && node --test test/scanner.test.js >/dev/null) || { echo 'Tests failed on Linux: nothing was built.'; exit 1; }
     npm ci --no-audit --no-fund >/dev/null
     rm -rf dist
     npx electron-builder --linux --publish never 2>&1 | grep -E 'building|⨯|rror' || true
