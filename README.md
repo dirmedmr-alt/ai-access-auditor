@@ -32,6 +32,8 @@ finds all of it, explains each item in one line, and lets you remove it with one
   API keys in your shell and environment, startup entries, and secrets left in agents' session logs (shown masked).
 - **Explains and scores them:** a safety score, and a one-line explanation of each risk.
 - **Shows what's actually used:** when each permission, folder and MCP server was last used, from the agents' own session logs (Claude Code, Codex CLI and Gemini CLI). Grants never used are marked "Unused", and one click revokes them all.
+- **Shows what agents sent to the AI:** for each Claude Code, Codex CLI and Gemini CLI session, the files the agent read, the output of the commands it ran, the web pages it fetched and your prompts, with sensitive files such as `.env` or SSH keys flagged. Read from the agents' own session logs, so nothing has to be decrypted. What those logs don't hold (usage statistics, error reports) is sent separately and encrypted; the app says so rather than guessing.
+- **Says where data goes:** when a program sends data off your computer, which company receives it and how much. Most of this traffic is encrypted, so the app shows where it went and how much, not what was inside.
 - **Takes access back:** revoke one grant or many at once, now or after a time limit. Every change is backed up first and can be undone.
 - **Watches for changes:** a popup the moment an agent gains new access. Keep it, keep it for a while, or remove it.
 - **Asks before agents act:** an optional popup before Claude Code, Codex or Gemini CLI runs a tool, through their own hook systems.
@@ -140,7 +142,10 @@ alerted about changes after that.
 - **Revoke:** backs up the file first. You can also tick several grants and revoke them together.
 - **Revoke automatically:** after 1 hour, 1 day, 7 days or 30 days.
 - **Mark as reviewed:** for grants you want to keep.
-- **Restore:** on the History tab.
+- **Restore:** on the History tab. Backups that contain keys or logins are deleted after 7 days, or right away with **Delete now**.
+
+Revoking changes an agent's settings. An agent that is already running may keep using the access until it reloads
+them, and a program can ignore its own settings. For a check at the moment an agent acts, use **Ask before**.
 
 Every action is logged in `~/.ai-access-audit/`.
 
