@@ -57,6 +57,7 @@ const SECRET_RE = /(key|token|secret|password|passwd|auth|bearer|credential|pat)
 function readJson(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
 }
+const sleepSync = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 function exists(f) { try { fs.accessSync(f); return true; } catch { return false; } }
 function id(...parts) { return crypto.createHash('sha1').update(JSON.stringify(parts)).digest('hex').slice(0, 16); }
 function mask(v) {
@@ -1274,8 +1275,12 @@ function scanEditorExtensions() {
     let names = [];
     try { names = fs.readdirSync(dir); } catch { continue; }
     const cli = typeof cliPath === 'function' ? cliPath() : cliPath;
-    const latest = {};
+    const latest = {}, obsolete = readJson(path.join(dir, '.obsolete')) || {};
+    // extensions.json lists what the default profile has installed; a folder missing from it is in another
+    // profile, or left over, and the editor's command line can't uninstall it
+    const listed = (j => Array.isArray(j) ? new Set(j.map(e => String(e.relativeLocation || '').toLowerCase()).filter(Boolean)) : null)(readJson(path.join(dir, 'extensions.json')));
     for (const n of names) {
+      if (obsolete[n]) continue; // already uninstalled: the editor deletes the folder on its next start
       const m = n.match(/^(.+?)-(\d+\.\d+\.\d+.*)$/);
       if (m && AI_EXT_RE.test(m[1]) && (!latest[m[1]] || m[2] > latest[m[1]].v)) latest[m[1]] = { v: m[2], dir: path.join(dir, n) };
     }
@@ -1286,7 +1291,8 @@ function scanEditorExtensions() {
         agent: editor, category: 'Editor extension', title: pkg.displayName && !pkg.displayName.startsWith('%') ? pkg.displayName : extId,
         detail: `${extId} v${v}: can read your open code${agentic ? ', edit files and run terminal commands' : ' and send it to an AI service'}`,
         risk: agentic ? 'high' : 'medium', source: extDir,
-        action: cli && exists(cli) ? { kind: 'uninstallExt', cli, extId, editor } : { kind: 'none', hint: `Uninstall it from the Extensions panel in ${editor}.` },
+        action: cli && exists(cli) && (!listed || !listed.size || listed.has(path.basename(extDir).toLowerCase())) ? { kind: 'uninstallExt', cli, extId, editor }
+          : { kind: 'none', hint: cli && exists(cli) ? `${editor} doesn't list it in its default profile: it may be installed in another ${editor} profile. Uninstall it from the Extensions panel in that profile.` : `Uninstall it from the Extensions panel in ${editor}.` },
       });
     }
   }
@@ -1772,6 +1778,17 @@ function windowsApps() {
   };
   walk(appData('Microsoft', 'Windows', 'Start Menu', 'Programs'), 2);
   walk('C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs', 2);
+  // Microsoft Store apps (like the Codex and ChatGPT apps) have no shortcut file: each has a package folder
+  // named Publisher.App_id, for example OpenAI.Codex_2p2nqsd0c76g0
+  let pkgs = [];
+  try { pkgs = fs.readdirSync(path.join(LOCAL_APPDATA, 'Packages')); } catch {}
+  for (const p of pkgs) {
+    const m = p.match(/^[A-Za-z0-9]+\.([A-Za-z0-9-]+)_[a-z0-9]+$/);
+    const name = m && m[1].replace(/-?(Desktop|Editor|AI|App)$/i, '');
+    if (!name || !re.test(name) || seen.has(name.toLowerCase())) continue;
+    seen.add(name.toLowerCase());
+    out.push({ name, file: path.join(LOCAL_APPDATA, 'Packages', p), store: true });
+  }
   return out;
 }
 function linuxApps() {
@@ -1805,7 +1822,7 @@ function scanInstalledAgents() {
       risk: 'low', source: f, action: { kind: 'none', hint: how ? `To uninstall: ${how}` : 'Uninstall it the way you installed it.' } });
   }
   for (const a of WIN ? windowsApps() : []) out.push({ agent: a.name, category: 'AI agent installed', title: `${a.name} app`,
-    detail: `Start menu: ${a.file.replace(HOME, '~')}`, risk: 'low', source: a.file,
+    detail: `${a.store ? 'Microsoft Store app' : 'Start menu'}: ${a.file.replace(HOME, '~')}`, risk: 'low', source: a.file,
     action: { kind: 'none', hint: 'To uninstall: Settings → Apps → Installed apps, then the ⋯ menu next to it → Uninstall.' } });
   for (const a of LINUX ? linuxApps() : []) out.push({ agent: a.name, category: 'AI agent installed', title: `${a.name} app`,
     detail: `${a.exec.replace(HOME, '~').slice(0, 120)} (${a.file.replace(HOME, '~')})`, risk: 'low', source: a.file,
@@ -2929,16 +2946,25 @@ function doRevoke(f, reason) {
     let st;
     try { st = fs.lstatSync(a.dir); } catch { throw new Error('That folder is already gone. Rescan.'); }
     if (!st.isDirectory()) throw new Error('This is not a plain folder (it may be a link): delete it yourself.');
+    const name = `${Date.now()}__${a.dir.replace(/[\/\\:]/g, '_')}`, to = path.join(BACKUP_DIR, name);
+    // Move the folder first, so nothing is erased if it can't be moved. On Windows a move fails while any
+    // program has a file in it open (the agent itself, an editor, antivirus scanning it): try a few times.
+    for (let i = 0; ; i++) {
+      try { fs.renameSync(a.dir, to); break; } // same disk: instant, and nothing is copied
+      catch (e) {
+        if (e.code === 'EXDEV') { fs.cpSync(a.dir, to, { recursive: true, verbatimSymlinks: true }); fs.rmSync(a.dir, { recursive: true, force: true }); break; }
+        if (!['EPERM', 'EACCES', 'EBUSY'].includes(e.code)) throw e;
+        if (i >= 7) throw new Error(`Couldn't move ${a.dir.replace(HOME, '~')}: a program is using a file in it, so nothing was deleted. ` +
+          `${f.agent} may still be running or installed in a way this app doesn't see (for example a Microsoft Store app or an editor extension): close it and try again. ` +
+          `Security software can also block this.`);
+        sleepSync(300);
+      }
+    }
+    // the saved logins are erased for good: a kept copy would still be a working login
     const erased = [];
     for (const n of LEFTOVER_LOGINS) {
-      const file = path.join(a.dir, n);
+      const file = path.join(to, n);
       try { if (fs.lstatSync(file).isFile()) { fs.unlinkSync(file); erased.push(n); } } catch {}
-    }
-    const name = `${Date.now()}__${a.dir.replace(/[\/\\:]/g, '_')}`, to = path.join(BACKUP_DIR, name);
-    try { fs.renameSync(a.dir, to); } // same disk: instant, and nothing is copied
-    catch (e) {
-      if (e.code !== 'EXDEV') throw e;
-      fs.cpSync(a.dir, to, { recursive: true, verbatimSymlinks: true }); fs.rmSync(a.dir, { recursive: true, force: true });
     }
     if (!WIN) try { fs.chmodSync(to, 0o700); } catch {}
     const secrets = secretsInBackup(to);
@@ -2960,8 +2986,14 @@ function doRevoke(f, reason) {
   if (a.kind === 'uninstallExt') {
     if (!/^[\w.-]+$/.test(a.extId)) throw new Error('Unexpected extension name.');
     // Windows editors ship a .cmd launcher, which only runs through cmd.exe
-    if (WIN) execFileSync('cmd.exe', ['/d', '/s', '/c', `""${a.cli}" --uninstall-extension ${a.extId}"`], { stdio: 'pipe', timeout: 60000, windowsHide: true, windowsVerbatimArguments: true });
-    else execFileSync(a.cli, ['--uninstall-extension', a.extId], { stdio: 'pipe', timeout: 60000 });
+    try {
+      if (WIN) execFileSync('cmd.exe', ['/d', '/s', '/c', `""${a.cli}" --uninstall-extension ${a.extId}"`], { stdio: 'pipe', timeout: 60000, windowsHide: true, windowsVerbatimArguments: true });
+      else execFileSync(a.cli, ['--uninstall-extension', a.extId], { stdio: 'pipe', timeout: 60000 });
+    } catch (e) {
+      if (/is not installed/i.test(String(e.stdout || '') + String(e.stderr || '') + e.message))
+        throw new Error(`${a.editor} says ${f.title} isn't installed in its default profile. It may be installed in another ${a.editor} profile: open ${a.editor}, switch to that profile and uninstall it from the Extensions panel.`);
+      throw e;
+    }
     log(`UNINSTALL ${a.editor} extension ${a.extId}${why}`);
     return { message: `Uninstalled ${f.title} from ${a.editor}. Reinstall it from the marketplace if you need it again.` };
   }
@@ -3759,4 +3791,4 @@ if (require.main === module) {
     if (process.env.PORT !== '0') console.log(`AI Access Auditor running at http://localhost:${server.address().port}/?token=${TOKEN}`); // the link opens the page; keep it to yourself
   });
 }
-module.exports = { scanAll, publicScan, exportReport, prepareUpdate, readyUpdate, _test: { saveFile, scanLeftovers, gateInstall, gateStatus, isOurHook, historyFiles, refreshHistory, scanHistory, startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason, ipOwner, expireSecretBackups, updateRetryDue, netError, deleteBackup, sentSessions, sentInText, emptySent, sentMask } };
+module.exports = { scanAll, publicScan, exportReport, prepareUpdate, readyUpdate, _test: { saveFile, scanLeftovers, scanEditorExtensions, gateInstall, gateStatus, isOurHook, historyFiles, refreshHistory, scanHistory, startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason, ipOwner, expireSecretBackups, updateRetryDue, netError, deleteBackup, sentSessions, sentInText, emptySent, sentMask } };

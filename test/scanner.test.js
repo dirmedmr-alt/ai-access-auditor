@@ -177,6 +177,31 @@ test('a leftover folder is deleted in one click: the login erased for good, the 
   assert.ok(!fs.existsSync(path.join(home, '.kiro', 'auth.json')), 'the login does not');
 });
 
+test('a leftover folder that cannot be moved is left whole, with its login', { skip: WIN || process.getuid?.() === 0 }, () => {
+  const home = makeHome({ '.kiro/settings/permissions.yaml': 'rules: []\n', '.kiro/auth.json': '{"token":"secret-login"}', '.ai-access-audit/backups/.keep': '' });
+  fs.chmodSync(home, 0o555); // the move needs to write the home folder: refused, like a file held open on Windows
+  try {
+    const out = inHome(home, `const f = m._test.scanLeftovers().find(x => x.agent === 'Kiro'); if (!f) return null;
+      f.id = 'x'; try { m._test.revoke('x', '', { findings: [f] }); return 'deleted'; } catch (e) { return e.message; }`, { AUDIT_DEMO: null, PATH: '' });
+    if (!out) return assert.fail('Kiro leftovers not reported (unless Kiro is installed on this machine)');
+    assert.match(out, /nothing was deleted/);
+  } finally { fs.chmodSync(home, 0o755); }
+  assert.equal(fs.readFileSync(path.join(home, '.kiro', 'auth.json'), 'utf8'), '{"token":"secret-login"}', 'the login is still there');
+});
+
+test('editor extensions: one VS Code already removed is skipped; one its default profile does not list is not uninstalled from the command line', () => {
+  const ext = '.vscode/extensions/';
+  const home = makeHome({ [ext + 'anthropic.claude-code-2.0.1/package.json']: { displayName: 'Claude Code for VS Code' },
+    [ext + 'anthropic.claude-code-1.0.0/package.json']: {}, [ext + 'openai.chatgpt-0.4.0/package.json']: { displayName: 'Codex' },
+    [ext + 'github.copilot-chat-0.30.0/package.json']: { displayName: 'GitHub Copilot Chat' },
+    [ext + '.obsolete']: { 'anthropic.claude-code-2.0.1': true, 'openai.chatgpt-0.4.0': true },
+    [ext + 'extensions.json']: [{ identifier: { id: 'openai.chatgpt' }, relativeLocation: 'openai.chatgpt-0.4.0' }] });
+  const list = inHome(home, 'return m._test.scanEditorExtensions().map(f => [f.title, f.action.kind])');
+  assert.ok(!list.some(([t]) => /Codex/.test(t)), 'the removed Codex extension is not reported');
+  assert.ok(list.some(([t, k]) => t === 'anthropic.claude-code' && k === 'none'), 'the older Claude Code folder is reported, without the command-line uninstall');
+  assert.ok(list.some(([t, k]) => t === 'GitHub Copilot Chat' && k === 'none'));
+});
+
 test('last used: each Claude Code permission is matched to its latest use in the session logs', () => {
   const line = (ts, name, input) => JSON.stringify({ type: 'assistant', timestamp: ts, message: { content: [{ type: 'tool_use', id: 'x', name, input }] } });
   const home = makeHome({
