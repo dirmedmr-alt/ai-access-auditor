@@ -56,7 +56,7 @@ html.native .side{padding-top:46px}
 .nav svg{width:16px;height:16px;flex:none;color:var(--acc)}
 .nav .n{margin-inline-start:auto;font-size:11px;color:var(--mut);font-variant-numeric:tabular-nums}
 .nav .n.alert{color:#fff;background:var(--high);border-radius:99px;padding:0 6px;font-weight:600}
-.av{width:16px;height:16px;border-radius:5px;display:grid;place-items:center;font-size:9px;font-weight:700;color:#fff;flex:none}
+.av{width:18px;height:18px;border-radius:5px;display:grid;place-items:center;font-size:8px;font-weight:700;letter-spacing:-.2px;color:#fff;flex:none}
 .sidefoot{margin-top:auto;padding:12px 8px 0;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--mut)}
 
 /* ---------- main pane ---------- */
@@ -184,7 +184,16 @@ html.native .insp-in{padding-top:34px}
 .sentsum div{flex:1 1 110px;border:1px solid var(--line);border-radius:10px;background:var(--pane);padding:10px 12px}
 .sentsum b{display:block;font-size:20px}.sentsum span{color:var(--mut);font-size:12px}.sentsum .bad b{color:var(--high)}
 .sentttl{display:flex;align-items:center;gap:6px;min-width:0}.sentttl .ttl{min-width:0}
-.sentses .chev{color:var(--mut);font-size:16px;width:20px;text-align:center}
+.sentses .chev{color:inherit;font-size:17px;line-height:1;width:auto;margin-top:-2px}.sentses.open .chev{transform:rotate(90deg);margin-inline-start:3px}
+.sentmore{display:inline-flex;align-items:center;gap:4px;color:var(--acc);font-size:12.5px;font-weight:500;padding:4px 8px;border-radius:7px;white-space:nowrap}
+.sentses .item:hover .sentmore{background:var(--hover)}
+.sensline .badtxt{color:var(--high);font-weight:600}
+.sensline{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:4px;font-size:12px}
+.senschip{font:600 11.5px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--high);background:var(--high-soft);padding:1px 6px;border-radius:5px}
+.sentnote{margin:-6px 0 16px;font-size:12.5px;color:var(--mut)}
+.sentnote summary{cursor:pointer;list-style:none}.sentnote summary::-webkit-details-marker{display:none}
+.sentnote summary b{color:var(--acc);font-weight:500}.sentnote summary b::after{content:' ▸'}.sentnote[open] summary b::after{content:' ▾'}[dir="rtl"] .sentnote:not([open]) summary b::after{content:' ◂'}
+.sentnote p{background:var(--med-soft);border-radius:10px;padding:12px 14px;margin:8px 0 0;color:var(--fg)}
 .sentdet{padding:4px 14px 14px 56px}
 .sentlist{border:1px solid var(--line);border-radius:10px;max-height:260px;overflow:auto;margin-bottom:12px}
 .sentlist div{display:flex;justify-content:space-between;gap:12px;padding:5px 10px;font-size:12px}
@@ -382,7 +391,15 @@ const EXPLAIN = {
 };
 const AGENT_COLORS = ['#d97757', '#2f6bf0', '#8e5bd6', '#1f9d74', '#d6476b', '#c28a16', '#4a6378'];
 const agentColor = a => AGENT_COLORS[[...a].reduce((s, c) => s + c.charCodeAt(0), 0) % AGENT_COLORS.length];
-const avatar = a => `<span class="av" style="background:${agentColor(a)}">${esc(a.replace(/^.*\./, '')[0].toUpperCase())}</span>`;
+// a fixed two-letter badge and color per agent, so agents with the same first letter look different
+const AV = { 'Claude Code': ['CC', '#d97757'], 'Claude Desktop': ['CD', '#9c5235'], 'Codex CLI': ['Cx', '#10a37f'], 'ChatGPT': ['GP', '#0b6e55'],
+  'Cursor': ['Cu', '#26262b'], 'Gemini CLI': ['Ge', '#8e5bd6'], 'VS Code': ['VS', '#2f6bf0'], 'Copilot CLI': ['Co', '#5b4fc4'],
+  'Your account': ['Me', '#4a6378'], 'Windsurf': ['Ws', '#0e8fa3'], 'OpenCode': ['OC', '#3d3d45'], 'Kiro': ['Ki', '#7a3fd1'],
+  'Zed': ['Ze', '#1d5fb8'], 'Goose': ['Go', '#b0751a'], 'Cline': ['Cl', '#c2410c'], 'Aider': ['Ai', '#15803d'], 'Amp': ['Am', '#d6476b'], 'Shell': ['Sh', '#4a6378'] };
+const avatar = a => {
+  const [txt, bg] = AV[a] || [(n => (n.match(/\b\w/g) || [n[0]]).slice(0, 2).join('').toUpperCase() || '?')(a.replace(/^.*\./, '')), agentColor(a)];
+  return `<span class="av" style="background:${bg}" translate="no" data-raw>${esc(txt)}</span>`;
+};
 
 // ---------- state ----------
 let data = null, view = 'overview', agentFilter = null, selected = null, gateOn = false, scope = 'ai', gemOn = false, gemHere = false, cdxOn = false, cdxHere = false;
@@ -545,6 +562,13 @@ function coBar(ss) {
   return `<div class="cobar">${list.map(([c, b]) => `<i style="width:${Math.max(1, b / sum * 100)}%;background:${CO_COLOR[c] || 'var(--faint)'}" title="${esc(c)}"></i>`).join('')}</div>
     <div class="colegend">${list.map(([c, b]) => `<span><i style="background:${CO_COLOR[c] || 'var(--faint)'}"></i><b>${esc(c)}</b> <span dir="ltr">${kb(b)}</span></span>`).join('')}</div>`;
 }
+// the sensitive files (and commands) a session sent, by a short name: ".env", ".ssh/config", "cat ~/.ssh/config"
+function sensNames(x) {
+  const short = n => { const p = n.split('/').filter(Boolean); return p.length > 1 && /^\./.test(p[p.length - 2]) ? p.slice(-2).join('/') : p[p.length - 1] || n; };
+  const cut = c => (c = c.replace(/^(?:\/bin\/)?(?:ba|z)?sh\s+-l?c\s+/, '')).length > 32 ? c.slice(0, 31) + '…' : c;
+  return [...new Set((x.files || []).filter(f => f.sensitive).map(f => short(f.name)).concat((x.cmds || []).filter(c => c.sensitive).map(c => cut(c.name))))];
+}
+const sensChips = (names, max) => names.slice(0, max).map(n => `<code class="senschip" dir="ltr">${esc(n)}</code>`).join(' ') + (names.length > max ? ` <span class="badtxt" dir="ltr">+${names.length - max}</span>` : '');
 function sentCard(ss) {
   if (!ss || !ss.length) return '';
   const week = ss.filter(x => x.last && Date.now() - Date.parse(x.last) < 7 * 864e5), use = week.length ? week : ss;
@@ -552,6 +576,7 @@ function sentCard(ss) {
   if (!bytes) return '';
   return `<div class="sec"><h3>Sent to AI</h3></div><div class="card unusedcard sentov"><div class="uc-txt"><b>${kb(bytes)} sent to AI companies</b>
     <span><span>${week.length ? 'In the last 7 days' : 'In the last 30 days'}</span> · <span>${use.length === 1 ? '1 session' : `${use.length} sessions`}</span>${sens ? ` · <span class="badtxt">${sens === 1 ? '1 sensitive file' : `${sens} sensitive files`}</span>` : ''}</span>
+    ${(n => n.length ? `<span class="sensline">${sensChips(n, 4)}</span>` : '')([...new Set(use.flatMap(sensNames))])}
     ${coBar(use)}</div>
     <div class="uc-btns"><button class="btn" data-go="sent">See what was sent</button></div></div>`;
 }
@@ -705,7 +730,7 @@ function sentWhen(a, b) {
 const ENV_LABEL = { platform: 'operating system', osVersion: 'its version', shell: 'shell', workingDirectory: 'project folder', isGitRepo: 'whether it is a Git project' };
 async function renderSent() {
   setHead('Sent to AI', 'What your agents sent to the AI companies in the last 30 days, read from their own session logs on this computer.');
-  if (!$('#body').querySelector('.sentsum, .explain')) $('#body').innerHTML = '<div class="empty">Reading session logs…</div>';
+  if (!$('#body').querySelector('.sentsum, .sentnote')) $('#body').innerHTML = '<div class="empty">Reading session logs…</div>';
   let ss, reading;
   try { ({ sessions: ss, reading } = await loadSent()); } catch (err) { $('#body').innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
   if (view !== 'sent') return;
@@ -720,9 +745,10 @@ async function renderSent() {
       x.prompts && `${x.prompts} prompt${x.prompts === 1 ? '' : 's'}`, t.web && `${t.web} web page${t.web === 1 ? '' : 's'}`].filter(Boolean);
     return `<div class="sentses${open ? ' open' : ''}">
       <div class="item" data-sent="${x.id}" style="cursor:pointer">${avatar(x.agent)}
-        <div style="min-width:0"><div class="sentttl"><span class="ttl">${esc(x.agent)}${x.project ? ` · ${esc(x.project.split('/').pop() || x.project)}` : ''}</span> <span class="badge ok" dir="ltr">${kb(t.bytes)}</span>${x.sensitive ? ` <span class="badge high">${x.sensitive} sensitive</span>` : ''}${x.secrets ? ` <span class="badge high">keys in log</span>` : ''}</div>
+        <div style="min-width:0"><div class="sentttl"><span class="ttl">${esc(x.agent)}${x.project ? ` · ${esc(x.project.split('/').pop() || x.project)}` : ''}</span> <span class="badge ok" dir="ltr">${kb(t.bytes)}</span>${x.secrets ? ` <span class="badge high">keys in log</span>` : ''}</div>
+          ${(n => n.length ? `<div class="sensline"><span class="badtxt">⚠ Sensitive:</span> ${sensChips(n, 3)}</div>` : x.sensitive ? `<div class="sensline"><span class="badtxt">${x.sensitive} sensitive</span></div>` : '')(sensNames(x))}
           <div class="sub">${parts.map(p => `<span>${esc(p)}</span>`).join(' · ')}</div></div>
-        <span class="chev">${open ? '▾' : '▸'}</span></div>
+        <span class="sentmore">${open ? 'Hide' : 'Details'} <span class="chev">›</span></span></div>
       ${open ? `<div class="sentdet">
         <dl class="kv">
           ${x.project ? `<div><dt>Project</dt><dd dir="ltr">${esc(x.project)}</dd></div>` : ''}
@@ -737,7 +763,7 @@ async function renderSent() {
       </div>` : ''}</div>`;
   };
   $('#body').innerHTML = `
-    <div class="explain medium"><b>What this shows, and what it can't</b>Each agent's own session log records your prompts and everything it sent back to the AI after using a tool: the files it read, the output of the commands it ran, the web pages it fetched. This page adds them up. Not included: usage statistics and error reports, which agents send separately and encrypted, so their contents can't be read. You can turn those off under Privacy. The Claude and ChatGPT desktop apps keep no such log on this computer.</div>
+    <details class="sentnote"><summary><b>What this can't see</b></summary><p>Each agent's own session log records your prompts and everything it sent back to the AI after using a tool: the files it read, the output of the commands it ran, the web pages it fetched. This page adds them up. Not included: usage statistics and error reports, which agents send separately and encrypted, so their contents can't be read. You can turn those off under Privacy. The Claude and ChatGPT desktop apps keep no such log on this computer.</p></details>
     ${reading ? `<p class="detail" style="margin-top:10px">Still reading ${reading === 1 ? '1 session log' : `${reading} session logs`}…</p>` : ''}
     ${ss.length ? `<div class="sentsum"><div><b>${kb(tot.bytes)}</b><span>sent</span></div><div><b>${ss.length}</b><span>sessions</span></div><div><b>${tot.files}</b><span>files</span></div><div><b>${tot.cmds}</b><span>command outputs</span></div><div class="${tot.sens ? 'bad' : ''}"><b>${tot.sens}</b><span>sensitive</span></div></div>
     ${(b => b ? `<div class="sec"><h3>By company</h3></div><div class="card cocard">${b}</div>` : '')(coBar(ss))}
