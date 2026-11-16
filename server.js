@@ -2678,6 +2678,7 @@ async function prepareUpdate(version) {
     if (asset.kind === 'appimage') fs.chmodSync(file, 0o755);
     saveFile(path.join(UPDATE_DIR, 'ready.json'), JSON.stringify({ version, kind: asset.kind, path: ready, at: new Date().toISOString() }, null, 2));
     job.state = 'ready';
+    { const u = readJson(UPDATE_FILE) || {}; if (u.dismissed === version) { delete u.dismissed; saveFile(UPDATE_FILE, JSON.stringify(u, null, 2)); } }
     log(`UPDATE ${version} downloaded and verified (${asset.kind})`);
     changedFlag = true; flushEvents();
   } catch (e) {
@@ -3619,6 +3620,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { scope: getScope(), onboarded: !!next.onboarded, theme: next.theme || 'system', lang: next.lang || 'auto', updates: next.updates === 'off' ? 'off' : 'on' });
     }
     if (url.pathname === '/api/update/check') {
+      { const u = readJson(UPDATE_FILE); if (u && u.dismissed) { delete u.dismissed; saveFile(UPDATE_FILE, JSON.stringify(u, null, 2)); } }
       const info = await checkForUpdate(true);
       // Check now also retries a download the network cut off
       if (info.available && info.ready !== info.latest && updateAsset(info.latest) && updateJob && updateJob.state === 'error' && netError(updateJob.error)) {
