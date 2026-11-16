@@ -165,12 +165,4 @@ by Apple (`macos/node.entitlements` lets the bundled Node.js compile JavaScript)
 `build-linux.sh`, and the Windows installers are built and tested by AppVeyor (`appveyor.yml`) on every push.
 Each release publishes SHA-256 checksums for every file.
 
-### Code signing policy
-
-For the Windows installers (applied for): Free code signing provided by SignPath.io, certificate by SignPath Foundation.
-
-- **Author, reviewer and approver:** [dirmedmr-alt](https://github.com/dirmedmr-alt). Every release is approved by hand.
-- **Builds:** the Windows installers are built from this repository by AppVeyor ([appveyor.yml](appveyor.yml)).
-- **Privacy:** the app sends nothing off your computer except a daily check for updates, which you can turn off in Setup. See [Privacy](#privacy).
-
 Screenshots come from invented demo data (`AUDIT_DEMO=1`), never from a real Mac.
