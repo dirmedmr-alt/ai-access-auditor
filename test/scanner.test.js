@@ -401,3 +401,18 @@ test('Sent to AI: adds up what each agent sent, from Claude Code, Codex and Gemi
   assert.equal(g.cwd, '/w/g'); assert.equal(g.prompts, 1); assert.equal(g.requests, 1);
   assert.ok(g.files['/w/g/main.go'][1] > 0);
 });
+
+test('Updates: a download cut off by the network is retried later; one that fails its checks is not', () => {
+  const script = `const t = require(${JSON.stringify(path.join(ROOT, 'server.js'))})._test, now = Date.now(), min = 60e3;
+    const job = (error, failedAgo, tries = 1) => ({ state: 'error', error, failedAt: now - failedAgo, tries });
+    console.log(JSON.stringify([
+      t.updateRetryDue(job('ETIMEDOUT read ETIMEDOUT', 31 * min), now),
+      t.updateRetryDue(job('ETIMEDOUT read ETIMEDOUT', 5 * min), now),
+      t.updateRetryDue(job('download failed: HTTP 503', 31 * min), now),
+      t.updateRetryDue(job('checksum does not match: the download is damaged or not genuine', 31 * min), now),
+      t.updateRetryDue(job('not signed by this developer (team X)', 31 * min), now),
+      t.updateRetryDue(job('ECONNRESET socket hang up', 31 * min, 5), now),
+      t.updateRetryDue({ state: 'downloading' }, now)])); process.exit(0);`;
+  const r = JSON.parse(execFileSync(process.execPath, ['-e', script]).toString().trim().split('\n').pop());
+  assert.deepEqual(r, [true, false, true, false, false, false, false]);
+});

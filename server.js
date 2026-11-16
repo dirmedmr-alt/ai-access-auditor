@@ -2600,7 +2600,14 @@ function checkForUpdate(force = false) {
 const UPDATE_DIR = path.join(DATA_DIR, 'update');
 const RELEASE_BASE = 'https://github.com/dirmedmr-alt/ai-access-auditor/releases/download/';
 const MAC_TEAM = 'A7H3K2942C';
-let updateJob = null; // { version, state: 'downloading' | 'verifying' | 'ready' | 'error', error }
+let updateJob = null; // { version, state: 'downloading' | 'verifying' | 'ready' | 'error', error, failedAt, tries }
+// A download cut off by the network is tried again later (up to 5 times, 30 minutes apart, or right away with
+// Check now). A download that fails its checks (checksum, signature, version) is never retried on its own.
+const UPDATE_RETRY_MS = 30 * 60e3, UPDATE_TRIES = 5;
+const netError = e => /ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|EPIPE|socket hang up|timed out|HTTP 5\d\d/i.test(e || '');
+function updateRetryDue(job, now = Date.now()) {
+  return !!(job && job.state === 'error' && netError(job.error) && (job.tries || 1) < UPDATE_TRIES && now - (job.failedAt || 0) >= UPDATE_RETRY_MS);
+}
 function updateAsset(v) {
   if (MAC) return { file: `AI-Access-Auditor-${v}.dmg`, sums: `AI-Access-Auditor-${v}.dmg.sha256`, kind: 'mac' };
   if (WIN) return { file: `AI-Access-Auditor-${v}-windows-${process.arch === 'arm64' ? 'arm64' : 'x64'}.exe`, sums: 'SHA256SUMS-windows.txt', kind: 'windows' };
@@ -2641,7 +2648,8 @@ async function prepareUpdate(version) {
   const asset = updateAsset(version);
   if (!asset || DEMO || !/^\d+\.\d+\.\d+$/.test(version)) return null;
   if (updateJob && updateJob.version === version && updateJob.state !== 'error') return updateJob;
-  updateJob = { version, state: 'downloading' };
+  const tries = updateJob && updateJob.version === version ? (updateJob.tries || 1) + 1 : 1;
+  updateJob = { version, state: 'downloading', tries };
   const job = updateJob;
   try {
     fs.rmSync(UPDATE_DIR, { recursive: true, force: true });
@@ -2673,7 +2681,7 @@ async function prepareUpdate(version) {
     log(`UPDATE ${version} downloaded and verified (${asset.kind})`);
     changedFlag = true; flushEvents();
   } catch (e) {
-    job.state = 'error'; job.error = String(e.message || e).slice(0, 300);
+    job.state = 'error'; job.error = (String(e.code || '') + ' ' + String(e.message || e)).trim().slice(0, 300); job.failedAt = Date.now();
     log(`UPDATE ${version} not installed automatically: ${job.error}`);
     try { fs.rmSync(UPDATE_DIR, { recursive: true, force: true }); } catch {}
     changedFlag = true; flushEvents();
@@ -2690,7 +2698,7 @@ function updateToNotify() {
   const info = updateInfo();
   if (!info.enabled || !info.available) return null;
   const ready = info.ready === info.latest;
-  if (!ready && updateAsset(info.latest) && !(updateJob && updateJob.state === 'error')) {
+  if (!ready && updateAsset(info.latest) && (!(updateJob && updateJob.state === 'error') || updateRetryDue(updateJob))) {
     prepareUpdate(info.latest);
     return null;
   }
@@ -3610,7 +3618,14 @@ const server = http.createServer(async (req, res) => {
       if (body.updates === 'on' && cur.updates === 'off') checkForUpdate(true);
       return send(res, 200, { scope: getScope(), onboarded: !!next.onboarded, theme: next.theme || 'system', lang: next.lang || 'auto', updates: next.updates === 'off' ? 'off' : 'on' });
     }
-    if (url.pathname === '/api/update/check') return send(res, 200, await checkForUpdate(true));
+    if (url.pathname === '/api/update/check') {
+      const info = await checkForUpdate(true);
+      // Check now also retries a download the network cut off
+      if (info.available && info.ready !== info.latest && updateAsset(info.latest) && updateJob && updateJob.state === 'error' && netError(updateJob.error)) {
+        updateJob.tries = 0; prepareUpdate(info.latest); return send(res, 200, updateInfo());
+      }
+      return send(res, 200, info);
+    }
     if (url.pathname === '/api/update/dismiss') { const u = readJson(UPDATE_FILE) || {}; u.dismissed = String(body.version || ''); saveFile(UPDATE_FILE, JSON.stringify(u, null, 2)); return send(res, 200, updateInfo()); }
     if (url.pathname === '/api/decisions/change') return send(res, 200, changeDecision(body));
     if (url.pathname === '/api/gate/install') return send(res, 200, gateInstall(!!body.on, ['Gemini CLI', 'Codex CLI'].includes(body.agent) ? body.agent : 'Claude Code'));
@@ -3742,4 +3757,4 @@ if (require.main === module) {
     if (process.env.PORT !== '0') console.log(`AI Access Auditor running at http://localhost:${server.address().port}/?token=${TOKEN}`); // the link opens the page; keep it to yourself
   });
 }
-module.exports = { scanAll, publicScan, exportReport, prepareUpdate, readyUpdate, _test: { saveFile, scanLeftovers, gateInstall, gateStatus, isOurHook, historyFiles, refreshHistory, scanHistory, startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason, ipOwner, expireSecretBackups, deleteBackup, sentSessions, sentInText, emptySent, sentMask } };
+module.exports = { scanAll, publicScan, exportReport, prepareUpdate, readyUpdate, _test: { saveFile, scanLeftovers, gateInstall, gateStatus, isOurHook, historyFiles, refreshHistory, scanHistory, startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason, ipOwner, expireSecretBackups, updateRetryDue, netError, deleteBackup, sentSessions, sentInText, emptySent, sentMask } };
