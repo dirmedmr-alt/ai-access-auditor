@@ -1030,7 +1030,7 @@ document.addEventListener('click', e => {
     chk.disabled = true;
     api('update/check', {}).then(u => {
       update = u;
-      toast(u.available ? `Version ${u.latest.replace('-', ' ')} is available` : `You have the latest version (${(u.current || '').replace('-', ' ')})`, 5000);
+      toast(u.available ? `Version ${u.latest.replace('-', ' ')} is available` : u.error ? `Couldn't check for updates: ${u.error}` : `You have the latest version (${(u.current || '').replace('-', ' ')})`, 7000);
       render(); renderSetup();
     }).catch(err => { toast('Couldn\'t check: ' + err.message); chk.disabled = false; });
     return;

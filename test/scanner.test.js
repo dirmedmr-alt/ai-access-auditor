@@ -427,6 +427,23 @@ test('Sent to AI: adds up what each agent sent, from Claude Code, Codex and Gemi
   assert.ok(g.files['/w/g/main.go'][1] > 0);
 });
 
+test('Updates: when GitHub refuses the check, the latest version comes from the release page; when both fail, the app says so', () => {
+  const run = (api, page) => JSON.parse(execFileSync(process.execPath, ['-e', `
+    const https = require('https'), { EventEmitter } = require('events');
+    https.get = (url, opts, cb) => { const req = new EventEmitter(); req.destroy = () => {}; setImmediate(() => {
+      const [status, location, body] = url.includes('api.github.com') ? ${JSON.stringify(api)} : ${JSON.stringify(page)};
+      if (status === 0) return req.emit('error', Object.assign(new Error('blocked'), { code: 'ECONNRESET' }));
+      const res = new EventEmitter(); res.statusCode = status; res.headers = { location }; cb(res); res.emit('data', body); res.emit('end'); }); return req; };
+    const m = require(${JSON.stringify(path.join(ROOT, 'server.js'))});
+    m._test.latestRelease().then(r => process.stdout.write(JSON.stringify(r)), e => process.stdout.write(JSON.stringify({ error: e.message })));`],
+    { env: { ...process.env, AUDIT_DATA_DIR: makeHome() }, encoding: 'utf8', timeout: 30000 }));
+  const rel = v => [{ draft: false, tag_name: 'v' + v, html_url: 'https://github.com/dirmedmr-alt/ai-access-auditor/releases/tag/v' + v }];
+  assert.deepEqual(run([200, '', JSON.stringify(rel('1.2.3'))], [0]), { latest: '1.2.3', url: 'https://github.com/dirmedmr-alt/ai-access-auditor/releases/tag/v1.2.3' });
+  assert.equal(run([403, '', '{"message":"API rate limit exceeded"}'], [302, 'https://github.com/dirmedmr-alt/ai-access-auditor/releases/tag/v1.2.4', '']).latest, '1.2.4');
+  assert.equal(run([403, '', '{}'], [302, 'https://evil.example/releases/tag/v9.9.9', '']).error, 'GitHub limits how often one network can check');
+  assert.equal(run([0], [0]).error, 'ECONNRESET');
+});
+
 test('Updates: a download cut off by the network is retried later; one that fails its checks is not', () => {
   const script = `const t = require(${JSON.stringify(path.join(ROOT, 'server.js'))})._test, now = Date.now(), min = 60e3;
     const job = (error, failedAgo, tries = 1) => ({ state: 'error', error, failedAt: now - failedAgo, tries });

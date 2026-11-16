@@ -2584,30 +2584,52 @@ function updateInfo() {
   const u = readJson(UPDATE_FILE) || {}, r = readyUpdate();
   return { enabled: updatesOn(), current: APP_VERSION || null, latest: u.latest || null, url: u.url || null, checkedAt: u.checkedAt || null,
     available: !!(APP_VERSION && u.latest && newerThan(u.latest, APP_VERSION)), dismissed: u.dismissed || null,
-    ready: r ? r.version : null, preparing: updateJob && updateJob.state !== 'ready' ? updateJob.state : null };
+    ready: r ? r.version : null, preparing: updateJob && updateJob.state !== 'ready' ? updateJob.state : null, error: updateCheckError };
+}
+// One GET over HTTPS, without following redirects: { status, location, body }
+function httpGet(url, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const req = require('https').get(url, { headers: { 'User-Agent': 'AI-Access-Auditor', ...headers }, timeout: 15000 }, res => {
+      let d = '';
+      res.on('data', c => { if (d.length < 2e6) d += c; }).on('end', () => resolve({ status: res.statusCode, location: res.headers.location || '', body: d }));
+    });
+    req.on('timeout', () => req.destroy(new Error('timed out')));
+    req.on('error', reject);
+  });
+}
+const RELEASE_PAGE = 'https://github.com/dirmedmr-alt/ai-access-auditor/releases/';
+let updateCheckError = null; // why the last check failed, so the app never says "latest" when it couldn't tell
+// The newest release: from GitHub's API, or, when the API refuses (it allows only 60 checks an hour per network,
+// shared by everyone in an office), from where the project's "latest release" page redirects to.
+async function latestRelease() {
+  let why = '';
+  try {
+    const r = await httpGet(RELEASES_API, { Accept: 'application/vnd.github+json' });
+    if (r.status === 200) {
+      const rel = JSON.parse(r.body).find(x => !x.draft && /^v\d+\.\d+\.\d+/.test(x.tag_name || ''));
+      if (rel && typeof rel.html_url === 'string' && rel.html_url.startsWith(RELEASE_PAGE)) return { latest: rel.tag_name.replace(/^v/, ''), url: rel.html_url };
+    }
+    why = r.status === 403 || r.status === 429 ? 'GitHub limits how often one network can check' : `GitHub answered ${r.status}`;
+  } catch (e) { why = String(e.code || e.message || e); }
+  try {
+    const r = await httpGet(RELEASE_PAGE + 'latest');
+    const m = r.status >= 300 && r.status < 400 && r.location.match(/^https:\/\/github\.com\/dirmedmr-alt\/ai-access-auditor\/releases\/tag\/v(\d+\.\d+\.\d+)$/);
+    if (m) return { latest: m[1], url: RELEASE_PAGE + 'tag/v' + m[1] };
+    if (!why) why = `GitHub answered ${r.status}`;
+  } catch (e) { why ||= String(e.code || e.message || e); }
+  throw new Error(why || 'no release found');
 }
 function checkForUpdate(force = false) {
-  return new Promise(resolve => {
-    const u = readJson(UPDATE_FILE) || {};
-    if (DEMO || !APP_VERSION || (!force && (!updatesOn() || (u.checkedAt && Date.now() - Date.parse(u.checkedAt) < 23 * 3600e3)))) return resolve(updateInfo());
-    const req = require('https').get(RELEASES_API, { headers: { 'User-Agent': 'AI-Access-Auditor', Accept: 'application/vnd.github+json' }, timeout: 15000 }, res => {
-      let d = '';
-      res.on('data', c => { if (d.length < 2e6) d += c; }).on('end', () => {
-        try {
-          const rel = JSON.parse(d).find(r => !r.draft && /^v\d+\.\d+\.\d+/.test(r.tag_name || ''));
-          // the link shown to the user must be one of this project's release pages, nothing else
-          const okUrl = typeof rel?.html_url === 'string' && rel.html_url.startsWith('https://github.com/dirmedmr-alt/ai-access-auditor/releases/');
-          if (rel && okUrl) Object.assign(u, { latest: rel.tag_name.replace(/^v/, ''), url: rel.html_url });
-          u.checkedAt = new Date().toISOString();
-          saveFile(UPDATE_FILE, JSON.stringify(u, null, 2));
-          if (rel && newerThan(u.latest, APP_VERSION)) { changedFlag = true; flushEvents(); }
-        } catch {}
-        resolve(updateInfo());
-      });
-    });
-    req.on('timeout', () => req.destroy());
-    req.on('error', () => resolve(updateInfo()));
-  });
+  const u = readJson(UPDATE_FILE) || {};
+  if (DEMO || !APP_VERSION || (!force && (!updatesOn() || (u.checkedAt && Date.now() - Date.parse(u.checkedAt) < 23 * 3600e3)))) return Promise.resolve(updateInfo());
+  return latestRelease().then(rel => {
+    updateCheckError = null;
+    const v = readJson(UPDATE_FILE) || {};
+    Object.assign(v, rel, { checkedAt: new Date().toISOString() });
+    saveFile(UPDATE_FILE, JSON.stringify(v, null, 2));
+    if (newerThan(v.latest, APP_VERSION)) { changedFlag = true; flushEvents(); }
+    return updateInfo();
+  }, e => { updateCheckError = String(e.message || e).slice(0, 200); return updateInfo(); });
 }
 // ---------- installing updates ----------
 // A new version is downloaded in the background, only from this project's GitHub releases, and checked before
@@ -3791,4 +3813,4 @@ if (require.main === module) {
     if (process.env.PORT !== '0') console.log(`AI Access Auditor running at http://localhost:${server.address().port}/?token=${TOKEN}`); // the link opens the page; keep it to yourself
   });
 }
-module.exports = { scanAll, publicScan, exportReport, prepareUpdate, readyUpdate, _test: { saveFile, scanLeftovers, scanEditorExtensions, gateInstall, gateStatus, isOurHook, historyFiles, refreshHistory, scanHistory, startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason, ipOwner, expireSecretBackups, updateRetryDue, netError, deleteBackup, sentSessions, sentInText, emptySent, sentMask } };
+module.exports = { scanAll, publicScan, exportReport, prepareUpdate, readyUpdate, _test: { saveFile, scanLeftovers, scanEditorExtensions, gateInstall, gateStatus, isOurHook, historyFiles, refreshHistory, scanHistory, startWindowsHelper, revoke, restore, listBackups, ssRecords, iniFields, listeningSockets, cmdTokens, exeBase, normCmd, agentKey, scanCredentialManager, netstat, dangerReason, ipOwner, expireSecretBackups, updateRetryDue, netError, latestRelease, deleteBackup, sentSessions, sentInText, emptySent, sentMask } };
